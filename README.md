@@ -22,10 +22,12 @@ cp -R skills/wishgraph-project-governor ~/.codex/skills/
 Then open any project in Codex and ask:
 
 ```text
-Use $wishgraph-project-governor to convert this repository into a WishGraph-governed project. Read the repo first, then create the minimum CODEMAP, CONVENTIONS, ARCHITECTURE, task spec, and Dev Report files needed for future AI agents to work safely.
+Use $wishgraph-project-governor to convert this repository into a WishGraph-governed project. Read the repo first, then create the minimum PRD, ARCHITECTURE, CODEMAP, CONVENTIONS, discussion prompt, execution prompt, task spec, and Dev Report files needed for future AI agents to work safely.
 ```
 
 The skill is project-neutral. It should inspect the target repository first and adapt the templates to that project instead of imposing this repository's examples.
+
+For the recommended first-use workflow, see [GETTING_STARTED.md](GETTING_STARTED.md).
 
 ## Why This Exists
 
@@ -46,9 +48,11 @@ The human stays in charge of direction and judgment. AI handles the high-bandwid
 ```text
 wishgraph/
 ├── README.md
+├── GETTING_STARTED.md
 ├── skills/
 │   └── wishgraph-project-governor/
 ├── templates/
+│   ├── PRD.md
 │   ├── CODEMAP.md
 │   ├── CONVENTIONS.md
 │   ├── ARCHITECTURE.md
@@ -68,6 +72,7 @@ wishgraph/
 If you do not want to install the skill, copy the templates into a project manually:
 
 ```bash
+cp templates/PRD.md /path/to/project/PRD.md
 cp templates/CODEMAP.md /path/to/project/CODEMAP.md
 cp templates/CONVENTIONS.md /path/to/project/CONVENTIONS.md
 cp templates/ARCHITECTURE.md /path/to/project/ARCHITECTURE.md
@@ -83,6 +88,7 @@ cp templates/reports/DEV_REPORT.md /path/to/project/reports/DEV_REPORT.md
 In a target project, the skill creates or updates:
 
 - `CODEMAP.md`: feature to file and contract lookup.
+- `PRD.md`: product goals, scope, roadmap, current decisions, and progress.
 - `CONVENTIONS.md`: collaboration, validation, and git rules.
 - `ARCHITECTURE.md`: dependency boundaries and ownership.
 - `prompts/DISCUSSION_AI.md`: mutable start prompt for planning or discussion agents; update it after every completed execution task.
@@ -100,6 +106,8 @@ WishGraph separates two roles:
 - **Execution Agent**: reads the task spec as the only source of requirements, implements the smallest safe change, runs validation, updates project maps, and reports evidence.
 
 This keeps the project from depending on one long chat window.
+
+The recommended workflow is to start with a planning AI conversation that creates or refines the PRD and architecture frame, then move implementation into task-by-task execution windows.
 
 ## Debugging Rule
 

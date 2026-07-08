@@ -41,3 +41,10 @@ State what the next agent should read first and what must not be assumed from ch
 
 - `prompts/DISCUSSION_AI.md` updated: Yes / No / N/A
 - If not updated, explain why:
+
+## External Memory Sync
+
+- `PRD.md` updated: Yes / No / N/A
+- `ARCHITECTURE.md` updated: Yes / No / N/A
+- `CODEMAP.md` updated: Yes / No / N/A
+- Commit hash:

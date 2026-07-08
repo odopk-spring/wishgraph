@@ -35,9 +35,12 @@ Summarize the relevant repo facts discovered from files, tests, logs, or docs.
 - [ ] Build: `<command>`
 - [ ] Tests: `<command or test names>`
 - [ ] Manual check: `<scenario>`
+- [ ] `PRD.md` updated if product scope, roadmap, accepted behavior, or progress changed.
+- [ ] `ARCHITECTURE.md` updated if dependencies, structure, data flow, or ownership changed.
 - [ ] `CODEMAP.md` updated if files, symbols, contracts, or status changed.
 - [ ] `reports/DEV_REPORT.md` updated with evidence.
 - [ ] `prompts/DISCUSSION_AI.md` current progress and next-task state updated.
+- [ ] One atomic commit created for this task, unless the user explicitly requested no commit.
 - [ ] No unrelated diffs staged.
 
 ## Rollback Boundary

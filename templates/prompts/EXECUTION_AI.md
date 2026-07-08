@@ -37,10 +37,13 @@ You are the execution AI for this project.
 Before final report:
 
 - Run the validation listed in the task.
+- Update `PRD.md` if product scope, roadmap, accepted behavior, or progress changed.
+- Update `ARCHITECTURE.md` if dependencies, structure, data flow, or ownership changed.
 - Update `CODEMAP.md` if files, symbols, contracts, or status changed.
 - Update the task status.
 - Update `reports/DEV_REPORT.md`.
 - Update `prompts/DISCUSSION_AI.md` so the next planning agent can resume from current state.
+- Create one atomic commit for the completed task unless the user explicitly says not to commit.
 - Keep unrelated user changes out of staging.
 
 ## Final Report
@@ -53,3 +56,4 @@ Report:
 - Any checks not run.
 - Residual risk.
 - Whether `prompts/DISCUSSION_AI.md` was updated.
+- Commit hash, or why no commit was made.

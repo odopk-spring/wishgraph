@@ -16,8 +16,10 @@ WishGraph is not autonomous magic. It is a governance layer that makes AI collab
 When the user asks to "set up WishGraph", "make this project AI-agent friendly", "create an AI collaboration system", or "make future agents understand this repo":
 
 1. Inspect the target repository before writing files.
-2. Reuse existing docs if they already serve the same purpose.
-3. Create only the minimum governance files needed for the project:
+2. If the project has no usable PRD, discuss enough with the user to create a rough `PRD.md` before restructuring or implementation.
+3. Reuse existing docs if they already serve the same purpose.
+4. Create only the minimum governance files needed for the project:
+   - `PRD.md`
    - `CODEMAP.md`
    - `CONVENTIONS.md`
    - `ARCHITECTURE.md`
@@ -25,8 +27,8 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - `prompts/EXECUTION_AI.md`
    - `.tasks/build/001-first-task.md`
    - `reports/DEV_REPORT.md`
-4. Use the bundled templates under `assets/templates/` as structure, then adapt them to the repository.
-5. Finish with a short review summary listing files created or updated, assumptions, and next recommended task.
+5. Use the bundled templates under `assets/templates/` as structure, then adapt them to the repository.
+6. Finish with a short review summary listing files created or updated, assumptions, and next recommended task.
 
 ## Workflow
 
@@ -43,6 +45,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
 3. **Produce or update the governance skeleton**
    - Use the repository's native structure if it exists.
    - If missing, create the minimum useful set:
+     - `PRD.md` for product goals, scope, roadmap, current decisions, and current progress.
      - `CODEMAP.md` for feature-to-file lookup and current status.
      - `CONVENTIONS.md` for collaboration roles, task rules, verification, and git discipline.
      - `ARCHITECTURE.md` for dependency boundaries and ownership.
@@ -62,6 +65,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - Execution agents implement only the approved spec, run validation, update `CODEMAP.md` and task status, and report evidence.
    - Keep `prompts/DISCUSSION_AI.md` current after each completed task so users can paste it into any agent interface to resume planning.
    - Keep `prompts/EXECUTION_AI.md` stable; put task-specific instructions in `.tasks/build/*.md`.
+   - When execution changes product scope, dependencies, architecture, or file ownership, update `PRD.md`, `ARCHITECTURE.md`, and `CODEMAP.md` before closing the task.
    - For trivial one-line changes, allow direct execution only if the repo conventions explicitly permit it.
 
 6. **Debug through causality**
@@ -83,6 +87,7 @@ Use bundled templates as starting points, then adapt them to the target reposito
 
 | Skill Asset | Target Path |
 |---|---|
+| `assets/templates/PRD.md` | `PRD.md` |
 | `assets/templates/CODEMAP.md` | `CODEMAP.md` |
 | `assets/templates/CONVENTIONS.md` | `CONVENTIONS.md` |
 | `assets/templates/ARCHITECTURE.md` | `ARCHITECTURE.md` |
