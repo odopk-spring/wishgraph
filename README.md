@@ -1,8 +1,6 @@
 # WishGraph
 
-**WishGraph / Intent Compilation System** is a practical method for turning low-bandwidth human intent into auditable project specs, tasks, code changes, validation evidence, and review reports.
-
-In Chinese: **许愿式工程系统**. A stricter technical name is **意图编译式自修复项目系统**.
+**WishGraph / Intent Compilation System** is a reusable Codex skill and template set for turning vague project intent into auditable specs, tasks, code maps, validation evidence, and review reports.
 
 WishGraph is not "let AI write random code." It is a file-backed project operating layer:
 
@@ -11,6 +9,23 @@ Wish -> Spec Graph -> Task Graph -> Code Change -> Probe -> Report -> Human Revi
 ```
 
 The core move is simple: stop depending on chat memory for complex work. Put the project state in durable files that any future agent can read, audit, and continue.
+
+## Use The Skill Directly
+
+Install the Codex skill locally:
+
+```bash
+mkdir -p ~/.codex/skills
+cp -R skills/wishgraph-project-governor ~/.codex/skills/
+```
+
+Then open any project in Codex and ask:
+
+```text
+Use $wishgraph-project-governor to convert this repository into a WishGraph-governed project. Read the repo first, then create the minimum CODEMAP, CONVENTIONS, ARCHITECTURE, task spec, and Dev Report files needed for future AI agents to work safely.
+```
+
+The skill is project-neutral. It should inspect the target repository first and adapt the templates to that project instead of imposing this repository's examples.
 
 ## Why This Exists
 
@@ -39,20 +54,15 @@ wishgraph/
 │   ├── ARCHITECTURE.md
 │   ├── .tasks/build/NNN-task.md
 │   └── reports/DEV_REPORT.md
-├── case-studies/
-│   └── paperchat/
-├── docs/
-│   ├── wishgraph-method.md
-│   ├── intent-compiler.md
-│   └── anti-blackbox-agent-engineering.md
-└── social/
-    ├── xiaohongshu-cards.md
-    └── douyin-script.md
+└── docs/
+    ├── wishgraph-method.md
+    ├── intent-compiler.md
+    └── anti-blackbox-agent-engineering.md
 ```
 
-## Quick Start
+## Manual Template Use
 
-Copy the templates into a project:
+If you do not want to install the skill, copy the templates into a project manually:
 
 ```bash
 cp templates/CODEMAP.md /path/to/project/CODEMAP.md
@@ -63,24 +73,23 @@ cp templates/.tasks/build/NNN-task.md /path/to/project/.tasks/build/001-first-ta
 cp templates/reports/DEV_REPORT.md /path/to/project/reports/DEV_REPORT.md
 ```
 
-Install the Codex skill locally:
+## What The Skill Creates
 
-```bash
-mkdir -p ~/.codex/skills
-cp -R skills/wishgraph-project-governor ~/.codex/skills/
-```
+In a target project, the skill creates or updates:
 
-Then ask Codex:
+- `CODEMAP.md`: feature to file and contract lookup.
+- `CONVENTIONS.md`: collaboration, validation, and git rules.
+- `ARCHITECTURE.md`: dependency boundaries and ownership.
+- `.tasks/build/NNN-short-slug.md`: self-contained execution task specs.
+- `reports/DEV_REPORT.md`: execution evidence and handoff notes.
 
-```text
-Use $wishgraph-project-governor to set up an auditable AI collaboration system for this project.
-```
+It should not create personal branding content, social media drafts, or project-specific case studies unless the user explicitly asks.
 
-## The Collaboration Model
+## Collaboration Model
 
 WishGraph separates two roles:
 
-- **Planning / Discussion Agent**: grills the intent, resolves ambiguity, writes self-contained task specs, and does not touch business code.
+- **Planning / Discussion Agent**: resolves intent, writes self-contained task specs, and does not touch business code.
 - **Execution Agent**: reads the task spec as the only source of requirements, implements the smallest safe change, runs validation, updates project maps, and reports evidence.
 
 This keeps the project from depending on one long chat window.
@@ -99,6 +108,4 @@ The goal is not a large patch. The goal is the minimal patch set that repairs th
 
 ## Status
 
-This is a v1 method repository. It includes a reusable Codex skill, governance templates, a desensitized PaperChat case study, and content drafts for public writing.
-
-Before public GitHub release, choose a license and decide whether to publish under your personal account or an organization.
+This is a v1 public repository for a reusable Codex skill and project-governance templates.

@@ -11,6 +11,21 @@ Use this skill to turn a repository into a WishGraph: a file-backed system where
 
 WishGraph is not autonomous magic. It is a governance layer that makes AI collaboration legible: what the user wants, what the agent plans to change, why those files are in scope, how the work will be verified, and what state future agents must read before continuing.
 
+## Quick Start
+
+When the user asks to "set up WishGraph", "make this project AI-agent friendly", "create an AI collaboration system", or "make future agents understand this repo":
+
+1. Inspect the target repository before writing files.
+2. Reuse existing docs if they already serve the same purpose.
+3. Create only the minimum governance files needed for the project:
+   - `CODEMAP.md`
+   - `CONVENTIONS.md`
+   - `ARCHITECTURE.md`
+   - `.tasks/build/001-first-task.md`
+   - `reports/DEV_REPORT.md`
+4. Use the bundled templates under `assets/templates/` as structure, then adapt them to the repository.
+5. Finish with a short review summary listing files created or updated, assumptions, and next recommended task.
+
 ## Workflow
 
 1. **Ground the repository**
@@ -31,6 +46,7 @@ WishGraph is not autonomous magic. It is a governance layer that makes AI collab
      - `ARCHITECTURE.md` for dependency boundaries and ownership.
      - `.tasks/build/NNN-short-slug.md` for self-contained execution specs.
      - `reports/DEV_REPORT.md` for execution summaries.
+   - Use `assets/templates/` as the file-shape source, but remove generic placeholder content that does not fit the target repo.
 
 4. **Write task specs**
    - A task spec must be executable without chat history.
@@ -57,7 +73,8 @@ WishGraph is not autonomous magic. It is a governance layer that makes AI collab
 
 ## Output Rules
 
-- Keep governance changes close to the current project; do not impose PaperChat-specific Swift/iOS rules unless the target project is PaperChat or explicitly asks for them.
+- Keep governance changes close to the current project; do not impose source-project-specific domain rules unless the target project explicitly asks for them.
+- Do not include the creator's personal content, social media drafts, or private case-study language when adapting a user's project.
 - Treat project files as external memory. Update them when the state changes.
 - Make scope boundaries explicit. Every task should say what it will not do.
 - Include validation evidence. If a command cannot run, say why and record the residual risk.
