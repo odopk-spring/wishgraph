@@ -10,9 +10,11 @@ Wish -> Spec Graph -> Task Graph -> Code Change -> Probe -> Report -> Human Revi
 
 The core move is simple: stop depending on chat memory for complex work. Put the project state in durable files that any future agent can read, audit, and continue.
 
-## Use The Skill Directly
+## Install For Your Agent
 
-Install only the Codex skill first. You do not need to clone the whole repository just to try it.
+Install only the skill or adapter you need first. You do not need to clone the whole repository just to try WishGraph.
+
+### Codex
 
 In Codex, ask:
 
@@ -37,7 +39,39 @@ Then open any project in Codex and ask:
 Use $wishgraph to start or govern this project with WishGraph. If the project is not framed yet, ask me what idea I have and grill it into a PRD before writing code.
 ```
 
-The skill is project-neutral. It carries the required templates inside `skills/wishgraph/assets/templates`, so it can create the initial project memory files without asking the user to download the rest of the repository. The top-level `templates/` and `docs/` folders are for browsing, manual use, and deeper reading.
+### Claude Code
+
+Install WishGraph as a Claude Code user skill:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- claude-user
+```
+
+Then open a Claude Code project and run:
+
+```text
+/wishgraph start or govern this project with WishGraph. If the project is not framed yet, ask me what idea I have and grill it into a PRD before writing code.
+```
+
+For project-local installation and `CLAUDE.md` guidance, see [adapters/claude-code](adapters/claude-code).
+
+### Other Agent Tools
+
+For tools that do not support Codex or Claude Code skills, copy the generic adapter into the target project:
+
+```bash
+cp adapters/generic/AGENTS.md /path/to/project/AGENTS.md
+```
+
+Then start the agent with:
+
+```text
+Follow AGENTS.md. Start WishGraph for this project. If there is no PRD, ask what idea I have and grill it into a PRD before writing code.
+```
+
+See [adapters/generic](adapters/generic) for the tool-agnostic protocol.
+
+The skill is project-neutral. It carries the required templates inside `skills/wishgraph/assets/templates`, so it can create the initial project memory files without asking the user to download the rest of the repository. The top-level `templates/`, `adapters/`, and `docs/` folders are for browsing, manual use, and deeper reading.
 
 For the recommended first-use workflow, see [GETTING_STARTED.md](GETTING_STARTED.md).
 
@@ -61,12 +95,17 @@ The human stays in charge of direction and judgment. AI handles the high-bandwid
 
 ```text
 wishgraph/
+├── adapters/
+│   ├── claude-code/
+│   └── generic/
 ├── README.md
 ├── GETTING_STARTED.md
 ├── LICENSE
 ├── NOTICE
 ├── skills/
 │   └── wishgraph/
+├── scripts/
+│   └── install-wishgraph.sh
 ├── templates/
 │   ├── PRD.md
 │   ├── CODEMAP.md

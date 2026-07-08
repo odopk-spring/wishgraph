@@ -6,10 +6,17 @@ Use this guide when introducing WishGraph to an existing project or starting a n
 
 Start with a planning or discussion AI, not an execution AI.
 
-Ask it to:
+Use the invocation format for your tool:
 
 ```text
-Use $wishgraph to help me set up WishGraph for this project.
+Codex: Use $wishgraph to help me set up WishGraph for this project.
+Claude Code: /wishgraph help me set up WishGraph for this project.
+Generic agent: Follow AGENTS.md and help me set up WishGraph for this project.
+```
+
+Ask it:
+
+```text
 If this is a new or vague project, first ask me what idea I have, then grill it into a PRD one question at a time.
 If this is an existing repository, first read the repository, then discuss the project goal with me.
 Create or update the PRD, architecture outline, CODEMAP, conventions, discussion prompt, execution prompt, first task spec, and Dev Report template.
