@@ -59,6 +59,7 @@ wishgraph/
 │   ├── prompts/
 │   │   ├── DISCUSSION_AI.md
 │   │   └── EXECUTION_AI.md
+│   ├── .tasks/build/EXAMPLE-good-task.md
 │   ├── .tasks/build/NNN-task.md
 │   └── reports/DEV_REPORT.md
 └── docs/
@@ -79,6 +80,7 @@ cp templates/ARCHITECTURE.md /path/to/project/ARCHITECTURE.md
 mkdir -p /path/to/project/prompts /path/to/project/.tasks/build /path/to/project/reports
 cp templates/prompts/DISCUSSION_AI.md /path/to/project/prompts/DISCUSSION_AI.md
 cp templates/prompts/EXECUTION_AI.md /path/to/project/prompts/EXECUTION_AI.md
+cp templates/.tasks/build/EXAMPLE-good-task.md /path/to/project/.tasks/build/EXAMPLE-good-task.md
 cp templates/.tasks/build/NNN-task.md /path/to/project/.tasks/build/001-first-task.md
 cp templates/reports/DEV_REPORT.md /path/to/project/reports/DEV_REPORT.md
 ```
@@ -93,6 +95,7 @@ In a target project, the skill creates or updates:
 - `ARCHITECTURE.md`: dependency boundaries and ownership.
 - `prompts/DISCUSSION_AI.md`: mutable start prompt for planning or discussion agents; update it after every completed execution task.
 - `prompts/EXECUTION_AI.md`: stable start prompt for execution agents; execution details stay in task files.
+- `.tasks/build/EXAMPLE-good-task.md`: a compact example of a good execution spec.
 - `.tasks/build/NNN-short-slug.md`: self-contained execution task specs.
 - `reports/DEV_REPORT.md`: execution evidence and handoff notes.
 

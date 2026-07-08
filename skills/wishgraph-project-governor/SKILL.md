@@ -78,6 +78,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
 
 - Read `references/core-concepts.md` when the user asks about WishGraph concepts, naming, or public explanation.
 - Read `references/task-spec-template.md` before creating or revising task files.
+- Read `references/good-execution-spec.md` when creating the first task spec for a project, reviewing whether a task spec is good enough, or showing the user an example.
 - Read `references/review-window.md` before producing human-facing review summaries, Dev Reports, or single-window status digests.
 - Read `references/debug-causality.md` before triaging bugs, regressions, failed validation, or hidden state corruption.
 
@@ -94,6 +95,7 @@ Use bundled templates as starting points, then adapt them to the target reposito
 | `assets/templates/DISCUSSION_AI.md` | `prompts/DISCUSSION_AI.md` |
 | `assets/templates/EXECUTION_AI.md` | `prompts/EXECUTION_AI.md` |
 | `assets/templates/NNN-task.md` | `.tasks/build/001-first-task.md` or the next task number |
+| `assets/templates/EXAMPLE-good-task.md` | Optional example for humans and planning agents |
 | `assets/templates/DEV_REPORT.md` | `reports/DEV_REPORT.md` |
 
 ## Output Rules
