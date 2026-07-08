@@ -29,6 +29,8 @@ The skill is project-neutral. It should inspect the target repository first and 
 
 For the recommended first-use workflow, see [GETTING_STARTED.md](GETTING_STARTED.md).
 
+For a desensitized carrier example of the workflow, see [docs/paperchat-desensitized-workflow.md](docs/paperchat-desensitized-workflow.md). It explains the zero-to-PRD and two-window process without exposing private product code or business details.
+
 ## Why This Exists
 
 AI coding fails on complex projects less because it cannot write code, and more because it loses context, expands scope, guesses file locations, forgets prior decisions, and leaves humans unable to audit what changed.
@@ -50,6 +52,7 @@ wishgraph/
 ├── README.md
 ├── GETTING_STARTED.md
 ├── LICENSE
+├── NOTICE
 ├── skills/
 │   └── wishgraph-project-governor/
 ├── templates/
@@ -67,7 +70,8 @@ wishgraph/
 └── docs/
     ├── wishgraph-method.md
     ├── intent-compiler.md
-    └── anti-blackbox-agent-engineering.md
+    ├── anti-blackbox-agent-engineering.md
+    └── paperchat-desensitized-workflow.md
 ```
 
 ## Manual Template Use
@@ -138,4 +142,8 @@ This is a v0.1 public-beta repository for a reusable Codex skill and project-gov
 
 ## License
 
-MIT
+WishGraph is released under the [PolyForm Noncommercial License 1.0.0](LICENSE).
+
+You may download, study, modify, and redistribute it for personal, educational, charitable, public-interest, or other noncommercial purposes. Commercial use is not permitted without separate written permission from the copyright holder.
+
+This is a source-available noncommercial license, not an OSI open-source license.
