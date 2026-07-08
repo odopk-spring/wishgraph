@@ -29,6 +29,18 @@ The skill is project-neutral. It should inspect the target repository first and 
 
 For the recommended first-use workflow, see [GETTING_STARTED.md](GETTING_STARTED.md).
 
+## Forward-Tested Example
+
+This repository includes a small runnable example:
+
+- [examples/html-annotator-mobile](examples/html-annotator-mobile): a dependency-free mobile web app for loading HTML, selecting rendered text, saving notes, and exporting annotations as JSON.
+
+The example is intentionally small. Its main purpose is to show the full WishGraph loop in a real project:
+
+```text
+PRD -> ARCHITECTURE -> CODEMAP -> Task Spec -> Code -> Probe -> Dev Report -> Prompt Sync
+```
+
 ## Why This Exists
 
 AI coding fails on complex projects less because it cannot write code, and more because it loses context, expands scope, guesses file locations, forgets prior decisions, and leaves humans unable to audit what changed.
@@ -49,6 +61,9 @@ The human stays in charge of direction and judgment. AI handles the high-bandwid
 wishgraph/
 ├── README.md
 ├── GETTING_STARTED.md
+├── LICENSE
+├── examples/
+│   └── html-annotator-mobile/
 ├── skills/
 │   └── wishgraph-project-governor/
 ├── templates/
@@ -126,4 +141,8 @@ The goal is not a large patch. The goal is the minimal patch set that repairs th
 
 ## Status
 
-This is a v1 public repository for a reusable Codex skill and project-governance templates.
+This is a v0.1 public-beta repository for a reusable Codex skill, project-governance templates, and a small forward-tested example.
+
+## License
+
+MIT

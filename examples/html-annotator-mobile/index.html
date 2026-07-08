@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f7f7f2">
+    <title>Mobile HTML Annotator</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="stylesheet" href="src/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">HTML Annotator</p>
+          <h1>Quick notes for local HTML files</h1>
+        </div>
+        <button id="clear-button" class="ghost-button" type="button">Clear</button>
+      </header>
+
+      <section class="control-panel" aria-label="Load HTML">
+        <label class="file-picker">
+          <span>Open HTML</span>
+          <input id="file-input" type="file" accept=".html,text/html">
+        </label>
+        <button id="sample-button" type="button">Sample</button>
+        <details class="paste-box">
+          <summary>Paste HTML</summary>
+          <textarea id="paste-input" rows="5" spellcheck="false" placeholder="<article>...</article>"></textarea>
+          <button id="paste-button" type="button">Load pasted HTML</button>
+        </details>
+      </section>
+
+      <section class="workspace" aria-label="Annotation workspace">
+        <article class="reader-pane">
+          <div class="reader-head">
+            <div>
+              <p class="eyebrow">Document</p>
+              <h2 id="document-title">No document loaded</h2>
+            </div>
+            <span id="status-label" class="status-label">Ready</span>
+          </div>
+          <div id="document-content" class="document-content" tabindex="0" aria-label="Rendered HTML document">
+            <p class="empty-state">Open the sample or load an HTML file to start annotating.</p>
+          </div>
+        </article>
+
+        <aside class="note-pane" aria-label="Annotations">
+          <div class="selection-box">
+            <p class="eyebrow">Selection</p>
+            <p id="selection-preview" class="selection-preview">Select text or tap a paragraph inside the document.</p>
+            <button id="capture-button" type="button">Capture selection</button>
+          </div>
+
+          <form id="note-form" class="note-form">
+            <label for="note-input">Note</label>
+            <textarea id="note-input" rows="4" placeholder="Write a short annotation..." required></textarea>
+            <button id="save-note-button" type="submit">Save annotation</button>
+          </form>
+
+          <div class="annotation-head">
+            <h2>Annotations</h2>
+            <span id="count-label">0</span>
+          </div>
+          <ol id="annotation-list" class="annotation-list"></ol>
+
+          <div class="export-box">
+            <button id="export-button" type="button">Export JSON</button>
+            <button id="copy-button" class="ghost-button" type="button">Copy JSON</button>
+            <textarea id="export-output" rows="6" readonly spellcheck="false" placeholder="Exported JSON appears here."></textarea>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script type="module" src="src/app.js"></script>
+  </body>
+</html>
