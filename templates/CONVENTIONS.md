@@ -13,6 +13,7 @@ Responsibilities:
 - Start from `prompts/DISCUSSION_AI.md` when opening a fresh planning window.
 - Read project docs before asking questions.
 - Establish or update `PRD.md` before asking an execution agent to restructure architecture or implement feature work.
+- For a new or vague project, start with one question about the user's idea and grill one decision at a time before writing implementation tasks.
 - Ask only for decisions that materially change scope.
 - Write self-contained task specs in `.tasks/build/`.
 - Do not change business code unless the task is explicitly a trivial direct-edit exception.
@@ -44,6 +45,7 @@ Responsibilities:
 - `prompts/DISCUSSION_AI.md` is mutable. It stores the project structure, outline, current progress, open decisions, handoff rules, and task-spec writing rules. Update it after every completed execution task.
 - `prompts/EXECUTION_AI.md` is stable. It tells an execution agent how to start, what files to read, and how to verify. Do not pack task-specific requirements into it; those belong in `.tasks/build/*.md`.
 - Users should be able to paste either prompt into any agent interface and get a coherent continuation without relying on previous chat context.
+- If the user asks to migrate or continue the discussion in another window, update `prompts/DISCUSSION_AI.md` and output its full content for copying.
 
 ## External Memory Update Rule
 
@@ -72,6 +74,13 @@ Every execution task must state:
 - Do not stage unrelated user changes.
 - Do not rewrite history unless the project owner explicitly asks.
 - Keep commit messages understandable to a future reviewer.
+
+## Empty Project Rule
+
+- Do not start coding from a vague idea.
+- First turn the idea into `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, and a bounded first task.
+- Ask one question at a time and include a recommended default with each question.
+- After the first task is approved, tell the user to open a separate execution window with `prompts/EXECUTION_AI.md` and the task file.
 
 ## Debugging Discipline
 

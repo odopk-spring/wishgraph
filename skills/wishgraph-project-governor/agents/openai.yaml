@@ -1,4 +1,4 @@
 interface:
   display_name: "WishGraph Project Governor"
-  short_description: "Turn intent into auditable project specs"
-  default_prompt: "Use $wishgraph-project-governor to set up an auditable AI collaboration system for this project."
+  short_description: "Grill ideas into auditable project specs"
+  default_prompt: "Use $wishgraph-project-governor to grill my project idea into a PRD, then create the WishGraph handoff files."

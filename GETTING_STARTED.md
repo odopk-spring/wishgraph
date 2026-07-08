@@ -10,12 +10,19 @@ Ask it to:
 
 ```text
 Use $wishgraph-project-governor to help me set up WishGraph for this project.
-First read the repository, then discuss the project goal with me.
+If this is a new or vague project, first ask me what idea I have, then grill it into a PRD one question at a time.
+If this is an existing repository, first read the repository, then discuss the project goal with me.
 Create or update the PRD, architecture outline, CODEMAP, conventions, discussion prompt, execution prompt, first task spec, and Dev Report template.
 Do not change business code yet.
 ```
 
 The first useful output should be a project frame, not code.
+
+For a blank project, the first question should be:
+
+```text
+你现在有什么想法？可以很粗糙，只要说你想做什么、给谁用、解决什么问题。
+```
 
 ## 1. Establish The Project Frame
 
@@ -34,6 +41,8 @@ Record this in `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, and `prompts/DISCUSSIO
 
 The first pass does not need to be perfect. It only needs to be concrete enough for future agents to continue without relying on chat memory.
 
+Use a grill-first pattern: one question at a time, with a recommended default. The discussion AI should keep asking until it can write a useful PRD and a bounded first implementation task.
+
 ## 2. Create The External Memory Files
 
 WishGraph works because the project, not the chat window, stores state.
@@ -47,6 +56,7 @@ Minimum files:
 - `prompts/DISCUSSION_AI.md`: mutable launch prompt for planning windows.
 - `prompts/EXECUTION_AI.md`: stable launch prompt for execution windows.
 - `.tasks/build/NNN-short-slug.md`: self-contained execution task specs.
+- `.tasks/build/001-bootstrap-project.md`: first-use bootstrap task when the project starts from a vague idea.
 - `reports/DEV_REPORT.md`: execution evidence and handoff notes.
 
 ## 3. Use The Two-Window Workflow
@@ -65,6 +75,14 @@ Use it to:
 
 The discussion AI should not edit business code unless the project explicitly allows a trivial direct-edit exception.
 
+If you want to move the discussion into another AI window, ask:
+
+```text
+请迁移讨论窗口，把当前讨论提示词完整显示出来供我复制。
+```
+
+The discussion AI should update `prompts/DISCUSSION_AI.md` first, then print the full prompt.
+
 ### Execution AI Window
 
 Use it to:
@@ -78,6 +96,11 @@ Use it to:
 - Make one atomic commit per task unless the user explicitly says not to commit.
 
 The execution AI should not redesign the feature. If the task spec is wrong, it should stop and report the conflict.
+
+After the PRD and first task are ready, open a new execution window and paste:
+
+1. The full content of `prompts/EXECUTION_AI.md`.
+2. The full content of the approved `.tasks/build/NNN-short-slug.md`.
 
 ## 4. Execution Loop
 
@@ -129,7 +152,13 @@ For an existing project, the first task should usually be governance setup, not 
 
 It should create the external memory skeleton, summarize current structure, and define the first real implementation task.
 
-For a new project, the first task should create PRD and architecture before code.
+For a new project, the first discussion should grill the idea into PRD and architecture before code. The first tracked task can be:
+
+```text
+001-bootstrap-project
+```
+
+The first implementation task should usually be `002-*`, written only after the PRD is clear enough.
 
 ## 7. Success Criteria
 

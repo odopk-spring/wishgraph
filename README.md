@@ -22,24 +22,12 @@ cp -R skills/wishgraph-project-governor ~/.codex/skills/
 Then open any project in Codex and ask:
 
 ```text
-Use $wishgraph-project-governor to convert this repository into a WishGraph-governed project. Read the repo first, then create the minimum PRD, ARCHITECTURE, CODEMAP, CONVENTIONS, discussion prompt, execution prompt, task spec, and Dev Report files needed for future AI agents to work safely.
+Use $wishgraph-project-governor to start or govern this project with WishGraph. If the project is not framed yet, ask me what idea I have and grill it into a PRD before writing code.
 ```
 
 The skill is project-neutral. It should inspect the target repository first and adapt the templates to that project instead of imposing this repository's examples.
 
 For the recommended first-use workflow, see [GETTING_STARTED.md](GETTING_STARTED.md).
-
-## Forward-Tested Example
-
-This repository includes a small runnable example:
-
-- [examples/html-annotator-mobile](examples/html-annotator-mobile): a dependency-free mobile web app for loading HTML, selecting rendered text, saving notes, and exporting annotations as JSON.
-
-The example is intentionally small. Its main purpose is to show the full WishGraph loop in a real project:
-
-```text
-PRD -> ARCHITECTURE -> CODEMAP -> Task Spec -> Code -> Probe -> Dev Report -> Prompt Sync
-```
 
 ## Why This Exists
 
@@ -62,8 +50,6 @@ wishgraph/
 ├── README.md
 ├── GETTING_STARTED.md
 ├── LICENSE
-├── examples/
-│   └── html-annotator-mobile/
 ├── skills/
 │   └── wishgraph-project-governor/
 ├── templates/
@@ -74,6 +60,7 @@ wishgraph/
 │   ├── prompts/
 │   │   ├── DISCUSSION_AI.md
 │   │   └── EXECUTION_AI.md
+│   ├── .tasks/build/001-bootstrap-project.md
 │   ├── .tasks/build/EXAMPLE-good-task.md
 │   ├── .tasks/build/NNN-task.md
 │   └── reports/DEV_REPORT.md
@@ -95,6 +82,7 @@ cp templates/ARCHITECTURE.md /path/to/project/ARCHITECTURE.md
 mkdir -p /path/to/project/prompts /path/to/project/.tasks/build /path/to/project/reports
 cp templates/prompts/DISCUSSION_AI.md /path/to/project/prompts/DISCUSSION_AI.md
 cp templates/prompts/EXECUTION_AI.md /path/to/project/prompts/EXECUTION_AI.md
+cp templates/.tasks/build/001-bootstrap-project.md /path/to/project/.tasks/build/001-bootstrap-project.md
 cp templates/.tasks/build/EXAMPLE-good-task.md /path/to/project/.tasks/build/EXAMPLE-good-task.md
 cp templates/.tasks/build/NNN-task.md /path/to/project/.tasks/build/001-first-task.md
 cp templates/reports/DEV_REPORT.md /path/to/project/reports/DEV_REPORT.md
@@ -110,6 +98,7 @@ In a target project, the skill creates or updates:
 - `ARCHITECTURE.md`: dependency boundaries and ownership.
 - `prompts/DISCUSSION_AI.md`: mutable start prompt for planning or discussion agents; update it after every completed execution task.
 - `prompts/EXECUTION_AI.md`: stable start prompt for execution agents; execution details stay in task files.
+- `.tasks/build/001-bootstrap-project.md`: first-use task for turning a vague idea into durable project memory before implementation.
 - `.tasks/build/EXAMPLE-good-task.md`: a compact example of a good execution spec.
 - `.tasks/build/NNN-short-slug.md`: self-contained execution task specs.
 - `reports/DEV_REPORT.md`: execution evidence and handoff notes.
@@ -127,6 +116,10 @@ This keeps the project from depending on one long chat window.
 
 The recommended workflow is to start with a planning AI conversation that creates or refines the PRD and architecture frame, then move implementation into task-by-task execution windows.
 
+For a brand-new project, the planning AI starts by asking what idea the user has, then grills one decision at a time until the PRD and first execution task are concrete enough. After that, the user opens a separate execution window and copies `prompts/EXECUTION_AI.md` plus the approved task file.
+
+If the user wants to migrate the discussion window, the planning AI should update `prompts/DISCUSSION_AI.md` and print the full prompt for copying into another agent.
+
 ## Debugging Rule
 
 For bugs, do not start with "open the file I remember."
@@ -141,7 +134,7 @@ The goal is not a large patch. The goal is the minimal patch set that repairs th
 
 ## Status
 
-This is a v0.1 public-beta repository for a reusable Codex skill, project-governance templates, and a small forward-tested example.
+This is a v0.1 public-beta repository for a reusable Codex skill and project-governance templates.
 
 ## License
 
