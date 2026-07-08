@@ -45,6 +45,7 @@ Responsibilities:
 - `prompts/DISCUSSION_AI.md` is mutable. It stores the project structure, outline, current progress, open decisions, handoff rules, and task-spec writing rules. Update it after every completed execution task.
 - `prompts/EXECUTION_AI.md` is stable. It tells an execution agent how to start, what files to read, and how to verify. Do not pack task-specific requirements into it; those belong in `.tasks/build/*.md`.
 - Users should be able to paste either prompt into any agent interface and get a coherent continuation without relying on previous chat context.
+- Keep project memory in the language chosen by the user. If bilingual output is requested, write key user-facing explanations in Chinese first, then English. Do not translate file paths, commands, code identifiers, symbols, routes, package names, or environment variables.
 - If the user asks to migrate or continue the discussion in another window, update `prompts/DISCUSSION_AI.md` and output its full content for copying.
 
 ## External Memory Update Rule

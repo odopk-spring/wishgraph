@@ -39,6 +39,12 @@ Then open any project in Codex and ask:
 Use $wishgraph to start or govern this project with WishGraph. If the project is not framed yet, ask me what idea I have and grill it into a PRD before writing code.
 ```
 
+For bilingual Chinese and English handoff, add:
+
+```text
+Use bilingual Chinese and English for user-facing prompts and summaries. Keep file paths, commands, and code identifiers unchanged.
+```
+
 ### Claude Code
 
 Install WishGraph as a Claude Code user skill:
@@ -52,6 +58,8 @@ Then open a Claude Code project and run:
 ```text
 /wishgraph start or govern this project with WishGraph. If the project is not framed yet, ask me what idea I have and grill it into a PRD before writing code.
 ```
+
+You can also add the same bilingual instruction after the command.
 
 For project-local installation and `CLAUDE.md` guidance, see [adapters/claude-code](adapters/claude-code).
 
@@ -124,6 +132,19 @@ wishgraph/
     ├── anti-blackbox-agent-engineering.md
     └── paperchat-desensitized-workflow.md
 ```
+
+## Language Support
+
+WishGraph supports Chinese, English, and bilingual project memory.
+
+The first blank-project prompt is:
+
+```text
+你现在有什么想法？可以很粗糙，只要说你想做什么、给谁用、解决什么问题。
+What idea do you have right now? It can be rough: what do you want to build, who is it for, and what problem should it solve?
+```
+
+When bilingual mode is enabled, key user-facing prompts, summaries, decisions, and task explanations should be written Chinese first, English second. File paths, commands, code identifiers, symbols, routes, package names, and environment variables stay unchanged.
 
 ## Manual Template Use
 

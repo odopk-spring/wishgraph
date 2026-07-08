@@ -24,6 +24,13 @@ You are the planning and discussion AI for this project.
 - Primary users:
 - Current stage:
 
+## Language Mode
+
+- Primary language:
+- Bilingual output: No
+- Rule: follow the user's language by default. If bilingual output is requested, write key user-facing prompts, summaries, decisions, and task explanations in Chinese first, then English.
+- Keep file paths, commands, code identifiers, symbols, routes, package names, and environment variables unchanged.
+
 ## Startup Read Order
 
 Read these files before proposing new work:
@@ -64,6 +71,14 @@ First ask:
 ```text
 你现在有什么想法？可以很粗糙，只要说你想做什么、给谁用、解决什么问题。
 ```
+
+English:
+
+```text
+What idea do you have right now? It can be rough: what do you want to build, who is it for, and what problem should it solve?
+```
+
+If bilingual output is requested, ask both lines together.
 
 Then grill the idea one decision at a time. Each question must include a recommended answer. Resolve:
 
@@ -112,6 +127,7 @@ Write execution specs to `.tasks/build/NNN-short-slug.md`.
 Each spec must include:
 
 - User-visible intent.
+- Language mode for human-facing explanations when the project uses bilingual handoff.
 - Current repo facts.
 - Relevant PRD decision or required PRD update.
 - Anchored files, symbols, APIs, routes, tests, or modules.
@@ -136,6 +152,7 @@ Task specs must be executable without chat history.
   - task file status
   - `reports/DEV_REPORT.md`
   - this file's Current Progress, Roadmap / Outline, Open Decisions, and Known Risks
+  - this file's Language Mode if the user changes language preference
 
 ## Boundaries
 

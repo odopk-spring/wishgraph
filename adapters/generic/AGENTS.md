@@ -6,11 +6,19 @@ Use WishGraph to manage this project through external memory files instead of ch
 
 If there is no usable `PRD.md`, do not start coding.
 
-Ask:
+Use the user's language by default. If the user requests bilingual output, write key prompts, summaries, and task explanations in Chinese first, then English. Do not translate file paths, commands, code identifiers, symbols, routes, package names, or environment variables.
+
+Ask in the selected language:
 
 ```text
 你现在有什么想法？可以很粗糙，只要说你想做什么、给谁用、解决什么问题。
 ```
+
+```text
+What idea do you have right now? It can be rough: what do you want to build, who is it for, and what problem should it solve?
+```
+
+If bilingual output is requested, ask both lines together.
 
 Then ask one decision at a time. Each question must include a recommended default. Continue until you can write a concrete PRD and a bounded first task.
 

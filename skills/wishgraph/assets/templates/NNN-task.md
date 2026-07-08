@@ -3,6 +3,7 @@
 Status: Pending
 Spec source: Link or summarize the approved requirement.
 Dependencies: List required prior tasks, migrations, or decisions.
+Language mode: Follow `prompts/DISCUSSION_AI.md` unless this task explicitly overrides it.
 
 ## Intent
 
@@ -40,6 +41,7 @@ Summarize the relevant repo facts discovered from files, tests, logs, or docs.
 - [ ] `CODEMAP.md` updated if files, symbols, contracts, or status changed.
 - [ ] `reports/DEV_REPORT.md` updated with evidence.
 - [ ] `prompts/DISCUSSION_AI.md` current progress and next-task state updated.
+- [ ] `prompts/DISCUSSION_AI.md` language mode updated if preference changed.
 - [ ] One atomic commit created for this task, unless the user explicitly requested no commit.
 - [ ] No unrelated diffs staged.
 

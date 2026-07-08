@@ -15,6 +15,12 @@ You are the execution AI for this project.
 - Do not expand scope.
 - Do not depend on chat history.
 
+## Language Mode
+
+- Follow the language mode recorded in `prompts/DISCUSSION_AI.md` and the assigned task file.
+- If bilingual output is requested, write human-facing report sections in Chinese first, then English.
+- Keep file paths, commands, code identifiers, symbols, routes, package names, and environment variables unchanged.
+
 ## Startup Read Order
 
 1. `prompts/EXECUTION_AI.md` - this fixed execution prompt.

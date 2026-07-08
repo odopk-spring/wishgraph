@@ -27,6 +27,12 @@ Then restart Claude Code if needed and run:
 /wishgraph start this project from my rough idea
 ```
 
+For bilingual Chinese and English handoff, add:
+
+```text
+Use bilingual Chinese and English for user-facing prompts and summaries. Keep file paths, commands, and code identifiers unchanged.
+```
+
 ## Install Into One Project
 
 Use this when a team wants the skill checked into one repository:
@@ -60,6 +66,8 @@ Use `CLAUDE.md` for always-loaded project rules. Keep large task procedures in t
    ```text
    /wishgraph start this project. If there is no PRD, ask what idea I have and grill one decision at a time.
    ```
+
+   For bilingual output, append: `Use bilingual Chinese and English for user-facing prompts and summaries.`
 
 2. Let WishGraph create or update:
 

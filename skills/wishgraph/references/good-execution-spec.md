@@ -15,6 +15,7 @@ It should answer:
 - How will the result be verified?
 - Which external-memory files must be updated?
 - What is the rollback boundary?
+- Which language mode should human-facing explanations and reports use?
 
 ## Context Budget Rule
 
@@ -48,6 +49,7 @@ Before handing a task to execution AI, confirm:
 - The "Do Not Do" section prevents likely scope drift.
 - The validation commands are concrete.
 - PRD, architecture, CODEMAP, discussion prompt, report, and commit requirements are explicit.
+- The language mode is explicit when the project uses bilingual handoff.
 
 ## Compact Example
 
@@ -57,6 +59,7 @@ Before handing a task to execution AI, confirm:
 Status: Pending
 Spec source: `PRD.md` "Now" roadmap says dashboard first paint must not wait on auth refresh.
 Dependencies: None.
+Language mode: English.
 
 ## Intent
 

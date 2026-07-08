@@ -14,6 +14,12 @@ Claude Code: /wishgraph help me set up WishGraph for this project.
 Generic agent: Follow AGENTS.md and help me set up WishGraph for this project.
 ```
 
+WishGraph supports Chinese, English, and bilingual handoff. To request bilingual output, add:
+
+```text
+Please use bilingual Chinese and English output for user-facing prompts and summaries. Keep file paths, commands, and code identifiers unchanged.
+```
+
 Ask it:
 
 ```text
@@ -31,6 +37,14 @@ For a blank project, the first question should be:
 你现在有什么想法？可以很粗糙，只要说你想做什么、给谁用、解决什么问题。
 ```
 
+English:
+
+```text
+What idea do you have right now? It can be rough: what do you want to build, who is it for, and what problem should it solve?
+```
+
+Bilingual mode asks both lines together.
+
 ## 1. Establish The Project Frame
 
 Before restructuring or implementation, discuss enough to produce a rough but usable project frame:
@@ -45,6 +59,8 @@ Before restructuring or implementation, discuss enough to produce a rough but us
 - Immediate next task.
 
 Record this in `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, and `prompts/DISCUSSION_AI.md`.
+
+Also record the project language mode in `prompts/DISCUSSION_AI.md`, so future planning and execution windows preserve the same Chinese, English, or bilingual style.
 
 The first pass does not need to be perfect. It only needs to be concrete enough for future agents to continue without relying on chat memory.
 

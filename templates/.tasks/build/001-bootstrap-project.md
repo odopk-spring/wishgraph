@@ -3,6 +3,7 @@
 Status: Draft
 Spec source: First discussion window converted the user's initial idea into `PRD.md`.
 Dependencies: None.
+Language mode: Follow the user's selected project language; use bilingual Chinese first, English second when requested.
 
 ## Intent
 
@@ -47,6 +48,7 @@ Create the first durable project frame before feature implementation. This task 
 - [ ] `prompts/DISCUSSION_AI.md` can be copied into a new discussion window.
 - [ ] `prompts/EXECUTION_AI.md` plus `.tasks/build/002-first-slice.md` can be copied into a new execution window.
 - [ ] `reports/DEV_REPORT.md` records what was created and what remains unknown.
+- [ ] `prompts/DISCUSSION_AI.md` records the project language mode.
 - [ ] One atomic commit created unless the user explicitly says not to commit.
 
 ## Rollback Boundary

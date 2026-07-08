@@ -27,6 +27,12 @@ Then start the agent with:
 Follow AGENTS.md. Start WishGraph for this project. If there is no PRD, ask what idea I have and grill it into a PRD before writing code.
 ```
 
+For bilingual Chinese and English handoff, add:
+
+```text
+Use bilingual Chinese and English for user-facing prompts and summaries. Keep file paths, commands, and code identifiers unchanged.
+```
+
 ## Expected Output
 
 The agent should create or update:

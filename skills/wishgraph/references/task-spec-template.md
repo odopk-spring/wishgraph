@@ -10,6 +10,7 @@ For a worked example and review checklist, read `references/good-execution-spec.
 Status: Pending
 Spec source:
 Dependencies:
+Language mode:
 
 ## Intent
 
@@ -31,6 +32,7 @@ Dependencies:
 - [ ] Manual:
 - [ ] CODEMAP updated:
 - [ ] Dev Report updated:
+- [ ] `prompts/DISCUSSION_AI.md` language mode updated if preference changed:
 
 ## Rollback Boundary
 
@@ -46,6 +48,7 @@ A good task spec is:
 - Explicit about what is out of scope.
 - Anchored by stable symbols, routes, APIs, commands, tests, or files.
 - Clear about validation and rollback.
+- Clear about the language mode for human-facing explanations when the project uses bilingual handoff.
 
 ## Split A Task When
 

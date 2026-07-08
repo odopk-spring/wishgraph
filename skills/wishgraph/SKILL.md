@@ -1,6 +1,6 @@
 ---
 name: wishgraph
-description: Create and maintain a WishGraph project-governance system for AI-assisted software work. Use when Codex needs to start a project from a vague idea, grill the user into a usable PRD, create auditable specs, task files, code maps, architecture constraints, validation gates, causal debugging notes, execution reports, or cross-session handoff documents; especially useful for first-time project bootstrap, multi-agent collaboration, long-running repositories, discussion-window migration, bug triage that must trace Error to State to Code to Spec, and projects that need externalized memory instead of relying on chat context.
+description: Create and maintain a WishGraph project-governance system for AI-assisted software work, with Chinese, English, or bilingual project prompts. Use when Codex needs to start a project from a vague idea, grill the user into a usable PRD, create auditable specs, task files, code maps, architecture constraints, validation gates, causal debugging notes, execution reports, or cross-session handoff documents; especially useful for first-time project bootstrap, multi-agent collaboration, long-running repositories, discussion-window migration, bug triage that must trace Error to State to Code to Spec, and projects that need externalized memory instead of relying on chat context.
 ---
 
 # WishGraph
@@ -16,9 +16,14 @@ WishGraph is not autonomous magic. It is a governance layer that makes AI collab
 When the user asks to "set up WishGraph", "make this project AI-agent friendly", "create an AI collaboration system", "start a project from scratch", or "make future agents understand this repo":
 
 1. Inspect the target repository before writing files.
-2. If the project has no usable PRD, enter zero-project bootstrap mode: ask the user "你现在有什么想法？可以很粗糙，只要说你想做什么、给谁用、解决什么问题。" and grill the idea one decision at a time until it can become a PRD.
-3. Reuse existing docs if they already serve the same purpose.
-4. Create only the minimum governance files needed for the project:
+2. Detect the user's preferred language. Use that language by default; if the user asks for bilingual output, write key user-facing prompts and summaries in Chinese first, then English.
+3. If the project has no usable PRD, enter zero-project bootstrap mode and ask the first idea question in the selected language:
+   - Chinese: "你现在有什么想法？可以很粗糙，只要说你想做什么、给谁用、解决什么问题。"
+   - English: "What idea do you have right now? It can be rough: what do you want to build, who is it for, and what problem should it solve?"
+   - Bilingual: ask both lines together.
+4. Grill the idea one decision at a time until it can become a PRD.
+5. Reuse existing docs if they already serve the same purpose.
+6. Create only the minimum governance files needed for the project:
    - `PRD.md`
    - `CODEMAP.md`
    - `CONVENTIONS.md`
@@ -27,9 +32,9 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - `prompts/EXECUTION_AI.md`
    - `.tasks/build/001-bootstrap-project.md` or the first implementation task
    - `reports/DEV_REPORT.md`
-5. Use the bundled templates under `assets/templates/` as structure, then adapt them to the repository.
-6. When the PRD and first task are ready, tell the user to open a new execution window and copy `prompts/EXECUTION_AI.md` plus the chosen `.tasks/build/*.md`.
-7. Finish with a short review summary listing files created or updated, assumptions, and next recommended task.
+7. Use the bundled templates under `assets/templates/` as structure, then adapt them to the repository.
+8. When the PRD and first task are ready, tell the user to open a new execution window and copy `prompts/EXECUTION_AI.md` plus the chosen `.tasks/build/*.md`.
+9. Finish with a short review summary listing files created or updated, assumptions, and next recommended task.
 
 ## Workflow
 
@@ -60,6 +65,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
 4. **Write task specs**
    - A task spec must be executable without chat history.
    - Include goal, context summary, anchored files/symbols, implementation instructions, "do not do" boundaries, validation commands, rollback boundary, and required report format.
+   - Follow the project's language mode for human-facing explanations. Do not translate file paths, commands, code identifiers, symbols, routes, package names, or environment variables.
    - Prefer small atomic tasks. Split any task whose validation, risk, or rollback boundary is unclear.
 
 5. **Separate planning and execution roles**
@@ -84,6 +90,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
 ## Reference Loading
 
 - Read `references/core-concepts.md` when the user asks about WishGraph concepts, naming, or public explanation.
+- Read `references/bilingual-operation.md` when the user asks for Chinese, English, bilingual output, mixed-language handoff, or language rules for generated project memory.
 - Read `references/zero-project-bootstrap.md` when the user is starting from a vague idea, has no PRD, wants the first project conversation, or asks for grill-style project shaping.
 - Read `references/task-spec-template.md` before creating or revising task files.
 - Read `references/good-execution-spec.md` when creating the first task spec for a project, reviewing whether a task spec is good enough, or showing the user an example.
