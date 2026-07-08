@@ -11,11 +11,21 @@ Use the user's language by default. If the user requests bilingual output, write
 Ask in the selected language:
 
 ```text
-你现在有什么想法？可以很粗糙，只要说你想做什么、给谁用、解决什么问题。
+先不用写完整 PRD。请用几句话告诉我：
+1. 你想做一个什么项目？
+2. 最先服务谁？
+3. 他们第一次打开时最应该完成什么动作？
+4. 你会用什么结果判断 v0 做对了？
+如果还不确定，可以只回答第 1 点，我会继续一问一问补齐。
 ```
 
 ```text
-What idea do you have right now? It can be rough: what do you want to build, who is it for, and what problem should it solve?
+You do not need a full PRD yet. In a few sentences, tell me:
+1. What are you trying to build?
+2. Who should it serve first?
+3. What should they be able to do on the first successful use?
+4. What result would make you say v0 is working?
+If you are not sure, answer only item 1 and I will fill the rest one decision at a time.
 ```
 
 If bilingual output is requested, ask both lines together.

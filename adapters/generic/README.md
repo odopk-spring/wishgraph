@@ -24,7 +24,7 @@ Common examples:
 Then start the agent with:
 
 ```text
-Follow AGENTS.md. Start WishGraph for this project. If there is no PRD, ask what idea I have and grill it into a PRD before writing code.
+Follow AGENTS.md. Start WishGraph for this project. If there is no PRD, run the WishGraph intake prompt and grill it into a PRD before writing code.
 ```
 
 For bilingual Chinese and English handoff, add:

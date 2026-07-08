@@ -36,7 +36,7 @@ cp -R skills/wishgraph ~/.codex/skills/
 Then open any project in Codex and ask:
 
 ```text
-Use $wishgraph to start or govern this project with WishGraph. If the project is not framed yet, ask me what idea I have and grill it into a PRD before writing code.
+Use $wishgraph to start or govern this project with WishGraph. If the project is not framed yet, run the WishGraph intake prompt and grill it into a PRD before writing code.
 ```
 
 For bilingual Chinese and English handoff, add:
@@ -56,7 +56,7 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 Then open a Claude Code project and run:
 
 ```text
-/wishgraph start or govern this project with WishGraph. If the project is not framed yet, ask me what idea I have and grill it into a PRD before writing code.
+/wishgraph start or govern this project with WishGraph. If the project is not framed yet, run the WishGraph intake prompt and grill it into a PRD before writing code.
 ```
 
 You can also add the same bilingual instruction after the command.
@@ -74,7 +74,7 @@ cp adapters/generic/AGENTS.md /path/to/project/AGENTS.md
 Then start the agent with:
 
 ```text
-Follow AGENTS.md. Start WishGraph for this project. If there is no PRD, ask what idea I have and grill it into a PRD before writing code.
+Follow AGENTS.md. Start WishGraph for this project. If there is no PRD, run the WishGraph intake prompt and grill it into a PRD before writing code.
 ```
 
 See [adapters/generic](adapters/generic) for the tool-agnostic protocol.
@@ -83,7 +83,7 @@ The skill is project-neutral. It carries the required templates inside `skills/w
 
 For the recommended first-use workflow, see [GETTING_STARTED.md](GETTING_STARTED.md).
 
-For a desensitized carrier example of the workflow, see [docs/paperchat-desensitized-workflow.md](docs/paperchat-desensitized-workflow.md). It explains the zero-to-PRD and two-window process without exposing private product code or business details.
+For bilingual docs and a desensitized carrier example of the workflow, see [docs](docs). The PaperChat-style example explains the zero-to-PRD and two-window process without exposing private product code or business details.
 
 ## Why This Exists
 
@@ -105,7 +105,8 @@ The human stays in charge of direction and judgment. AI handles the high-bandwid
 wishgraph/
 ├── adapters/
 │   ├── claude-code/
-│   └── generic/
+│   ├── generic/
+│   └── README.md
 ├── README.md
 ├── GETTING_STARTED.md
 ├── LICENSE
@@ -115,6 +116,7 @@ wishgraph/
 ├── scripts/
 │   └── install-wishgraph.sh
 ├── templates/
+│   ├── README.md
 │   ├── PRD.md
 │   ├── CODEMAP.md
 │   ├── CONVENTIONS.md
@@ -125,23 +127,48 @@ wishgraph/
 │   ├── .tasks/build/001-bootstrap-project.md
 │   ├── .tasks/build/EXAMPLE-good-task.md
 │   ├── .tasks/build/NNN-task.md
-│   └── reports/DEV_REPORT.md
+│   ├── reports/DEV_REPORT.md
+│   └── zh-CN/
 └── docs/
+    ├── README.md
     ├── wishgraph-method.md
+    ├── wishgraph-method.en.md
     ├── intent-compiler.md
+    ├── intent-compiler.zh-CN.md
     ├── anti-blackbox-agent-engineering.md
-    └── paperchat-desensitized-workflow.md
+    ├── anti-blackbox-agent-engineering.zh-CN.md
+    ├── paperchat-desensitized-workflow.md
+    └── paperchat-desensitized-workflow.zh-CN.md
 ```
 
 ## Language Support
 
 WishGraph supports Chinese, English, and bilingual project memory.
 
-The first blank-project prompt is:
+Repository browsing:
+
+- [templates](templates): English templates plus [`templates/zh-CN`](templates/zh-CN) Chinese templates.
+- [adapters](adapters): English and Chinese adapters for Claude Code and generic agent tools.
+- [docs](docs): Chinese and English method notes and workflow examples.
+
+The installable skill also bundles both English and Chinese template sets under `skills/wishgraph/assets/templates/`, so users can install only the skill and still bootstrap a Chinese-first project.
+
+The first blank-project intake prompt is:
 
 ```text
-你现在有什么想法？可以很粗糙，只要说你想做什么、给谁用、解决什么问题。
-What idea do you have right now? It can be rough: what do you want to build, who is it for, and what problem should it solve?
+先不用写完整 PRD。请用几句话告诉我：
+1. 你想做一个什么项目？
+2. 最先服务谁？
+3. 他们第一次打开时最应该完成什么动作？
+4. 你会用什么结果判断 v0 做对了？
+如果还不确定，可以只回答第 1 点，我会继续一问一问补齐。
+
+You do not need a full PRD yet. In a few sentences, tell me:
+1. What are you trying to build?
+2. Who should it serve first?
+3. What should they be able to do on the first successful use?
+4. What result would make you say v0 is working?
+If you are not sure, answer only item 1 and I will fill the rest one decision at a time.
 ```
 
 When bilingual mode is enabled, key user-facing prompts, summaries, decisions, and task explanations should be written Chinese first, English second. File paths, commands, code identifiers, symbols, routes, package names, and environment variables stay unchanged.

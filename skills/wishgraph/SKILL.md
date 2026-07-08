@@ -17,9 +17,9 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
 
 1. Inspect the target repository before writing files.
 2. Detect the user's preferred language. Use that language by default; if the user asks for bilingual output, write key user-facing prompts and summaries in Chinese first, then English.
-3. If the project has no usable PRD, enter zero-project bootstrap mode and ask the first idea question in the selected language:
-   - Chinese: "你现在有什么想法？可以很粗糙，只要说你想做什么、给谁用、解决什么问题。"
-   - English: "What idea do you have right now? It can be rough: what do you want to build, who is it for, and what problem should it solve?"
+3. If the project has no usable PRD, enter zero-project bootstrap mode and ask the first intake prompt in the selected language:
+   - Chinese: "先不用写完整 PRD。请用几句话告诉我：1. 你想做一个什么项目？2. 最先服务谁？3. 他们第一次打开时最应该完成什么动作？4. 你会用什么结果判断 v0 做对了？如果还不确定，可以只回答第 1 点，我会继续一问一问补齐。"
+   - English: "You do not need a full PRD yet. In a few sentences, tell me: 1. What are you trying to build? 2. Who should it serve first? 3. What should they be able to do on the first successful use? 4. What result would make you say v0 is working? If you are not sure, answer only item 1 and I will fill the rest one decision at a time."
    - Bilingual: ask both lines together.
 4. Grill the idea one decision at a time until it can become a PRD.
 5. Reuse existing docs if they already serve the same purpose.
@@ -32,7 +32,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - `prompts/EXECUTION_AI.md`
    - `.tasks/build/001-bootstrap-project.md` or the first implementation task
    - `reports/DEV_REPORT.md`
-7. Use the bundled templates under `assets/templates/` as structure, then adapt them to the repository.
+7. Use the bundled templates under `assets/templates/` as structure, then adapt them to the repository. For Chinese-first projects, use `assets/templates/zh-CN/` as the source template set. For bilingual projects, start from the user's primary language template and add bilingual user-facing explanations only where useful.
 8. When the PRD and first task are ready, tell the user to open a new execution window and copy `prompts/EXECUTION_AI.md` plus the chosen `.tasks/build/*.md`.
 9. Finish with a short review summary listing files created or updated, assumptions, and next recommended task.
 
@@ -101,6 +101,8 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
 
 Use bundled templates as starting points, then adapt them to the target repository:
 
+For English or language-neutral projects, use the root files under `assets/templates/`. For Chinese-first projects, use the mirrored files under `assets/templates/zh-CN/` and copy them to the same target paths.
+
 | Skill Asset | Target Path |
 |---|---|
 | `assets/templates/PRD.md` | `PRD.md` |
@@ -113,6 +115,21 @@ Use bundled templates as starting points, then adapt them to the target reposito
 | `assets/templates/NNN-task.md` | `.tasks/build/001-first-task.md` or the next task number |
 | `assets/templates/EXAMPLE-good-task.md` | Optional example for humans and planning agents |
 | `assets/templates/DEV_REPORT.md` | `reports/DEV_REPORT.md` |
+
+Chinese mirror:
+
+| Skill Asset | Target Path |
+|---|---|
+| `assets/templates/zh-CN/PRD.md` | `PRD.md` |
+| `assets/templates/zh-CN/CODEMAP.md` | `CODEMAP.md` |
+| `assets/templates/zh-CN/CONVENTIONS.md` | `CONVENTIONS.md` |
+| `assets/templates/zh-CN/ARCHITECTURE.md` | `ARCHITECTURE.md` |
+| `assets/templates/zh-CN/prompts/DISCUSSION_AI.md` | `prompts/DISCUSSION_AI.md` |
+| `assets/templates/zh-CN/prompts/EXECUTION_AI.md` | `prompts/EXECUTION_AI.md` |
+| `assets/templates/zh-CN/.tasks/build/001-bootstrap-project.md` | `.tasks/build/001-bootstrap-project.md` |
+| `assets/templates/zh-CN/.tasks/build/NNN-task.md` | `.tasks/build/001-first-task.md` or the next task number |
+| `assets/templates/zh-CN/.tasks/build/EXAMPLE-good-task.md` | Optional example for humans and planning agents |
+| `assets/templates/zh-CN/reports/DEV_REPORT.md` | `reports/DEV_REPORT.md` |
 
 ## Output Rules
 

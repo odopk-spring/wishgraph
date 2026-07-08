@@ -25,7 +25,12 @@ Use $wishgraph to start this project.
 If there is no PRD yet, the discussion AI should ask:
 
 ```text
-你现在有什么想法？可以很粗糙，只要说你想做什么、给谁用、解决什么问题。
+You do not need a full PRD yet. In a few sentences, tell me:
+1. What are you trying to build?
+2. Who should it serve first?
+3. What should they be able to do on the first successful use?
+4. What result would make you say v0 is working?
+If you are not sure, answer only item 1 and I will fill the rest one decision at a time.
 ```
 
 Then it should grill one decision at a time:
