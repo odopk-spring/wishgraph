@@ -21,6 +21,8 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - `CODEMAP.md`
    - `CONVENTIONS.md`
    - `ARCHITECTURE.md`
+   - `prompts/DISCUSSION_AI.md`
+   - `prompts/EXECUTION_AI.md`
    - `.tasks/build/001-first-task.md`
    - `reports/DEV_REPORT.md`
 4. Use the bundled templates under `assets/templates/` as structure, then adapt them to the repository.
@@ -44,6 +46,8 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
      - `CODEMAP.md` for feature-to-file lookup and current status.
      - `CONVENTIONS.md` for collaboration roles, task rules, verification, and git discipline.
      - `ARCHITECTURE.md` for dependency boundaries and ownership.
+     - `prompts/DISCUSSION_AI.md` as the mutable launch prompt for planning or discussion agents.
+     - `prompts/EXECUTION_AI.md` as the stable launch prompt for execution agents.
      - `.tasks/build/NNN-short-slug.md` for self-contained execution specs.
      - `reports/DEV_REPORT.md` for execution summaries.
    - Use `assets/templates/` as the file-shape source, but remove generic placeholder content that does not fit the target repo.
@@ -56,6 +60,8 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
 5. **Separate planning and execution roles**
    - Planning agents grill the intent and write specs.
    - Execution agents implement only the approved spec, run validation, update `CODEMAP.md` and task status, and report evidence.
+   - Keep `prompts/DISCUSSION_AI.md` current after each completed task so users can paste it into any agent interface to resume planning.
+   - Keep `prompts/EXECUTION_AI.md` stable; put task-specific instructions in `.tasks/build/*.md`.
    - For trivial one-line changes, allow direct execution only if the repo conventions explicitly permit it.
 
 6. **Debug through causality**
@@ -70,6 +76,20 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
 - Read `references/task-spec-template.md` before creating or revising task files.
 - Read `references/review-window.md` before producing human-facing review summaries, Dev Reports, or single-window status digests.
 - Read `references/debug-causality.md` before triaging bugs, regressions, failed validation, or hidden state corruption.
+
+## Template Mapping
+
+Use bundled templates as starting points, then adapt them to the target repository:
+
+| Skill Asset | Target Path |
+|---|---|
+| `assets/templates/CODEMAP.md` | `CODEMAP.md` |
+| `assets/templates/CONVENTIONS.md` | `CONVENTIONS.md` |
+| `assets/templates/ARCHITECTURE.md` | `ARCHITECTURE.md` |
+| `assets/templates/DISCUSSION_AI.md` | `prompts/DISCUSSION_AI.md` |
+| `assets/templates/EXECUTION_AI.md` | `prompts/EXECUTION_AI.md` |
+| `assets/templates/NNN-task.md` | `.tasks/build/001-first-task.md` or the next task number |
+| `assets/templates/DEV_REPORT.md` | `reports/DEV_REPORT.md` |
 
 ## Output Rules
 

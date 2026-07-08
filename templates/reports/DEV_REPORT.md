@@ -36,3 +36,8 @@ Briefly describe what changed and why.
 ## Handoff
 
 State what the next agent should read first and what must not be assumed from chat history.
+
+## Prompt Sync
+
+- `prompts/DISCUSSION_AI.md` updated: Yes / No / N/A
+- If not updated, explain why:

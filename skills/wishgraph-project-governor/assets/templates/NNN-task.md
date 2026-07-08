@@ -37,6 +37,7 @@ Summarize the relevant repo facts discovered from files, tests, logs, or docs.
 - [ ] Manual check: `<scenario>`
 - [ ] `CODEMAP.md` updated if files, symbols, contracts, or status changed.
 - [ ] `reports/DEV_REPORT.md` updated with evidence.
+- [ ] `prompts/DISCUSSION_AI.md` current progress and next-task state updated.
 - [ ] No unrelated diffs staged.
 
 ## Rollback Boundary

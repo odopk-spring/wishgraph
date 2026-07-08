@@ -52,6 +52,9 @@ wishgraph/
 │   ├── CODEMAP.md
 │   ├── CONVENTIONS.md
 │   ├── ARCHITECTURE.md
+│   ├── prompts/
+│   │   ├── DISCUSSION_AI.md
+│   │   └── EXECUTION_AI.md
 │   ├── .tasks/build/NNN-task.md
 │   └── reports/DEV_REPORT.md
 └── docs/
@@ -68,7 +71,9 @@ If you do not want to install the skill, copy the templates into a project manua
 cp templates/CODEMAP.md /path/to/project/CODEMAP.md
 cp templates/CONVENTIONS.md /path/to/project/CONVENTIONS.md
 cp templates/ARCHITECTURE.md /path/to/project/ARCHITECTURE.md
-mkdir -p /path/to/project/.tasks/build /path/to/project/reports
+mkdir -p /path/to/project/prompts /path/to/project/.tasks/build /path/to/project/reports
+cp templates/prompts/DISCUSSION_AI.md /path/to/project/prompts/DISCUSSION_AI.md
+cp templates/prompts/EXECUTION_AI.md /path/to/project/prompts/EXECUTION_AI.md
 cp templates/.tasks/build/NNN-task.md /path/to/project/.tasks/build/001-first-task.md
 cp templates/reports/DEV_REPORT.md /path/to/project/reports/DEV_REPORT.md
 ```
@@ -80,6 +85,8 @@ In a target project, the skill creates or updates:
 - `CODEMAP.md`: feature to file and contract lookup.
 - `CONVENTIONS.md`: collaboration, validation, and git rules.
 - `ARCHITECTURE.md`: dependency boundaries and ownership.
+- `prompts/DISCUSSION_AI.md`: mutable start prompt for planning or discussion agents; update it after every completed execution task.
+- `prompts/EXECUTION_AI.md`: stable start prompt for execution agents; execution details stay in task files.
 - `.tasks/build/NNN-short-slug.md`: self-contained execution task specs.
 - `reports/DEV_REPORT.md`: execution evidence and handoff notes.
 
