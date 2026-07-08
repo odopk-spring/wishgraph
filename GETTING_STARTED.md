@@ -9,7 +9,7 @@ Start with a planning or discussion AI, not an execution AI.
 Ask it to:
 
 ```text
-Use $wishgraph-project-governor to help me set up WishGraph for this project.
+Use $wishgraph to help me set up WishGraph for this project.
 If this is a new or vague project, first ask me what idea I have, then grill it into a PRD one question at a time.
 If this is an existing repository, first read the repository, then discuss the project goal with me.
 Create or update the PRD, architecture outline, CODEMAP, conventions, discussion prompt, execution prompt, first task spec, and Dev Report template.

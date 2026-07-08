@@ -1,9 +1,9 @@
 ---
-name: wishgraph-project-governor
+name: wishgraph
 description: Create and maintain a WishGraph project-governance system for AI-assisted software work. Use when Codex needs to start a project from a vague idea, grill the user into a usable PRD, create auditable specs, task files, code maps, architecture constraints, validation gates, causal debugging notes, execution reports, or cross-session handoff documents; especially useful for first-time project bootstrap, multi-agent collaboration, long-running repositories, discussion-window migration, bug triage that must trace Error to State to Code to Spec, and projects that need externalized memory instead of relying on chat context.
 ---
 
-# WishGraph Project Governor
+# WishGraph
 
 ## Overview
 

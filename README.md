@@ -12,20 +12,32 @@ The core move is simple: stop depending on chat memory for complex work. Put the
 
 ## Use The Skill Directly
 
-Install the Codex skill locally:
+Install only the Codex skill first. You do not need to clone the whole repository just to try it.
+
+In Codex, ask:
+
+```text
+Use $skill-installer to install https://github.com/odopk-spring/wishgraph/tree/main/skills/wishgraph
+```
+
+Restart Codex after installation if the installer asks you to.
+
+If you installed the older long-name skill, remove `~/.codex/skills/wishgraph-project-governor` and install `wishgraph` instead.
+
+Manual fallback:
 
 ```bash
 mkdir -p ~/.codex/skills
-cp -R skills/wishgraph-project-governor ~/.codex/skills/
+cp -R skills/wishgraph ~/.codex/skills/
 ```
 
 Then open any project in Codex and ask:
 
 ```text
-Use $wishgraph-project-governor to start or govern this project with WishGraph. If the project is not framed yet, ask me what idea I have and grill it into a PRD before writing code.
+Use $wishgraph to start or govern this project with WishGraph. If the project is not framed yet, ask me what idea I have and grill it into a PRD before writing code.
 ```
 
-The skill is project-neutral. It should inspect the target repository first and adapt the templates to that project instead of imposing this repository's examples.
+The skill is project-neutral. It carries the required templates inside `skills/wishgraph/assets/templates`, so it can create the initial project memory files without asking the user to download the rest of the repository. The top-level `templates/` and `docs/` folders are for browsing, manual use, and deeper reading.
 
 For the recommended first-use workflow, see [GETTING_STARTED.md](GETTING_STARTED.md).
 
@@ -54,7 +66,7 @@ wishgraph/
 ├── LICENSE
 ├── NOTICE
 ├── skills/
-│   └── wishgraph-project-governor/
+│   └── wishgraph/
 ├── templates/
 │   ├── PRD.md
 │   ├── CODEMAP.md

@@ -19,7 +19,7 @@ This kind of project is a good WishGraph example because UI behavior, parsing ru
 Start in a discussion window with:
 
 ```text
-Use $wishgraph-project-governor to start this project.
+Use $wishgraph to start this project.
 ```
 
 If there is no PRD yet, the discussion AI should ask:

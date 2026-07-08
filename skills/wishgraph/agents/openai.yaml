@@ -1,0 +1,4 @@
+interface:
+  display_name: "WishGraph"
+  short_description: "Grill ideas into auditable project specs"
+  default_prompt: "Use $wishgraph to grill my project idea into a PRD, then create the WishGraph handoff files."

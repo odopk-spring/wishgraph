@@ -1,4 +1,0 @@
-interface:
-  display_name: "WishGraph Project Governor"
-  short_description: "Grill ideas into auditable project specs"
-  default_prompt: "Use $wishgraph-project-governor to grill my project idea into a PRD, then create the WishGraph handoff files."
