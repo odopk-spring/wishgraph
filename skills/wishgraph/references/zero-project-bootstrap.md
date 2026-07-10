@@ -91,7 +91,11 @@ Stop grilling and write files when the agent can fill:
 - `prompts/DISCUSSION_AI.md` current state, open decisions, and next likely task.
 - `prompts/EXECUTION_AI.md` stable execution prompt.
 - `.tasks/build/001-*.md` first bounded execution task.
-- `reports/DEV_REPORT.md` empty or bootstrap report template.
+- `reports/RUN_REPORT.md` worker-report template.
+- `reports/runs/001-bootstrap-project.md` bootstrap execution facts.
+- `reports/DEV_REPORT.md` initial integrated project overview.
+
+If the user requests mechanical memory enforcement, install project-local hooks only after these files exist. Start in `warn` mode, preserve existing host hook groups, and tell Codex users to review new hooks with `/hooks`.
 
 ## After PRD Completion
 

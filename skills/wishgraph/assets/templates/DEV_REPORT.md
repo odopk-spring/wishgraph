@@ -1,50 +1,60 @@
-# Dev Report
+# Project Report Overview
 
-Use this file for execution evidence that a future agent can audit.
+This is the current integrated project snapshot. Only the integration agent updates this file. Worker agents write immutable task-scoped reports under `reports/runs/`.
 
-## Latest Task
+## Latest Integration
 
-- Task:
+- Integration ID: `integration/YYYYMMDD-HHMM`
 - Date:
 - Agent:
-- Status:
+- Status: Completed / Blocked / Incomplete
+- Target branch:
 
-## Summary
+## Integrated Run Reports
 
-Briefly describe what changed and why.
+List every run report absorbed by this integration. Integrate worker branches with `--no-commit` so the hook can verify these files in the same diff.
 
-## Files Changed
+- `reports/runs/NNN-short-slug.md`
 
-| File | Reason |
-|---|---|
-| `path/to/file` | Change summary |
+## Latest Integrated Results
 
-## Validation
+- Completed result:
+- User-visible effect:
+- Important implementation fact:
+- Deferred or rejected result:
 
-| Check | Command / Scenario | Result | Evidence |
-|---|---|---|---|
-| Build | `<command>` | Pass / Fail / Not run | Key output or reason |
-| Tests | `<command>` | Pass / Fail / Not run | Key output or reason |
-| Manual | `<scenario>` | Pass / Fail / Not run | Notes |
+## Validation Summary
 
-## Risk Notes
+| Check | Result | Evidence |
+|---|---|---|
+| Build | Pass / Fail / Not run | Key output or reason |
+| Tests | Pass / Fail / Not run | Key output or reason |
+| Manual | Pass / Fail / Not run | Scenario and notes |
+
+## Current Risks and Follow-up
 
 - Residual risk:
-- Unrun checks:
-- Follow-up recommended:
+- Unresolved conflict:
+- Next recommended task:
 
-## Handoff
+## Discussion Handoff
 
-State what the next agent should read first and what must not be assumed from chat history.
+State what the discussion agent should present to the user next. The integration agent must also update the dynamic state block in `prompts/DISCUSSION_AI.md`.
 
-## Prompt Sync
+## External Memory Impact
 
-- `prompts/DISCUSSION_AI.md` updated: Yes / No / N/A
-- If not updated, explain why:
+Use exactly `Updated` or `N/A`. Every N/A needs a concrete reason. `Updated` must correspond to a file in the integration diff.
 
-## External Memory Sync
+| File | Result | Reason |
+|---|---|---|
+| `PRD.md` | Updated / N/A | Product behavior, scope, roadmap, progress, or why no change was needed |
+| `ARCHITECTURE.md` | Updated / N/A | Dependency, ownership, data-flow impact, or why none |
+| `CODEMAP.md` | Updated / N/A | File, symbol, contract, status, probe impact, or why none |
+| `CONVENTIONS.md` | Updated / N/A | Workflow-rule impact, or why none |
+| `prompts/DISCUSSION_AI.md` | Updated | Record merged results and the next discussion state |
+| `prompts/EXECUTION_AI.md` | Updated / N/A | Stable execution-rule impact, or why none |
+| `prompts/INTEGRATION_AI.md` | Updated / N/A | Stable integration-rule impact, or why none |
 
-- `PRD.md` updated: Yes / No / N/A
-- `ARCHITECTURE.md` updated: Yes / No / N/A
-- `CODEMAP.md` updated: Yes / No / N/A
-- Commit hash:
+## Integration Commit
+
+- Commit hash or pending commit note:

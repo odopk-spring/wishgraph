@@ -24,7 +24,13 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 必要时重启 Claude Code，然后运行：
 
 ```text
-/wishgraph start this project from my rough idea
+/wishgraph 请为当前项目主动推荐合适的安装方式，让我用自然语言选择，然后持续配置到验证完成
+```
+
+Windows PowerShell 可以使用原生安装器：
+
+```powershell
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
 ```
 
 如果要中英双语交接，追加：
@@ -57,7 +63,26 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 cp adapters/claude-code/CLAUDE.zh-CN.md /path/to/project/CLAUDE.md
 ```
 
-`CLAUDE.md` 用于 always-loaded 项目规则。较大的任务过程应留在 `/wishgraph` skill 和 WishGraph 项目文件中，例如 `PRD.md`、`CODEMAP.md`、`.tasks/build/*.md` 和 `reports/DEV_REPORT.md`。
+`CLAUDE.md` 用于 always-loaded 项目规则。较大的任务过程应留在 `/wishgraph` skill 和 WishGraph 项目文件中，例如 `PRD.md`、`CODEMAP.md`、`.tasks/build/*.md`、`reports/runs/*.md` 和 `reports/DEV_REPORT.md`。
+
+## 安装项目记忆同步 Hooks
+
+学习成本最低的方式是直接说：
+
+```text
+/wishgraph 为这个项目推荐合适的 Hooks 配置，让我用自然语言选择，然后继续配置到验证完成
+```
+
+如果需要手动安装警告模式 Hooks：
+
+```bash
+python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
+  --target /path/to/project \
+  --host claude \
+  --mode warn
+```
+
+安装器会把 `SessionStart`、`PreToolUse`、`Stop` 和 `TaskCompleted` 安全合并进 `.claude/settings.json`。完成一次正确收尾后，再把 `.wishgraph/config.json` 切换为 `enforce`。详见 [`docs/memory-sync-hooks.zh-CN.md`](../../docs/memory-sync-hooks.zh-CN.md)。
 
 ## 推荐 Claude Code 流程
 
@@ -78,11 +103,15 @@ cp adapters/claude-code/CLAUDE.zh-CN.md /path/to/project/CLAUDE.md
    CONVENTIONS.md
    prompts/DISCUSSION_AI.md
    prompts/EXECUTION_AI.md
+   prompts/INTEGRATION_AI.md
    .tasks/build/*.md
+   reports/RUN_REPORT.md
    reports/DEV_REPORT.md
    ```
 
 3. 开启新的执行 session，粘贴执行提示词和已批准任务文件；也可以再次调用 `/wishgraph`，要求它严格按指定任务执行。
+
+   明确批准的极小 ad-hoc 修改可以省略 task 文件，但仍要创建唯一不可变执行报告；之后由集成 session 更新共享记忆和项目概览。
 
 4. 如果讨论 session 需要迁移，提问：
 

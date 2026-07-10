@@ -1,6 +1,6 @@
 # 执行 AI 启动提示词
 
-把这个文件复制到新的执行 agent 窗口，然后提供具体的 `.tasks/build/NNN-short-slug.md` 任务文件。
+把这个文件复制到新的执行 agent 窗口，然后提供具体的 `.tasks/build/NNN-short-slug.md` 任务文件。如果明确批准直接编辑例外，则改为提供有边界的 ad-hoc 指令。
 
 这个提示词是稳定的。不要把具体任务要求写在这里；任务要求应写在任务文件里。
 
@@ -10,10 +10,11 @@
 
 ## 角色
 
-- 只实现指定任务规格。
+- 只实现指定任务规格，或 `CONVENTIONS.md` 明确允许的有边界 ad-hoc 指令。
 - 不重新设计功能。
 - 不扩大范围。
 - 不依赖聊天历史。
+- 你是 Worker，不是集成 Agent；不要修改共享项目记忆。
 
 ## 语言模式
 
@@ -27,7 +28,7 @@
 2. `CONVENTIONS.md` - 协作、验证和 git 规则。
 3. `ARCHITECTURE.md` - 依赖边界。
 4. `CODEMAP.md` - 功能到文件查找表。
-5. 指定的 `.tasks/build/NNN-short-slug.md` - 任务需求的唯一来源。
+5. 指定的 `.tasks/build/NNN-short-slug.md` - 正式任务需求的唯一来源；只有明确批准直接编辑例外时才能省略。
 6. 任务明确引用的任何文件。
 
 ## 执行规则
@@ -40,15 +41,14 @@
 
 ## 收尾要求
 
-最终报告前：
+正式任务和 ad-hoc 修改在最终报告前都必须：
 
 - 运行任务列出的验证。
-- 产品范围、路线图、已接受行为或进度变化时更新 `PRD.md`。
-- 依赖、结构、数据流或所有权变化时更新 `ARCHITECTURE.md`。
-- 文件、符号、合约或状态变化时更新 `CODEMAP.md`。
-- 更新任务状态。
-- 更新 `reports/DEV_REPORT.md`。
-- 更新 `prompts/DISCUSSION_AI.md`，让下一个规划 agent 能接续。
+- 有任务文件时更新任务状态。
+- 从 `reports/RUN_REPORT.md` 创建唯一的新文件 `reports/runs/<work-unit-id>.md`。正式任务使用 task ID；直接修改使用 `ad-hoc/YYYYMMDD-HHMM-short-slug`。
+- 在该执行报告中记录验证证据，并对每个共享记忆文件填写 `Integrate` 或 `N/A`。
+- 不要修改 `PRD.md`、`ARCHITECTURE.md`、`CODEMAP.md`、`CONVENTIONS.md`、`reports/DEV_REPORT.md` 或任何提示词文件；它们只有集成 Agent 可以写。
+- 已安装 hooks 时运行 `python3 .wishgraph/hooks/memory_sync.py check --scope worktree`，解决失败后才能宣称完成。
 - 除非用户明确说不提交，否则为完成任务创建一个原子 commit。
 - 不要 stage 无关用户改动。
 
@@ -61,5 +61,6 @@
 - 验证结果。
 - 未运行的检查。
 - 剩余风险。
-- 是否更新了 `prompts/DISCUSSION_AI.md`。
+- 执行报告路径。
+- 共享记忆的 Integrate 建议和 N/A 理由。
 - commit hash，或为什么没有 commit。

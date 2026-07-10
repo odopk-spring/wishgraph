@@ -23,15 +23,18 @@ When working on planning, task writing, or execution, read:
 4. `CONVENTIONS.md`
 5. `prompts/DISCUSSION_AI.md` for planning sessions
 6. `prompts/EXECUTION_AI.md` and the assigned `.tasks/build/*.md` for execution sessions
-7. `reports/DEV_REPORT.md` for the last handoff
+7. `reports/DEV_REPORT.md` for the latest integrated handoff
 
 ## Collaboration Rules
 
 - Planning sessions write PRD, architecture notes, code maps, prompts, and task specs.
 - Execution sessions implement only the approved task spec.
 - Keep task specs self-contained; do not rely on chat history.
-- Update external memory when project truth changes.
-- Prefer one atomic commit per completed execution task.
+- Worker sessions use separate branches or worktrees, create one immutable `reports/runs/<work-unit-id>.md`, and record Integrate or N/A proposals without editing shared memory.
+- An integration session merges with `--no-commit`, updates affected shared memory, `reports/DEV_REPORT.md`, and the dynamic handoff state in `prompts/DISCUSSION_AI.md`.
+- SessionStart may inject latest integrated results into new or resumed sessions; this is not a live push into a continuously running window.
+- Prefer one atomic commit per completed execution unit. A tiny approved ad-hoc edit may omit a task file, but not closeout.
+- When `.wishgraph/hooks/memory_sync.py` exists, run its worktree check before claiming completion.
 
 ## Handoff
 

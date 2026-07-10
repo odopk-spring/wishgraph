@@ -46,8 +46,19 @@ prompts/DISCUSSION_AI.md
 prompts/EXECUTION_AI.md
 .tasks/build/*.md
 reports/DEV_REPORT.md
+reports/RUN_REPORT.md
+reports/runs/<work-unit-id>.md
 ```
 
 ## Tool-Agnostic Rule
 
 Do not depend on a specific chat product. The durable protocol is the file set above. Any agent that can read and write files can participate if it follows the planning/execution split.
+
+When the WishGraph hook runtime is installed, generic agents can run the deterministic checks directly:
+
+```bash
+python3 .wishgraph/hooks/memory_sync.py check --scope worktree
+python3 .wishgraph/hooks/memory_sync.py check --scope staged
+```
+
+See [`docs/memory-sync-hooks.md`](../../docs/memory-sync-hooks.md) for installation and optional Git pre-commit enforcement.

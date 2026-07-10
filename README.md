@@ -14,6 +14,28 @@ The core move is simple: stop depending on chat memory for complex work. Put the
 
 Install only the skill or adapter you need first. You do not need to clone the whole repository just to try WishGraph.
 
+After the Skill is available, users do not need to learn hook names or flags. Say one of these in the project:
+
+```text
+只安装 WishGraph Skill，不开启 Hooks。
+请为当前项目安全配置 WishGraph。（推荐）
+请为当前项目严格配置 WishGraph，阻止遗漏的记忆同步。
+```
+
+WishGraph detects Codex or Claude Code, the operating system, the project path, Git, and Python. If the request is vague, it asks only: "只安装 Skill、安全配置（推荐），还是严格配置？"
+
+The agent should recommend before asking. A first-project response looks like:
+
+```text
+我检测到你正在为当前项目配置 WishGraph。推荐“安全配置”：安装 Skill 和提醒型 Hooks，不会阻止结束或提交；WishGraph 本身约 0.3 MB，通常不到 1 分钟。
+
+你可以回复“按推荐来”，也可以说“只装 Skill”或“严格配置”。
+```
+
+After the choice, the agent continues through prerequisite checks, installation, and verification. It pauses only when the user must install a system dependency, approve `git init`, or restart the agent; every pause gives one next action and an exact reply for resuming.
+
+Safe setup uses non-blocking `warn` hooks. Strict setup uses blocking `enforce` hooks plus the Git pre-commit fallback.
+
 ### Codex
 
 In Codex, ask:
@@ -23,6 +45,20 @@ Use $skill-installer to install https://github.com/odopk-spring/wishgraph/tree/m
 ```
 
 Restart Codex after installation if the installer asks you to.
+
+Lowest-friction option: open a terminal in the target project and install both the Codex skill and safe memory-sync hooks in one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- codex --setup-project
+```
+
+This starts in non-blocking `warn` mode. After one successful task closeout, re-run with `--setup-project --strict` to enable blocking checks and the Git pre-commit fallback.
+
+On Windows PowerShell, use:
+
+```powershell
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) codex -SetupProject
+```
 
 If you installed the older long-name skill, remove `~/.codex/skills/wishgraph-project-governor` and install `wishgraph` instead.
 
@@ -53,6 +89,12 @@ Install WishGraph as a Claude Code user skill:
 curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- claude-user
 ```
 
+To install the skill and safe project hooks together, run the command from the target project with `--setup-project`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- claude-user --setup-project
+```
+
 Then open a Claude Code project and run:
 
 ```text
@@ -80,6 +122,10 @@ Follow AGENTS.md. Start WishGraph for this project. If there is no PRD, run the 
 See [adapters/generic](adapters/generic) for the tool-agnostic protocol.
 
 The skill is project-neutral. It carries the required templates inside `skills/wishgraph/assets/templates`, so it can create the initial project memory files without asking the user to download the rest of the repository. The top-level `templates/`, `adapters/`, and `docs/` folders are for browsing, manual use, and deeper reading.
+
+Users who already installed the skill can avoid commands entirely. In the project, ask the agent: `Use $wishgraph to enable automatic memory sync for this project in safe mode.` WishGraph will select the current host and install project-local hooks in `warn` mode.
+
+The installer checks prerequisites before writing files. WishGraph itself uses about 0.2 MB and hooks add less than 0.1 MB. Only when Git or Python is missing does it show platform-specific installation guidance and rough cost: Git commonly 200-500 MB and 2-10 minutes; Python commonly 100-300 MB and 2-10 minutes. The Apple Command Line Tools route for Git is larger, roughly 1-3 GB and 5-30 minutes. These are broad estimates, not download guarantees.
 
 For the recommended first-use workflow, see [GETTING_STARTED.md](GETTING_STARTED.md).
 
@@ -113,8 +159,11 @@ wishgraph/
 ├── NOTICE
 ├── skills/
 │   └── wishgraph/
+│       ├── assets/hooks/
+│       └── scripts/install_project_hooks.py
 ├── scripts/
-│   └── install-wishgraph.sh
+│   ├── install-wishgraph.sh
+│   └── install-wishgraph.ps1
 ├── templates/
 │   ├── README.md
 │   ├── PRD.md
@@ -123,11 +172,13 @@ wishgraph/
 │   ├── ARCHITECTURE.md
 │   ├── prompts/
 │   │   ├── DISCUSSION_AI.md
-│   │   └── EXECUTION_AI.md
+│   │   ├── EXECUTION_AI.md
+│   │   └── INTEGRATION_AI.md
 │   ├── .tasks/build/001-bootstrap-project.md
 │   ├── .tasks/build/EXAMPLE-good-task.md
 │   ├── .tasks/build/NNN-task.md
 │   ├── reports/DEV_REPORT.md
+│   ├── reports/RUN_REPORT.md
 │   └── zh-CN/
 └── docs/
     ├── README.md
@@ -137,6 +188,8 @@ wishgraph/
     ├── intent-compiler.zh-CN.md
     ├── anti-blackbox-agent-engineering.md
     ├── anti-blackbox-agent-engineering.zh-CN.md
+    ├── memory-sync-hooks.md
+    ├── memory-sync-hooks.zh-CN.md
     ├── paperchat-desensitized-workflow.md
     └── paperchat-desensitized-workflow.zh-CN.md
 ```
@@ -185,10 +238,12 @@ cp templates/ARCHITECTURE.md /path/to/project/ARCHITECTURE.md
 mkdir -p /path/to/project/prompts /path/to/project/.tasks/build /path/to/project/reports
 cp templates/prompts/DISCUSSION_AI.md /path/to/project/prompts/DISCUSSION_AI.md
 cp templates/prompts/EXECUTION_AI.md /path/to/project/prompts/EXECUTION_AI.md
+cp templates/prompts/INTEGRATION_AI.md /path/to/project/prompts/INTEGRATION_AI.md
 cp templates/.tasks/build/001-bootstrap-project.md /path/to/project/.tasks/build/001-bootstrap-project.md
 cp templates/.tasks/build/EXAMPLE-good-task.md /path/to/project/.tasks/build/EXAMPLE-good-task.md
 cp templates/.tasks/build/NNN-task.md /path/to/project/.tasks/build/001-first-task.md
 cp templates/reports/DEV_REPORT.md /path/to/project/reports/DEV_REPORT.md
+cp templates/reports/RUN_REPORT.md /path/to/project/reports/RUN_REPORT.md
 ```
 
 ## What The Skill Creates
@@ -199,12 +254,29 @@ In a target project, the skill creates or updates:
 - `PRD.md`: product goals, scope, roadmap, current decisions, and progress.
 - `CONVENTIONS.md`: collaboration, validation, and git rules.
 - `ARCHITECTURE.md`: dependency boundaries and ownership.
-- `prompts/DISCUSSION_AI.md`: mutable start prompt for planning or discussion agents; update it after every completed execution task.
+- `prompts/DISCUSSION_AI.md`: mutable start prompt for planning or discussion agents; the integration agent updates its dynamic handoff state.
 - `prompts/EXECUTION_AI.md`: stable start prompt for execution agents; execution details stay in task files.
+- `prompts/INTEGRATION_AI.md`: stable start prompt for merging workers and updating shared project state.
 - `.tasks/build/001-bootstrap-project.md`: first-use task for turning a vague idea into durable project memory before implementation.
 - `.tasks/build/EXAMPLE-good-task.md`: a compact example of a good execution spec.
 - `.tasks/build/NNN-short-slug.md`: self-contained execution task specs.
-- `reports/DEV_REPORT.md`: execution evidence and handoff notes.
+- `reports/RUN_REPORT.md`: template for immutable task-scoped worker reports.
+- `reports/runs/<work-unit-id>.md`: one report per worker or ad-hoc execution.
+- `reports/DEV_REPORT.md`: latest integrated project overview; only the integration agent updates it.
+
+Optional project-local memory-sync hooks add:
+
+- `.wishgraph/config.json`: enforcement mode and managed memory paths.
+- `.wishgraph/hooks/memory_sync.py`: deterministic closeout checker shared by agent tools.
+- `.codex/hooks.json` and/or `.claude/settings.json`: host lifecycle integration merged without replacing unrelated hooks.
+
+Install them in `warn` mode first:
+
+```bash
+python3 skills/wishgraph/scripts/install_project_hooks.py --target /path/to/project --host all --mode warn
+```
+
+See [External-Memory Hooks](docs/memory-sync-hooks.md) or [中文说明](docs/memory-sync-hooks.zh-CN.md).
 
 It should not create personal branding content, social media drafts, or project-specific case studies unless the user explicitly asks.
 
@@ -213,7 +285,7 @@ It should not create personal branding content, social media drafts, or project-
 WishGraph separates two roles:
 
 - **Planning / Discussion Agent**: resolves intent, writes self-contained task specs, and does not touch business code.
-- **Execution Agent**: reads the task spec as the only source of requirements, implements the smallest safe change, runs validation, updates project maps, and reports evidence.
+- **Execution Agent**: reads the task spec as the only source of formal requirements, implements the smallest safe change, runs validation, updates project maps, and reports evidence. Explicitly approved ad-hoc edits may omit the task file but use the same closeout.
 
 This keeps the project from depending on one long chat window.
 

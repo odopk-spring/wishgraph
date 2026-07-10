@@ -6,6 +6,16 @@ Use this guide when introducing WishGraph to an existing project or starting a n
 
 Start with a planning or discussion AI, not an execution AI.
 
+For the lowest-friction setup, say:
+
+```text
+使用 $wishgraph 为当前项目做安全配置。请自动检测系统、Agent、Git 和 Python；缺少依赖时先告诉我安装方式、预计空间和时间，不要直接安装系统依赖。
+```
+
+WishGraph defaults to non-blocking safe hooks. If the user says "只安装 Skill" it skips hooks; if the user says "严格配置" it enables blocking hooks and the Git pre-commit fallback. If the request is unclear, the agent asks only one choice question.
+
+The agent first recommends the best fit rather than showing an unexplained menu. After the user replies "按推荐来", it guides four short stages—choice, prerequisites, installation, verification—and continues automatically. When a dependency or restart requires user action, it provides the reason, rough cost, one recommended action, and an exact resume phrase.
+
 Use the invocation format for your tool:
 
 ```text
@@ -94,9 +104,45 @@ Minimum files:
 - `CONVENTIONS.md`: collaboration rules, validation rules, git rules, and memory update rules.
 - `prompts/DISCUSSION_AI.md`: mutable launch prompt for planning windows.
 - `prompts/EXECUTION_AI.md`: stable launch prompt for execution windows.
+- `prompts/INTEGRATION_AI.md`: stable launch prompt for merging workers and updating shared state.
 - `.tasks/build/NNN-short-slug.md`: self-contained execution task specs.
 - `.tasks/build/001-bootstrap-project.md`: first-use bootstrap task when the project starts from a vague idea.
-- `reports/DEV_REPORT.md`: execution evidence and handoff notes.
+- `reports/RUN_REPORT.md`: template for one immutable report per worker execution.
+- `reports/runs/<work-unit-id>.md`: worker-specific validation and integration proposals.
+- `reports/DEV_REPORT.md`: latest integrated project overview and discussion handoff.
+
+## 2.5. Optionally Enforce Memory Closeout With Hooks
+
+WishGraph can install project-local Codex and Claude Code hooks without replacing unrelated existing hook groups:
+
+The easiest option is to tell the agent:
+
+```text
+Use $wishgraph to enable automatic memory sync for this project in safe mode.
+```
+
+The agent selects the current host and installs non-blocking `warn` hooks. No hook parameters need to be learned.
+
+For a first-time command-line installation, add `--setup-project` to install the skill and current-host hooks together:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- codex --setup-project
+```
+
+The lower-level installer remains available for custom paths or dual-host repositories:
+
+```bash
+python3 skills/wishgraph/scripts/install_project_hooks.py \
+  --target /path/to/project \
+  --host all \
+  --mode warn
+```
+
+The hooks check three boundaries: pending state at session start, staged memory before an agent runs `git commit`, and worktree memory before an agent stops. Start in `warn`; switch `.wishgraph/config.json` to `enforce` after one successful closeout. Codex users must trust the project and review the new definitions with `/hooks`.
+
+To switch in one command, re-run the top-level installer with `--setup-project --strict`. Strict mode also requests a Git pre-commit fallback and will not overwrite an existing Git hook.
+
+Hooks do not write PRD, architecture, CODEMAP, or handoff prose. Workers record Integrate or N/A in task-scoped run reports; one integration agent applies shared updates and records Updated or N/A in `reports/DEV_REPORT.md`.
 
 ## 3. Use The Two-Window Workflow
 
@@ -109,6 +155,7 @@ Use it to:
 - Decide the next task boundary.
 - Write `.tasks/build/*.md` execution specs.
 - Read execution reports.
+- Read the latest integrated overview before presenting completed results.
 - Decide the next discussion direction.
 - Capture user dissatisfaction and turn it into a follow-up task or spec update.
 
@@ -130,11 +177,16 @@ Use it to:
 - Read the assigned task spec.
 - Implement only that task.
 - Run validation.
-- Output a Dev Report.
-- Update the external memory files required by the task.
+- Create one immutable `reports/runs/<work-unit-id>.md`.
+- Propose shared-memory updates without editing shared files.
+- Perform the same external-memory closeout for explicitly approved ad-hoc edits that have no task file.
 - Make one atomic commit per task unless the user explicitly says not to commit.
 
 The execution AI should not redesign the feature. If the task spec is wrong, it should stop and report the conflict.
+
+### Integration AI Window
+
+Use `prompts/INTEGRATION_AI.md` after worker branches are ready. It merges without committing, reads all new run reports, resolves conflicts, updates shared memory and the project overview, refreshes the discussion handoff, validates, and creates the integration commit.
 
 After the PRD and first task are ready, open a new execution window and paste:
 
@@ -149,10 +201,11 @@ The normal loop is:
 Human intent
 -> Discussion AI updates PRD / roadmap / current state
 -> Discussion AI writes task spec
--> Execution AI implements task spec
--> Execution AI validates and reports
--> Execution AI updates external memory
--> Discussion AI reads report
+-> Worker AI implements task spec in an isolated branch or worktree
+-> Worker AI validates and creates an immutable run report
+-> Integration AI merges without committing and updates shared memory
+-> Integration AI updates DEV_REPORT and discussion handoff
+-> Discussion AI receives the summary on next start/resume and presents it
 -> Human decides next direction or correction
 ```
 
@@ -167,7 +220,7 @@ If a single execution result is unsatisfactory, keep the correction in the discu
 
 ## 5. External Memory Must Stay Current
 
-Any agent window must update external memory when it learns something that changes project truth.
+Workers review shared-memory impact but do not edit shared project truth. They record Integrate or N/A in their own run report. The integration agent applies the proposals, updates shared files, and records Updated or N/A in the project overview.
 
 Update these files when relevant:
 
@@ -177,7 +230,9 @@ Update these files when relevant:
 - `CONVENTIONS.md`: workflow rules, validation rules, git rules, memory update obligations.
 - `prompts/DISCUSSION_AI.md`: current progress, active task, next likely task, open decisions, known risks.
 - `.tasks/build/*.md`: task status and execution-relevant corrections.
-- `reports/DEV_REPORT.md`: what was done, validation evidence, residual risk, next handoff.
+- `reports/runs/<work-unit-id>.md`: worker facts, validation, risk, and integration proposals.
+- `reports/DEV_REPORT.md`: latest integrated results, validation summary, residual risk, and next handoff.
+- `.wishgraph/config.json`: hook mode and machine-readable closeout paths when hooks are installed.
 
 If an agent cannot update a required file, it must say so and provide the exact text that should be added.
 
@@ -208,3 +263,4 @@ WishGraph is working when:
 - Every completed task leaves validation evidence.
 - PRD, architecture, CODEMAP, prompts, task status, and reports stay synchronized.
 - The user can correct direction in the discussion window and have that correction become durable project memory.
+- When hooks are enabled, an unsynchronized commit or completion boundary is detected before the work is reported as done.

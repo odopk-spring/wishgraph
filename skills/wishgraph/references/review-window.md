@@ -37,7 +37,15 @@ Use this format for human-facing summaries.
 ## Risk
 - Residual risk:
 - Follow-up:
+
+## External Memory
+- Run report:
+- Integrate proposals:
+- N/A with reasons:
+- Hook check:
 ```
+
+After integration, replace the run-report proposal lines with integrated report paths, shared files Updated or N/A, and whether the discussion handoff was refreshed.
 
 ## Rules
 

@@ -13,7 +13,7 @@ It should answer:
 - Which files, symbols, APIs, routes, tests, or commands are in scope?
 - What must not be changed?
 - How will the result be verified?
-- Which external-memory files must be updated?
+- Which shared-memory files should the integration agent update?
 - What is the rollback boundary?
 - Which language mode should human-facing explanations and reports use?
 
@@ -48,7 +48,9 @@ Before handing a task to execution AI, confirm:
 - The "Change Set" anchors stable files or symbols.
 - The "Do Not Do" section prevents likely scope drift.
 - The validation commands are concrete.
-- PRD, architecture, CODEMAP, discussion prompt, report, and commit requirements are explicit.
+- The unique immutable run-report path and commit requirements are explicit.
+- The worker report must record Integrate or N/A with a reason for every managed shared-memory file.
+- The WishGraph worktree memory check is explicit when project hooks are installed.
 - The language mode is explicit when the project uses bilingual handoff.
 
 ## Compact Example
@@ -60,6 +62,7 @@ Status: Pending
 Spec source: `PRD.md` "Now" roadmap says dashboard first paint must not wait on auth refresh.
 Dependencies: None.
 Language mode: English.
+Run report: `reports/runs/012-dashboard-token-refresh.md`
 
 ## Intent
 
@@ -99,10 +102,9 @@ Dashboard should render cached account data immediately. Token refresh should ru
 - [ ] `npm test -- dashboard`
 - [ ] `npm test -- auth`
 - [ ] Manual check: dashboard shows cached account data while simulated refresh is pending.
-- [ ] `PRD.md` progress updated if this completes the roadmap item.
-- [ ] `CODEMAP.md` updated if anchors or status changed.
-- [ ] `reports/DEV_REPORT.md` updated with test output.
-- [ ] `prompts/DISCUSSION_AI.md` current progress and next task updated.
+- [ ] `reports/runs/012-dashboard-token-refresh.md` created with test evidence.
+- [ ] Shared-memory impact records Integrate or N/A with reasons; worker does not edit shared memory.
+- [ ] `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` passes when hooks are installed.
 - [ ] One atomic commit created unless user explicitly says not to commit.
 
 ## Rollback Boundary
@@ -111,7 +113,7 @@ Revert this task's single commit to restore previous dashboard refresh timing.
 
 ## Execution Report Requirements
 
-Report changed files, tests run, manual check result, memory updates, commit hash, and any remaining risk.
+Report changed files, tests run, manual check result, run report path, integration proposals, commit hash, and remaining risk.
 ```
 
 ## Why This Example Works
@@ -120,5 +122,6 @@ Report changed files, tests run, manual check result, memory updates, commit has
 - It separates intent from implementation notes.
 - It includes the existing state and test surface.
 - It blocks obvious scope drift.
-- It makes validation and memory updates mandatory.
+- It makes validation and integration proposals mandatory without creating shared-file races.
+- It makes memory-impact decisions mechanically checkable without forcing meaningless file edits.
 - It can become one atomic commit.

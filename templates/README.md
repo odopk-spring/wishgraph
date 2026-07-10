@@ -4,6 +4,8 @@ This folder provides manually copyable WishGraph project-memory templates.
 
 本目录提供可手动复制的 WishGraph 项目外置记忆模板。
 
+Project-level memory-sync hooks are bundled with the installable skill rather than duplicated here. Use `skills/wishgraph/scripts/install_project_hooks.py` to merge them safely into a target project. Hooks 项目级记忆同步配置由可安装 skill 提供，请使用安装器安全合并，不要手工覆盖已有配置。
+
 ## English
 
 Use the root templates directly:
@@ -15,8 +17,11 @@ CODEMAP.md
 CONVENTIONS.md
 prompts/DISCUSSION_AI.md
 prompts/EXECUTION_AI.md
+prompts/INTEGRATION_AI.md
 .tasks/build/*.md
 reports/DEV_REPORT.md
+reports/RUN_REPORT.md
+reports/runs/<work-unit-id>.md
 ```
 
 ## 中文
@@ -36,8 +41,11 @@ CODEMAP.md
 CONVENTIONS.md
 prompts/DISCUSSION_AI.md
 prompts/EXECUTION_AI.md
+prompts/INTEGRATION_AI.md
 .tasks/build/*.md
 reports/DEV_REPORT.md
+reports/RUN_REPORT.md
+reports/runs/<work-unit-id>.md
 ```
 
 ## Bilingual Projects / 双语项目

@@ -3,6 +3,7 @@
 Status: Example
 Spec source: `PRD.md` "Now" roadmap says dashboard first paint must not wait on auth refresh.
 Dependencies: None.
+Run report: `reports/runs/012-dashboard-token-refresh.md`
 
 ## Intent
 
@@ -42,10 +43,9 @@ Dashboard should render cached account data immediately. Token refresh should ru
 - [ ] `npm test -- dashboard`
 - [ ] `npm test -- auth`
 - [ ] Manual check: dashboard shows cached account data while simulated refresh is pending.
-- [ ] `PRD.md` progress updated if this completes the roadmap item.
-- [ ] `CODEMAP.md` updated if anchors or status changed.
-- [ ] `reports/DEV_REPORT.md` updated with test output.
-- [ ] `prompts/DISCUSSION_AI.md` current progress and next task updated.
+- [ ] `reports/runs/012-dashboard-token-refresh.md` created with test evidence.
+- [ ] PRD, CODEMAP, and discussion-state impact recorded as Integrate or N/A; shared files not edited by the worker.
+- [ ] WishGraph worktree memory check passes when hooks are installed.
 - [ ] One atomic commit created unless user explicitly says not to commit.
 
 ## Rollback Boundary
@@ -54,4 +54,4 @@ Revert this task's single commit to restore previous dashboard refresh timing.
 
 ## Execution Report Requirements
 
-Report changed files, tests run, manual check result, memory updates, commit hash, and any remaining risk.
+Report changed files, tests run, manual check result, run report path, integration proposals, commit hash, and remaining risk.

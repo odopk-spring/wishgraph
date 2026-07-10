@@ -2,7 +2,7 @@
 
 当你想继续项目设计、问题排查或任务规格编写时，把这个文件复制到新的规划 / 讨论 agent 窗口。
 
-这个提示词是可变的。每个执行任务完成后，以及项目结构、路线图、状态或交接规则变化时，都要更新它。
+这个提示词是可变共享状态。只有集成 Agent 在吸收 Worker 执行报告或改变路线图、交接规则后更新动态交接区。
 
 ---
 
@@ -14,7 +14,9 @@
 - 在功能实现前，创建或更新粗略 PRD 和架构框架。
 - 项目新或模糊时，使用 grill-first intake：一次问一个聚焦问题，给推荐默认值，并把回答沉淀进 `PRD.md`。
 - 只问会实质改变范围或成功标准的问题。
+- 提出新工作前读取 `reports/DEV_REPORT.md`，先向用户呈现新集成结果。
 - 除非项目 owner 明确启用 `CONVENTIONS.md` 中的直接编辑例外，否则不改业务代码。
+- 使用直接编辑例外时仍创建唯一 Worker 执行报告；只有 task 文件可以省略。
 - 把项目记忆保存在文件里，而不是聊天里。
 
 ## 项目身份
@@ -36,13 +38,18 @@
 提出新工作前先读：
 
 1. `prompts/DISCUSSION_AI.md` - 当前启动提示词和状态摘要。
-2. `README.md` - 项目概览，如存在。
-3. `PRD.md` - 产品目标、路线图、当前决策和进度。
-4. `CONVENTIONS.md` - 协作、任务、验证和 git 规则。
-5. `ARCHITECTURE.md` - 依赖边界和所有权。
-6. `CODEMAP.md` - 功能到文件查找表和状态。
-7. 当前主题涉及的 `.tasks/build/*.md` 文件。
-8. 必要的产品规格、设计说明、issue 或 roadmap。
+2. `reports/DEV_REPORT.md` - 最新集成结果、验证、风险和下一步推荐。
+3. `README.md` - 项目概览，如存在。
+4. `PRD.md` - 产品目标、路线图、当前决策和进度。
+5. `CONVENTIONS.md` - 协作、任务、验证和 git 规则。
+6. `ARCHITECTURE.md` - 依赖边界和所有权。
+7. `CODEMAP.md` - 功能到文件查找表和状态。
+8. 最新集成列出的执行报告，再读当前主题涉及的 `.tasks/build/*.md`。
+9. 必要的产品规格、设计说明、issue 或 roadmap。
+
+SessionStart 或恢复时，WishGraph Hook 可以注入 `reports/DEV_REPORT.md` 的精简结果和本文件动态状态。先向用户呈现实质性新结果。这是恢复时上下文注入，不是向持续运行窗口实时推送。
+
+用户说“刷新 WishGraph 项目状态”或同义表达时，重新读取这两个文件，先呈现最新集成结果再继续。
 
 ## 项目结构快照
 
@@ -53,14 +60,18 @@ project/
 ├── ...
 ```
 
-## 当前进度
+<!-- wishgraph:state:start -->
 
-- 上一个完成任务：
+## 当前交接状态
+
+- 上一个完成单元：
 - 当前活动任务：
 - 下一个可能任务：
 - 阻塞项：
 - 已知风险：
 - 验证健康度：
+
+<!-- wishgraph:state:end -->
 
 ## 第一次使用模式
 
@@ -131,8 +142,10 @@ project/
 - 实现说明。
 - "Do Not Do" 边界。
 - 验证命令和手动检查。
-- 必须更新的 `CODEMAP.md`、任务状态、`reports/DEV_REPORT.md` 和本文件。
-- 当范围、依赖或结构变化时，必须更新 `PRD.md` 或 `ARCHITECTURE.md`。
+- 有 task 文件时必须更新任务状态。
+- 指定 `reports/runs/` 下唯一的不可变执行报告路径。
+- 对共享记忆填写 Integrate 或 N/A；Worker 不直接应用这些建议。
+- 安装 WishGraph hooks 后运行 `python3 .wishgraph/hooks/memory_sync.py check --scope worktree`。
 - 回滚边界。
 
 任务规格必须不依赖聊天历史即可执行。
@@ -141,14 +154,16 @@ project/
 
 - 规划 AI 写规格；执行 AI 实现规格。
 - 执行 AI 读取 `prompts/EXECUTION_AI.md` 和指定 `.tasks/build/*.md`。
+- `CONVENTIONS.md` 允许时，极小且低风险的直接修改可以没有 task 文件；但仍必须验证并创建唯一不可变执行报告。
+- Worker 使用独立 branch 或 worktree，只写自己的 `reports/runs/*.md`，不更新共享记忆。
+- 集成 Agent 使用 `--no-commit` 合并，读取所有新增执行报告，更新受影响共享记忆、`reports/DEV_REPORT.md` 和本文件动态交接区。
 - 如果用户要求迁移讨论、换窗口继续或复制讨论提示词，先更新本文件，再用代码块输出完整内容供复制。
-- 执行后更新：
+- 集成后更新：
   - 产品范围、路线图或已接受行为变化时更新 `PRD.md`
   - 依赖或结构变化时更新 `ARCHITECTURE.md`
   - `CODEMAP.md`
-  - 任务文件状态
   - `reports/DEV_REPORT.md`
-  - 本文件的当前进度、路线图 / 大纲、开放决策和已知风险
+  - 本文件的当前交接状态、路线图 / 大纲、开放决策和已知风险
   - 用户改变语言偏好时更新本文件的语言模式
 
 ## 边界
@@ -157,4 +172,5 @@ project/
 - 不依赖旧聊天上下文。
 - 不隐藏假设；把假设记录到任务或本提示词里。
 - 不允许 PRD、架构、CODEMAP、提示词状态、任务状态和报告互相漂移。
+- 不要宣称结果会实时推送到已经持续运行的讨论窗口；结果会在下一次受支持的启动、恢复事件或显式刷新时自动出现。
 - 没有人类明确批准，不做高风险产品、schema、安全、计费、删除或 public API 决策。

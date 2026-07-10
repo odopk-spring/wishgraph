@@ -1,0 +1,45 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.wishgraph/hooks/memory_sync.py\" session-start",
+            "commandWindows": "powershell -NoProfile -Command \"$root = git rev-parse --show-toplevel; py -3 (Join-Path $root '.wishgraph/hooks/memory_sync.py') session-start\"",
+            "timeout": 30,
+            "statusMessage": "Checking WishGraph handoff state"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.wishgraph/hooks/memory_sync.py\" pre-tool-use",
+            "commandWindows": "powershell -NoProfile -Command \"$root = git rev-parse --show-toplevel; py -3 (Join-Path $root '.wishgraph/hooks/memory_sync.py') pre-tool-use\"",
+            "timeout": 30,
+            "statusMessage": "Checking WishGraph memory sync"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.wishgraph/hooks/memory_sync.py\" stop",
+            "commandWindows": "powershell -NoProfile -Command \"$root = git rev-parse --show-toplevel; py -3 (Join-Path $root '.wishgraph/hooks/memory_sync.py') stop\"",
+            "timeout": 30,
+            "statusMessage": "Verifying WishGraph closeout"
+          }
+        ]
+      }
+    ]
+  }
+}

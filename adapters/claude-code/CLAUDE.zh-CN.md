@@ -23,15 +23,18 @@
 4. `CONVENTIONS.md`
 5. 规划 session 阅读 `prompts/DISCUSSION_AI.md`
 6. 执行 session 阅读 `prompts/EXECUTION_AI.md` 和指定 `.tasks/build/*.md`
-7. `reports/DEV_REPORT.md` 读取上一次交接
+7. `reports/DEV_REPORT.md` 读取最新集成交接
 
 ## 协作规则
 
 - 规划 session 写 PRD、架构说明、代码地图、提示词和任务规格。
 - 执行 session 只实现已批准任务规格。
 - 任务规格必须自包含；不要依赖聊天历史。
-- 项目事实变化时更新外置记忆。
-- 每个完成的执行任务优先对应一个原子 commit。
+- Worker session 使用独立 branch 或 worktree，创建一个不可变的 `reports/runs/<work-unit-id>.md`，填写 Integrate 或 N/A 建议，不修改共享记忆。
+- 集成 session 使用 `--no-commit` 合并，更新受影响共享记忆、`reports/DEV_REPORT.md` 和 `prompts/DISCUSSION_AI.md` 动态交接状态。
+- SessionStart 可以向新建或恢复 session 注入最新集成结果；这不是向持续运行窗口实时推送。
+- 每个完成的执行单元优先对应一个原子 commit。极小且已批准的 ad-hoc 修改可以没有 task 文件，但不能省略收尾。
+- 存在 `.wishgraph/hooks/memory_sync.py` 时，宣称完成前运行 worktree 检查。
 
 ## 交接
 

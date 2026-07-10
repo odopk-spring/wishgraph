@@ -46,8 +46,19 @@ prompts/DISCUSSION_AI.md
 prompts/EXECUTION_AI.md
 .tasks/build/*.md
 reports/DEV_REPORT.md
+reports/RUN_REPORT.md
+reports/runs/<work-unit-id>.md
 ```
 
 ## 工具无关规则
 
 不要依赖某个聊天产品。稳定协议是上面的文件集。任何能读写文件的 agent，只要遵守规划 / 执行分工，就可以参与。
+
+安装 WishGraph hook runtime 后，通用 Agent 可以直接运行确定性检查：
+
+```bash
+python3 .wishgraph/hooks/memory_sync.py check --scope worktree
+python3 .wishgraph/hooks/memory_sync.py check --scope staged
+```
+
+安装方式和可选 Git pre-commit 强制策略见 [`docs/memory-sync-hooks.zh-CN.md`](../../docs/memory-sync-hooks.zh-CN.md)。

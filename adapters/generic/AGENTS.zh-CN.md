@@ -42,8 +42,11 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - `CONVENTIONS.md`：协作规则、验证顺序、git 规则、记忆更新规则。
 - `prompts/DISCUSSION_AI.md`：当前规划提示词和交接状态。
 - `prompts/EXECUTION_AI.md`：稳定执行提示词。
+- `prompts/INTEGRATION_AI.md`：稳定集成提示词和共享状态单写者规则。
 - `.tasks/build/*.md`：自包含执行任务规格。
-- `reports/DEV_REPORT.md`：执行证据和下次交接。
+- `reports/RUN_REPORT.md`：Worker 报告模板。
+- `reports/runs/*.md`：不可变 Worker 执行证据。
+- `reports/DEV_REPORT.md`：最新集成项目概览和下次交接。
 
 ## 规划 Agent
 
@@ -51,6 +54,7 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - 实现前更新 PRD 和架构。
 - 编写自包含任务规格。
 - 除非用户明确批准低风险直接编辑，否则不改业务代码。
+- 极小直接修改可以没有 task 文件，但仍必须验证、创建唯一执行报告，并遵守正常 commit 边界。
 - 用户要求迁移讨论时，更新 `prompts/DISCUSSION_AI.md` 并输出完整提示词供复制。
 
 ## 执行 Agent
@@ -59,8 +63,17 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - 只实现已批准任务。
 - 保持 patch 最小、可回滚。
 - 运行任务列出的验证。
-- 更新 `CODEMAP.md`、任务状态、`reports/DEV_REPORT.md` 和 `prompts/DISCUSSION_AI.md`。
+- 更新任务状态并新增一个不可变的 `reports/runs/<work-unit-id>.md`。
+- 填写 Integrate 或 N/A 建议，不直接修改共享项目记忆。
+- 存在 `.wishgraph/hooks/memory_sync.py` 时，完成前运行 worktree 检查。
 - 除非用户明确说不提交，否则创建一个原子 commit。
+
+## 集成 Agent
+
+- 从独立 branch 或 worktree 使用 `--no-commit` 合并 Worker。
+- 读取全部新增执行报告并更新受影响共享项目记忆。
+- 作为共享状态单写者更新 `reports/DEV_REPORT.md` 和 `prompts/DISCUSSION_AI.md`。
+- 新建或恢复的讨论 session 可以从 SessionStart 收到精简集成结果；持续运行窗口需要显式刷新。
 
 ## 好的任务规格
 

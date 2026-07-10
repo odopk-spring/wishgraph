@@ -11,6 +11,7 @@ Status: Pending
 Spec source:
 Dependencies:
 Language mode:
+Run report: `reports/runs/NNN-short-slug.md`
 
 ## Intent
 
@@ -30,9 +31,10 @@ Language mode:
 - [ ] Build:
 - [ ] Tests:
 - [ ] Manual:
-- [ ] CODEMAP updated:
-- [ ] Dev Report updated:
-- [ ] `prompts/DISCUSSION_AI.md` language mode updated if preference changed:
+- [ ] Exactly one new immutable run report created:
+- [ ] Shared-memory impact records Integrate or N/A with reasons:
+- [ ] Worker did not edit shared project memory:
+- [ ] WishGraph worktree memory check passes when hooks are installed:
 
 ## Rollback Boundary
 

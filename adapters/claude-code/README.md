@@ -24,7 +24,13 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 Then restart Claude Code if needed and run:
 
 ```text
-/wishgraph start this project from my rough idea
+/wishgraph recommend the best installation for this project, let me choose in natural language, then continue through prerequisites, setup, and verification
+```
+
+On Windows PowerShell, use the native installer:
+
+```powershell
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
 ```
 
 For bilingual Chinese and English handoff, add:
@@ -57,7 +63,26 @@ Copy this adapter's `CLAUDE.md` into the target project root or merge it into an
 cp adapters/claude-code/CLAUDE.md /path/to/project/CLAUDE.md
 ```
 
-Use `CLAUDE.md` for always-loaded project rules. Keep large task procedures in the `/wishgraph` skill and in WishGraph project files such as `PRD.md`, `CODEMAP.md`, `.tasks/build/*.md`, and `reports/DEV_REPORT.md`.
+Use `CLAUDE.md` for always-loaded project rules. Keep large task procedures in the `/wishgraph` skill and in WishGraph project files such as `PRD.md`, `CODEMAP.md`, `.tasks/build/*.md`, `reports/runs/*.md`, and `reports/DEV_REPORT.md`.
+
+## Install Project Memory-Sync Hooks
+
+The lowest-learning-cost option is to ask:
+
+```text
+/wishgraph 为这个项目推荐合适的 Hooks 配置，让我用自然语言选择，然后继续配置到验证完成
+```
+
+For a manual warning-mode installation:
+
+```bash
+python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
+  --target /path/to/project \
+  --host claude \
+  --mode warn
+```
+
+This safely merges `SessionStart`, `PreToolUse`, `Stop`, and `TaskCompleted` groups into `.claude/settings.json`. Switch `.wishgraph/config.json` to `enforce` after a successful closeout. See [`docs/memory-sync-hooks.md`](../../docs/memory-sync-hooks.md).
 
 ## Recommended Claude Code Flow
 
@@ -78,11 +103,15 @@ Use `CLAUDE.md` for always-loaded project rules. Keep large task procedures in t
    CONVENTIONS.md
    prompts/DISCUSSION_AI.md
    prompts/EXECUTION_AI.md
+   prompts/INTEGRATION_AI.md
    .tasks/build/*.md
+   reports/RUN_REPORT.md
    reports/DEV_REPORT.md
    ```
 
 3. Open a fresh execution session and paste the execution prompt plus the approved task file, or invoke `/wishgraph` again and ask it to follow the assigned task exactly.
+
+   An explicitly approved tiny ad-hoc edit may omit the task file, but it still creates a unique immutable run report. An integration session later updates shared memory and the project overview.
 
 4. If the discussion session must move, ask:
 

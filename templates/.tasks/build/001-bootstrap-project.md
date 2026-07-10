@@ -26,7 +26,9 @@ Create the first durable project frame before feature implementation. This task 
 | `prompts/DISCUSSION_AI.md` | Current handoff | Store the current discussion state, open decisions, and next likely task. |
 | `prompts/EXECUTION_AI.md` | Execution handoff | Store the stable prompt for execution windows. |
 | `.tasks/build/002-first-slice.md` | First implementation task | Write the first bounded implementation task after PRD approval. |
-| `reports/DEV_REPORT.md` | Bootstrap report | Record created files, assumptions, and unrun validation. |
+| `reports/runs/001-bootstrap-project.md` | Bootstrap run report | Record created files, assumptions, validation, and shared-memory proposals. |
+| `reports/DEV_REPORT.md` | Initial project overview | Summarize the bootstrap as the first integration snapshot. |
+| `.wishgraph/` and host hook config | Optional closeout enforcement | When the owner requests hooks, install them in `warn` mode without replacing existing hook groups. |
 
 ## Implementation Notes
 
@@ -34,6 +36,7 @@ Create the first durable project frame before feature implementation. This task 
 - Keep the first implementation task small enough for one atomic commit.
 - Include "Do Not Do" boundaries in the first implementation task.
 - If the repository is empty, map planned files instead of pretending they exist.
+- When hooks are requested, use the bundled installer and tell Codex users to review project hooks with `/hooks`.
 
 ## Do Not Do
 
@@ -47,8 +50,10 @@ Create the first durable project frame before feature implementation. This task 
 - [ ] `PRD.md` has target user, goals, non-goals, first slice, and acceptance standards.
 - [ ] `prompts/DISCUSSION_AI.md` can be copied into a new discussion window.
 - [ ] `prompts/EXECUTION_AI.md` plus `.tasks/build/002-first-slice.md` can be copied into a new execution window.
-- [ ] `reports/DEV_REPORT.md` records what was created and what remains unknown.
+- [ ] `reports/runs/001-bootstrap-project.md` records what was created and what remains unknown.
+- [ ] `reports/DEV_REPORT.md` lists the bootstrap run report and summarizes the initial integrated state.
 - [ ] `prompts/DISCUSSION_AI.md` records the project language mode.
+- [ ] If hooks were requested, `.wishgraph/config.json` uses `warn` initially and the direct worktree check runs.
 - [ ] One atomic commit created unless the user explicitly says not to commit.
 
 ## Rollback Boundary

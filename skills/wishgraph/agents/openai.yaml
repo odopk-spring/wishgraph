@@ -1,4 +1,4 @@
 interface:
   display_name: "WishGraph"
-  short_description: "Grill ideas into auditable project specs"
-  default_prompt: "Use $wishgraph to grill my project idea into a PRD in my preferred language, then create the WishGraph handoff files."
+  short_description: "Set up auditable AI project memory"
+  default_prompt: "Use $wishgraph to guide setup for this project, recommend the safest fitting option, accept my natural-language choice, and continue until installation is verified."

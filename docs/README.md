@@ -23,3 +23,8 @@ This folder contains public-facing method notes and workflow explanations for Wi
 
 - English: [`paperchat-desensitized-workflow.md`](paperchat-desensitized-workflow.md)
 - 中文：[`paperchat-desensitized-workflow.zh-CN.md`](paperchat-desensitized-workflow.zh-CN.md)
+
+## External-Memory Hooks / 外置记忆 Hooks
+
+- English: [`memory-sync-hooks.md`](memory-sync-hooks.md)
+- 中文：[`memory-sync-hooks.zh-CN.md`](memory-sync-hooks.zh-CN.md)

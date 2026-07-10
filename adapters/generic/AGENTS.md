@@ -42,8 +42,11 @@ Create or update:
 - `CONVENTIONS.md`: collaboration rules, validation order, git rule, memory update rule.
 - `prompts/DISCUSSION_AI.md`: current planning prompt and handoff state.
 - `prompts/EXECUTION_AI.md`: stable execution prompt.
+- `prompts/INTEGRATION_AI.md`: stable integration prompt and shared-state single-writer rules.
 - `.tasks/build/*.md`: self-contained execution task specs.
-- `reports/DEV_REPORT.md`: execution evidence and next handoff.
+- `reports/RUN_REPORT.md`: worker-report template.
+- `reports/runs/*.md`: immutable worker execution evidence.
+- `reports/DEV_REPORT.md`: latest integrated project overview and next handoff.
 
 ## Planning Agent
 
@@ -51,6 +54,7 @@ Create or update:
 - Update PRD and architecture before implementation.
 - Write self-contained task specs.
 - Do not change business code unless the user explicitly approves a tiny direct edit.
+- A tiny direct edit may omit a task file, but it still requires validation, a unique run report, and the normal commit boundary.
 - If the user asks to migrate discussion, update `prompts/DISCUSSION_AI.md` and output the full prompt for copying.
 
 ## Execution Agent
@@ -59,8 +63,17 @@ Create or update:
 - Implement only the approved task.
 - Keep the patch minimal and reversible.
 - Run validation listed in the task.
-- Update `CODEMAP.md`, task status, `reports/DEV_REPORT.md`, and `prompts/DISCUSSION_AI.md`.
+- Update task status and create one new immutable `reports/runs/<work-unit-id>.md`.
+- Record Integrate or N/A proposals; do not edit shared project memory.
+- If `.wishgraph/hooks/memory_sync.py` exists, run its worktree check before completion.
 - Create one atomic commit unless the user explicitly says not to.
+
+## Integration Agent
+
+- Merge workers from separate branches or worktrees with `--no-commit`.
+- Read all new run reports and update affected shared project memory.
+- Update `reports/DEV_REPORT.md` and `prompts/DISCUSSION_AI.md` as the single shared-state writer.
+- New or resumed discussion sessions may receive a concise integrated-result summary from SessionStart; continuously running windows need an explicit refresh.
 
 ## Good Task Spec
 

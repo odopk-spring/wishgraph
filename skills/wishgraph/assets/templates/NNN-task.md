@@ -4,6 +4,7 @@ Status: Pending
 Spec source: Link or summarize the approved requirement.
 Dependencies: List required prior tasks, migrations, or decisions.
 Language mode: Follow `prompts/DISCUSSION_AI.md` unless this task explicitly overrides it.
+Run report: `reports/runs/NNN-short-slug.md`
 
 ## Intent
 
@@ -36,12 +37,10 @@ Summarize the relevant repo facts discovered from files, tests, logs, or docs.
 - [ ] Build: `<command>`
 - [ ] Tests: `<command or test names>`
 - [ ] Manual check: `<scenario>`
-- [ ] `PRD.md` updated if product scope, roadmap, accepted behavior, or progress changed.
-- [ ] `ARCHITECTURE.md` updated if dependencies, structure, data flow, or ownership changed.
-- [ ] `CODEMAP.md` updated if files, symbols, contracts, or status changed.
-- [ ] `reports/DEV_REPORT.md` updated with evidence.
-- [ ] `prompts/DISCUSSION_AI.md` current progress and next-task state updated.
-- [ ] `prompts/DISCUSSION_AI.md` language mode updated if preference changed.
+- [ ] Exactly one new immutable run report created at the path above.
+- [ ] Run report records Integrate or N/A with a reason for every shared-memory file.
+- [ ] Worker did not modify shared project memory or `reports/DEV_REPORT.md`.
+- [ ] `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` passes when hooks are installed.
 - [ ] One atomic commit created for this task, unless the user explicitly requested no commit.
 - [ ] No unrelated diffs staged.
 
@@ -57,4 +56,5 @@ The final report must include:
 - Behavior changed.
 - Validation commands and results.
 - Risks or checks not run.
+- Run report path, Integrate proposals, and N/A reasons.
 - Any follow-up task candidates.

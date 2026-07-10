@@ -16,8 +16,9 @@ Responsibilities:
 - For a new or vague project, start with one question about the user's idea and grill one decision at a time before writing implementation tasks.
 - Ask only for decisions that materially change scope.
 - Write self-contained task specs in `.tasks/build/`.
-- Do not change business code unless the task is explicitly a trivial direct-edit exception.
-- Keep `prompts/DISCUSSION_AI.md` updated when roadmap, progress, status, or handoff rules change.
+- Do not change business code unless the project owner explicitly approves a trivial direct-edit exception.
+- A direct-edit exception may omit a task file, but not validation, a unique run report, or the normal commit boundary.
+- Read `reports/DEV_REPORT.md` before presenting integrated execution results.
 
 ### Execution Agent
 
@@ -26,11 +27,24 @@ The execution agent implements approved task specs.
 Responsibilities:
 
 - Start from `prompts/EXECUTION_AI.md` and the specific task file.
-- Treat the task file as the only requirement source.
+- Treat the task file as the only formal requirement source. For an explicitly approved direct edit, treat the bounded user instruction as the requirement source.
 - Keep the patch minimal and scoped.
 - Run the validation commands listed in the task.
-- Update `CODEMAP.md`, task status, `reports/DEV_REPORT.md`, and the current progress section of `prompts/DISCUSSION_AI.md`.
+- Update task status when present and create exactly one new immutable `reports/runs/<work-unit-id>.md`.
+- Record `Integrate` or `N/A` proposals for shared memory. Do not edit `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, `CONVENTIONS.md`, `reports/DEV_REPORT.md`, or any prompt file.
 - Create one atomic commit per completed task unless the project owner explicitly says not to commit.
+
+### Integration Agent
+
+The integration agent is the single writer for shared project state.
+
+Responsibilities:
+
+- Merge worker branches with `--no-commit` or use an equivalent no-commit cherry-pick so new run reports and code remain visible in one integration diff.
+- Read every new `reports/runs/*.md` report before resolving conflicts.
+- Update affected shared memory, `reports/DEV_REPORT.md`, and the dynamic state in `prompts/DISCUSSION_AI.md`.
+- List every absorbed run report in `reports/DEV_REPORT.md`.
+- Run integration validation and create the integration commit.
 
 ## Task File Rules
 
@@ -42,7 +56,7 @@ Responsibilities:
 
 ## Launch Prompt Files
 
-- `prompts/DISCUSSION_AI.md` is mutable. It stores the project structure, outline, current progress, open decisions, handoff rules, and task-spec writing rules. Update it after every completed execution task.
+- `prompts/DISCUSSION_AI.md` is mutable shared state. The integration agent updates it after absorbing completed worker reports.
 - `prompts/EXECUTION_AI.md` is stable. It tells an execution agent how to start, what files to read, and how to verify. Do not pack task-specific requirements into it; those belong in `.tasks/build/*.md`.
 - Users should be able to paste either prompt into any agent interface and get a coherent continuation without relying on previous chat context.
 - Keep project memory in the language chosen by the user. If bilingual output is requested, write key user-facing explanations in Chinese first, then English. Do not translate file paths, commands, code identifiers, symbols, routes, package names, or environment variables.
@@ -50,14 +64,25 @@ Responsibilities:
 
 ## External Memory Update Rule
 
-Any agent window must update external memory when it learns something that changes project truth.
+Worker agents propose shared-memory impact in their own immutable run report. Integration agents apply those proposals and update shared project truth.
 
 - Update `PRD.md` when product goals, scope, roadmap, user-visible behavior, accepted tradeoffs, or current progress changes.
 - Update `ARCHITECTURE.md` when dependencies, module ownership, service boundaries, data flow, or framework choices change.
 - Update `CODEMAP.md` when feature status, file locations, public contracts, runtime probes, or validation surfaces change.
-- Update `prompts/DISCUSSION_AI.md` after every completed execution task so a new planning window can resume.
-- Update `.tasks/build/*.md` and `reports/DEV_REPORT.md` after execution.
+- Update the dynamic handoff state in `prompts/DISCUSSION_AI.md` after integrating one or more completed execution units so a new or resumed planning window can receive the result.
+- Update `.tasks/build/*.md` in the worker branch when a task file exists.
+- Add one `reports/runs/<work-unit-id>.md` file after every formal or ad-hoc worker execution. Never overwrite an earlier run report.
+- Update `reports/DEV_REPORT.md` only during integration.
 - If an agent cannot update a required file, it must report the exact text that should be added.
+
+## Memory Sync Hooks
+
+- Project-local hooks may enforce this closeout through `.wishgraph/config.json`, `.codex/hooks.json`, and `.claude/settings.json`.
+- Hooks inspect and block; they do not invent semantic PRD, architecture, CODEMAP, or handoff content.
+- Before completion or commit, run `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` when hooks are installed.
+- Worker run reports use `Integrate` or `N/A`. Integration overviews use `Updated` or `N/A`.
+- Ad-hoc work does not require a task file, but it needs a unique run-report ID.
+- On session start or resume, hooks may inject the latest integrated results and discussion handoff as read-only context. This is not a live push to an already-running window.
 
 ## Validation
 
@@ -72,6 +97,8 @@ Every execution task must state:
 ## Git
 
 - One completed execution task should produce one atomic commit unless the project owner explicitly says not to commit.
+- Parallel workers must use separate branches or worktrees and unique work-unit IDs.
+- Only the integration agent updates shared memory. Do not resolve this rule by letting workers race on the same files.
 - Do not stage unrelated user changes.
 - Do not rewrite history unless the project owner explicitly asks.
 - Keep commit messages understandable to a future reviewer.
@@ -101,3 +128,4 @@ A planning agent may directly edit only when all are true:
 - The risk is low.
 - The project owner explicitly accepts direct edit.
 - The change does not alter public interfaces, persistent schema, security behavior, billing, data deletion, or architecture boundaries.
+- The agent performs the normal validation and external-memory closeout before finishing.
