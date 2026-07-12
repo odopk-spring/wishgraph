@@ -21,7 +21,7 @@ from typing import Any, Optional
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "version": 2,
+    "version": 3,
     "mode": "enforce",
     "paths": {
         "prd": "PRD.md",
@@ -56,6 +56,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     ],
     "allow_noop_with_reason": True,
     "require_discussion_update_for_substantive_changes": True,
+    "scan_worker_refs_for_status": True,
     "inject_project_summary_on_session_start": True,
     "session_summary_max_chars": 2000,
 }
@@ -65,6 +66,19 @@ ACCEPTED_REPORT_STATUSES = {"completed", "blocked", "incomplete", "done"}
 UPDATED_STATUSES = {"updated", "yes"}
 INTEGRATE_STATUSES = {"integrate", "needs integration", "review", "proposed"}
 NOOP_STATUSES = {"n/a", "na", "not applicable", "no"}
+WORK_TYPES = {"discussion", "sequential", "parallel_batch", "high_risk"}
+READY_STATUSES = {"ready", "safe to integrate", "integration ready", "就绪", "可集成"}
+BLOCKED_READINESS = {
+    "blocked",
+    "needs decision",
+    "requires decision",
+    "not ready",
+    "阻塞",
+    "需要决定",
+    "未就绪",
+}
+PASS_RESULTS = {"pass", "passed", "ok", "n/a", "na", "not applicable", "通过", "不适用"}
+FAIL_RESULTS = {"fail", "failed", "not run", "error", "失败", "未运行", "错误"}
 STATE_BLOCK_RE = re.compile(
     r"<!--\s*wishgraph:state:start\s*-->(.*?)<!--\s*wishgraph:state:end\s*-->",
     re.IGNORECASE | re.DOTALL,
@@ -80,6 +94,38 @@ class CheckResult:
     @property
     def ok(self) -> bool:
         return not self.errors
+
+
+@dataclass
+class ReportState:
+    path: str
+    status: str
+    work_type: str
+    batch_id: str
+    readiness: str
+    safety_errors: list[str] = field(default_factory=list)
+
+
+@dataclass
+class IntegrationState:
+    pending_integration: bool = False
+    integration_kind: str = "none"
+    ready_reports: list[str] = field(default_factory=list)
+    waiting_reports: list[str] = field(default_factory=list)
+    blocked_reports: list[str] = field(default_factory=list)
+    requires_user_confirmation: bool = False
+    reason: str = "No worker results are waiting for integration."
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "pending_integration": self.pending_integration,
+            "integration_kind": self.integration_kind,
+            "ready_reports": self.ready_reports,
+            "waiting_reports": self.waiting_reports,
+            "blocked_reports": self.blocked_reports,
+            "requires_user_confirmation": self.requires_user_confirmation,
+            "reason": self.reason,
+        }
 
 
 def run_git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
@@ -211,6 +257,16 @@ def project_session_context(root: Path, config: dict[str, Any]) -> Optional[str]
     )
     state = dynamic_state_block(discussion)
     sections: list[str] = []
+    integration = integration_state(root, config).as_dict()
+    if (
+        integration["pending_integration"]
+        or integration["waiting_reports"]
+        or integration["blocked_reports"]
+    ):
+        sections.append(
+            "Integration status (machine-readable; Hooks do not start agents):\n"
+            + json.dumps(integration, ensure_ascii=False, separators=(",", ":"))
+        )
     if results:
         sections.append(f"Latest integrated results:\n{results}")
     if state:
@@ -235,6 +291,225 @@ def parse_report_status(content: str) -> Optional[str]:
         content,
     )
     return normalize_cell(match.group(1)).lower() if match else None
+
+
+def parse_labeled_field(
+    content: str, *labels: str, lowercase: bool = True
+) -> Optional[str]:
+    label_pattern = "|".join(re.escape(label) for label in labels)
+    match = re.search(
+        rf"(?mi)^\s*(?:-\s*)?(?:{label_pattern})\s*[:：]\s*([^\n]+?)\s*$",
+        content,
+    )
+    if not match:
+        return None
+    value = normalize_cell(match.group(1))
+    return value.lower() if lowercase else value
+
+
+def validation_results(content: str) -> list[str]:
+    section = markdown_section(content, "Validation") or markdown_section(content, "验证")
+    if not section:
+        return []
+    results: list[str] = []
+    for line in section.splitlines():
+        if "|" not in line:
+            continue
+        cells = [normalize_cell(cell) for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 3:
+            continue
+        check_name, result = cells[0].lower(), cells[2].lower()
+        if check_name in {"check", "检查", "---"} or not check_name.strip("-: "):
+            continue
+        results.append(result)
+    return results
+
+
+def report_state(report_path: str, content: str) -> ReportState:
+    status = parse_report_status(content) or "missing"
+    work_type = parse_labeled_field(content, "Work type", "工作类型") or "missing"
+    batch_id = parse_labeled_field(content, "Batch ID", "批次 ID") or "n/a"
+    readiness = (
+        parse_labeled_field(content, "Integration readiness", "集成就绪状态")
+        or "missing"
+    )
+    scope_check = parse_labeled_field(content, "Scope check", "范围检查") or "missing"
+    conflict_status = (
+        parse_labeled_field(content, "Conflict status", "冲突状态") or "missing"
+    )
+    new_decision = parse_labeled_field(
+        content,
+        "New product / architecture / data decision",
+        "新增产品 / 架构 / 数据决策",
+    ) or "missing"
+    errors: list[str] = []
+
+    if work_type not in WORK_TYPES:
+        errors.append("missing or invalid work type")
+    if work_type == "parallel_batch" and batch_id in {"", "n/a", "na", "none", "无"}:
+        errors.append("parallel_batch requires a batch ID")
+    if readiness not in READY_STATUSES | BLOCKED_READINESS:
+        errors.append("missing or invalid integration readiness")
+
+    if status in {"completed", "done"}:
+        if work_type == "high_risk":
+            errors.append("high_risk work requires a user decision before integration")
+        if readiness not in READY_STATUSES:
+            errors.append("completed work is not marked integration-ready")
+        results = validation_results(content)
+        if not results:
+            errors.append("completed work has no machine-readable validation results")
+        elif any(result in FAIL_RESULTS or result not in PASS_RESULTS for result in results):
+            errors.append("completed work has failed, unrun, or unknown validation results")
+        if scope_check not in PASS_RESULTS:
+            errors.append("scope check did not pass")
+        if conflict_status not in {"none", "no", "clear", "无", "无冲突"}:
+            errors.append("an unresolved conflict is present")
+        if new_decision not in {"no", "none", "false", "无", "否"}:
+            errors.append("a new product, architecture, or data decision requires review")
+
+    return ReportState(
+        path=report_path,
+        status=status,
+        work_type=work_type,
+        batch_id=batch_id,
+        readiness=readiness,
+        safety_errors=errors,
+    )
+
+
+def report_paths_in_ref(root: Path, ref: str, prefix: str) -> set[str]:
+    try:
+        result = run_git(root, "ls-tree", "-r", "--name-only", "-z", ref, "--", prefix)
+    except subprocess.CalledProcessError:
+        return set()
+    return nul_paths(result.stdout)
+
+
+def report_contents_across_refs(
+    root: Path, config: dict[str, Any]
+) -> dict[str, str]:
+    prefix = config["paths"]["run_report_glob"].split("*", 1)[0].rstrip("/")
+    contents: dict[str, str] = {}
+    for path in root.glob(f"{prefix}/**/*.md"):
+        relative = path.relative_to(root).as_posix()
+        try:
+            contents[relative] = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+    if not config.get("scan_worker_refs_for_status", True):
+        return contents
+    try:
+        refs_result = run_git(
+            root,
+            "for-each-ref",
+            "--format=%(refname)",
+            "refs/heads",
+            "refs/remotes",
+        )
+    except subprocess.CalledProcessError:
+        return contents
+    refs = refs_result.stdout.decode("utf-8", errors="replace").splitlines()
+    for ref in refs:
+        if ref.endswith("/HEAD"):
+            continue
+        for path in report_paths_in_ref(root, ref, prefix):
+            if path in contents:
+                continue
+            try:
+                value = run_git(root, "show", f"{ref}:{path}").stdout
+            except subprocess.CalledProcessError:
+                continue
+            contents[path] = value.decode("utf-8", errors="replace")
+    return contents
+
+
+def task_report_states(root: Path, config: dict[str, Any]) -> dict[str, tuple[str, str]]:
+    task_glob = config["paths"]["task_glob"]
+    tasks: dict[str, tuple[str, str]] = {}
+    for path in root.glob(task_glob):
+        if path.name.startswith("EXAMPLE-") or path.name.startswith("NNN-"):
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        report_path = parse_labeled_field(
+            content, "Run report", "执行报告", lowercase=False
+        )
+        if not report_path:
+            continue
+        status = parse_labeled_field(content, "Status", "状态") or "pending"
+        work_type = parse_labeled_field(content, "Work type", "工作类型") or "missing"
+        tasks[normalize_cell(report_path)] = (status, work_type)
+    return tasks
+
+
+def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
+    reports = report_contents_across_refs(root, config)
+    prefix = config["paths"]["run_report_glob"].split("*", 1)[0].rstrip("/")
+    settled = report_paths_in_ref(root, "HEAD", prefix)
+    overview = read_version(root, config["paths"]["dev_report"], "worktree") or ""
+    settled |= integrated_report_paths(overview, config["paths"]["run_report_glob"])
+
+    pending_states = [
+        report_state(path, content)
+        for path, content in sorted(reports.items())
+        if path not in settled
+    ]
+    ready = sorted(
+        state.path
+        for state in pending_states
+        if state.status in {"completed", "done"} and not state.safety_errors
+    )
+    blocked = sorted(
+        state.path
+        for state in pending_states
+        if state.status not in {"completed", "done"} or state.safety_errors
+    )
+    tasks = task_report_states(root, config)
+    waiting = sorted(path for path in tasks if path not in reports and path not in settled)
+
+    work_types = {
+        state.work_type for state in pending_states if state.work_type in WORK_TYPES
+    }
+    work_types.update(
+        work_type
+        for path, (_, work_type) in tasks.items()
+        if path in waiting and work_type in WORK_TYPES
+    )
+    if "high_risk" in work_types:
+        kind = "high_risk"
+    elif "parallel_batch" in work_types or len(ready) + len(blocked) > 1:
+        kind = "parallel_batch"
+    elif "sequential" in work_types:
+        kind = "sequential"
+    else:
+        kind = "none"
+
+    pending = bool(ready or blocked)
+    confirmation = kind in {"parallel_batch", "high_risk"} or bool(blocked)
+    if blocked:
+        reason = "Blocked or unsafe worker results require discussion and user review."
+    elif kind == "parallel_batch" and waiting:
+        reason = "Parallel batch still has planned workers waiting; review before partial integration."
+    elif kind == "parallel_batch" and ready:
+        reason = "Parallel worker results are ready; explicit user integration approval is required."
+    elif kind == "sequential" and ready:
+        reason = "A safe sequential result is ready under the task approval's integration authority."
+    elif waiting:
+        reason = "Planned workers have not produced run reports yet."
+    else:
+        reason = "No worker results are waiting for integration."
+    return IntegrationState(
+        pending_integration=pending,
+        integration_kind=kind,
+        ready_reports=ready,
+        waiting_reports=waiting,
+        blocked_reports=blocked,
+        requires_user_confirmation=confirmation,
+        reason=reason,
+    )
 
 
 def parse_impact_rows(content: str) -> dict[str, tuple[str, str]]:
@@ -288,6 +563,28 @@ def validate_run_report(
             f"{report_path} already exists in HEAD; run reports are immutable and must use a new ID"
         )
     validate_status(result, report_path, content)
+    state = report_state(report_path, content)
+    if state.work_type not in WORK_TYPES:
+        result.errors.append(
+            f"{report_path} must set Work type/工作类型 to discussion, sequential, parallel_batch, or high_risk"
+        )
+    if state.work_type == "parallel_batch" and state.batch_id in {
+        "",
+        "n/a",
+        "na",
+        "none",
+        "无",
+    }:
+        result.errors.append(f"{report_path} parallel_batch requires Batch ID/批次 ID")
+    if state.readiness not in READY_STATUSES | BLOCKED_READINESS:
+        result.errors.append(
+            f"{report_path} must set Integration readiness/集成就绪状态"
+        )
+    if state.status in {"completed", "done"} and state.safety_errors:
+        result.errors.append(
+            f"{report_path} cannot be Completed and integration-ready: "
+            + "; ".join(state.safety_errors)
+        )
     impact_rows = parse_impact_rows(content)
     for memory_path in config.get("required_impact_rows", []):
         row = impact_rows.get(memory_path)
@@ -321,6 +618,58 @@ def validate_integration_overview(
         result.errors.append(f"Cannot read the {scope} version of {overview_path}")
         return
     validate_status(result, overview_path, overview)
+
+    report_states: list[ReportState] = []
+    for report_path in run_reports:
+        report_content = read_version(root, report_path, scope)
+        if report_content is not None:
+            report_states.append(report_state(report_path, report_content))
+    integration_kind = parse_labeled_field(
+        overview, "Integration kind", "集成类型"
+    )
+    authorization = parse_labeled_field(
+        overview, "Authorization", "授权"
+    )
+    expected_kind = "sequential"
+    if any(state.work_type == "high_risk" for state in report_states):
+        expected_kind = "high_risk"
+    elif any(state.work_type == "parallel_batch" for state in report_states) or len(
+        report_states
+    ) > 1:
+        expected_kind = "parallel_batch"
+    if integration_kind != expected_kind:
+        result.errors.append(
+            f"{overview_path} must set Integration kind/集成类型 to {expected_kind}"
+        )
+    explicit_authorizations = {
+        "explicit user confirmation",
+        "user confirmed",
+        "explicitly confirmed",
+        "用户明确确认",
+        "用户已确认",
+    }
+    inherited_authorizations = {
+        "inherited task approval",
+        "task approval",
+        "approved with task",
+        "随任务批准授权",
+        "任务批准",
+    }
+    if expected_kind in {"parallel_batch", "high_risk"}:
+        if authorization not in explicit_authorizations:
+            result.errors.append(
+                f"{overview_path} requires explicit user confirmation before {expected_kind} integration"
+            )
+    elif authorization not in explicit_authorizations | inherited_authorizations:
+        result.errors.append(
+            f"{overview_path} must record inherited task approval or explicit user confirmation"
+        )
+    for state in report_states:
+        if state.status not in {"completed", "done"} or state.safety_errors:
+            result.errors.append(
+                f"Integration cannot absorb unsafe report {state.path}: "
+                + "; ".join(state.safety_errors or [f"status is {state.status}"])
+            )
 
     listed_reports = integrated_report_paths(overview, paths["run_report_glob"])
     for report_path in run_reports:
@@ -435,9 +784,11 @@ def format_failure(result: CheckResult, scope: str) -> str:
         [
             "",
             "Worker: create one new immutable reports/runs/<work-unit-id>.md,",
-            "record Integrate or N/A for shared-memory impact, and do not edit shared state.",
+            "record work type, readiness, safety fields, validation, and Integrate or N/A,",
+            "and do not edit shared state or start other agents.",
             "Integration: merge with --no-commit, update reports/DEV_REPORT.md and",
-            "prompts/DISCUSSION_AI.md, then record Updated or N/A for shared memory.",
+            "prompts/DISCUSSION_AI.md, record integration kind and authorization, then",
+            "record Updated or N/A for shared memory. Parallel/high-risk work needs user confirmation.",
             "Ad-hoc work does not require a task file, but still needs a unique run report.",
         ]
     )
@@ -618,6 +969,23 @@ def check_main(scope: str) -> int:
     return 1
 
 
+def status_main() -> int:
+    root = find_git_root(Path.cwd())
+    if root is None:
+        print("WishGraph integration status requires a Git repository.", file=sys.stderr)
+        return 2
+    try:
+        config = load_config(root)
+    except ValueError as exc:
+        print(f"WishGraph hook configuration error: {exc}", file=sys.stderr)
+        return 2
+    if config is None:
+        print("WishGraph hooks are not installed in this repository.", file=sys.stderr)
+        return 2
+    print(json.dumps(integration_state(root, config).as_dict(), ensure_ascii=False, indent=2))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -625,11 +993,14 @@ def main() -> int:
         subparsers.add_parser(event)
     check_parser = subparsers.add_parser("check")
     check_parser.add_argument("--scope", choices=("worktree", "staged"), default="worktree")
+    subparsers.add_parser("status")
     subparsers.add_parser("git-pre-commit")
     args = parser.parse_args()
 
     if args.command == "check":
         return check_main(args.scope)
+    if args.command == "status":
+        return status_main()
     if args.command == "git-pre-commit":
         return check_main("staged")
     return hook_main(args.command)

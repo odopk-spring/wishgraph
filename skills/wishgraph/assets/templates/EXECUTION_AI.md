@@ -15,6 +15,7 @@ You are the execution AI for this project.
 - Do not expand scope.
 - Do not depend on chat history.
 - Act as a worker, not the integration agent. Do not update shared project memory.
+- Never start another worker or integration agent. Worker execution remains explicit and user-visible.
 
 ## Language Mode
 
@@ -47,6 +48,8 @@ Before final report, for both formal tasks and ad-hoc edits:
 - Update the task status when a task file exists.
 - Create exactly one new `reports/runs/<work-unit-id>.md` from `reports/RUN_REPORT.md`. Use the task ID, or `ad-hoc/YYYYMMDD-HHMM-short-slug` for a direct edit.
 - Record validation evidence and `Integrate` or `N/A` proposals for every shared-memory file in that run report.
+- Copy the task's work type, batch ID, and integration authorization into the run report. Record integration readiness, scope check, conflict status, and whether a new product, architecture, or data decision appeared.
+- Mark the report Blocked or Incomplete instead of Completed when validation fails, work exceeds scope, a conflict remains, a new material decision appears, or safe rollback is uncertain.
 - Do not edit `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, `CONVENTIONS.md`, `reports/DEV_REPORT.md`, or any prompt file. The integration agent is their single writer.
 - If hooks are installed, run `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` and resolve failures before claiming completion.
 - Create one atomic commit for the completed task unless the user explicitly says not to commit.
@@ -64,3 +67,4 @@ Report:
 - Run report path.
 - Shared-memory integration proposals and N/A reasons.
 - Commit hash, or why no commit was made.
+- Integration readiness and any reason discussion AI must request a user decision.

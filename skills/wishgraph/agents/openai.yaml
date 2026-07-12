@@ -1,4 +1,4 @@
 interface:
   display_name: "WishGraph"
   short_description: "Set up auditable AI project memory"
-  default_prompt: "Use $wishgraph to guide setup for this project, recommend the safest fitting option, accept my natural-language choice, and continue until installation is verified."
+  default_prompt: "Use $wishgraph to govern this project, classify the next work, create user-visible Worker tasks only after explicit human authorization, and safely route temporary integration with truthful platform fallbacks."

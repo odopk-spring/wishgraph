@@ -16,9 +16,12 @@ Responsibilities:
 - For a new or vague project, start with one question about the user's idea and grill one decision at a time before writing implementation tasks.
 - Ask only for decisions that materially change scope.
 - Write self-contained task specs in `.tasks/build/`.
+- Classify work as discussion, sequential, parallel_batch, or high_risk before creating workers. Recommend the execution shape; the project owner confirms it.
+- Check task dependencies, file and core-module overlap, independent validation and rollback, cross-task contamination, and unresolved product or architecture decisions before recommending parallel work.
 - Do not change business code unless the project owner explicitly approves a trivial direct-edit exception.
 - A direct-edit exception may omit a task file, but not validation, a unique run report, or the normal commit boundary.
 - Read `reports/DEV_REPORT.md` before presenting integrated execution results.
+- After showing the approved task and work classification, ask whether to create the execution window. Only an explicit human command authorizes creation. Then create and configure one user-visible Worker task per authorized spec with `prompts/EXECUTION_AI.md` and the task file already handed off. Use `<task-id> · <short title> · WG Worker` so task identity appears first. Manual copying is only the fallback when the platform cannot create visible tasks. Do not require users to edit memory or integration files.
 
 ### Execution Agent
 
@@ -33,10 +36,13 @@ Responsibilities:
 - Update task status when present and create exactly one new immutable `reports/runs/<work-unit-id>.md`.
 - Record `Integrate` or `N/A` proposals for shared memory. Do not edit `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, `CONVENTIONS.md`, `reports/DEV_REPORT.md`, or any prompt file.
 - Create one atomic commit per completed task unless the project owner explicitly says not to commit.
+- Never start workers in the background by default.
 
 ### Integration Agent
 
 The integration agent is the single writer for shared project state.
+
+It is an event-triggered temporary role, not a permanent window.
 
 Responsibilities:
 
@@ -45,6 +51,10 @@ Responsibilities:
 - Update affected shared memory, `reports/DEV_REPORT.md`, and the dynamic state in `prompts/DISCUSSION_AI.md`.
 - List every absorbed run report in `reports/DEV_REPORT.md`.
 - Run integration validation and create the integration commit.
+- For a safe sequential result, use the integration authority inherited when the task was approved; do not ask twice.
+- For parallel_batch or high_risk work, require explicit user approval naming the reports to integrate.
+- Use a platform background task or independent thread only when that capability exists and authorization permits it. Otherwise switch the current main agent explicitly or provide a one-time launch instruction; never claim fictitious background execution.
+- Return integration status and results to discussion AI, then end the temporary role.
 
 ## Task File Rules
 
@@ -53,6 +63,7 @@ Responsibilities:
 - A task must be executable without chat history.
 - Anchor by symbols, modules, routes, APIs, or tests. Do not rely on line numbers.
 - Include a "Do Not Do" section to stop scope drift.
+- Record Work type, Batch ID, Integration authorization, and the unique Run report path.
 
 ## Launch Prompt Files
 
@@ -83,6 +94,7 @@ Worker agents propose shared-memory impact in their own immutable run report. In
 - Worker run reports use `Integrate` or `N/A`. Integration overviews use `Updated` or `N/A`.
 - Ad-hoc work does not require a task file, but it needs a unique run-report ID.
 - On session start or resume, hooks may inject the latest integrated results and discussion handoff as read-only context. This is not a live push to an already-running window.
+- Hooks may expose pending integration, integration kind, ready, waiting, and blocked reports, confirmation requirement, and a reason. They do not choose parallelism, start agents, merge code, write semantic memory, or replace human review.
 
 ## Validation
 
@@ -98,6 +110,7 @@ Every execution task must state:
 
 - One completed execution task should produce one atomic commit unless the project owner explicitly says not to commit.
 - Parallel workers must use separate branches or worktrees and unique work-unit IDs.
+- Discussion AI recommends sequential or parallel work; the project owner makes the final choice.
 - Only the integration agent updates shared memory. Do not resolve this rule by letting workers race on the same files.
 - Do not stage unrelated user changes.
 - Do not rewrite history unless the project owner explicitly asks.
@@ -108,7 +121,7 @@ Every execution task must state:
 - Do not start coding from a vague idea.
 - First turn the idea into `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, and a bounded first task.
 - Ask one question at a time and include a recommended default with each question.
-- After the first task is approved, tell the user to open a separate execution window with `prompts/EXECUTION_AI.md` and the task file.
+- After the first task is approved, ask whether to create the execution window. On explicit authorization, create the user-visible Worker and hand off `prompts/EXECUTION_AI.md` plus the task file; never create it silently or replace it with a hidden subagent.
 
 ## Debugging Discipline
 

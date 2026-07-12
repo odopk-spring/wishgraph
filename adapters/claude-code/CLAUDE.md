@@ -28,10 +28,14 @@ When working on planning, task writing, or execution, read:
 ## Collaboration Rules
 
 - Planning sessions write PRD, architecture notes, code maps, prompts, and task specs.
+- Planning sessions classify work as discussion, sequential, parallel_batch, or high_risk, recommend the execution shape, and let the user confirm it.
 - Execution sessions implement only the approved task spec.
 - Keep task specs self-contained; do not rely on chat history.
 - Worker sessions use separate branches or worktrees, create one immutable `reports/runs/<work-unit-id>.md`, and record Integrate or N/A proposals without editing shared memory.
 - An integration session merges with `--no-commit`, updates affected shared memory, `reports/DEV_REPORT.md`, and the dynamic handoff state in `prompts/DISCUSSION_AI.md`.
+- Worker creation requires an explicit human command. When the host supports user-visible task or session creation, the planning agent creates one visible Worker per authorized spec, hands off the execution prompt and task file, and names it `<task-id> · <short title> · WG Worker`. Never create Workers silently or use hidden subagents; manual copying is the fallback when this capability is unavailable.
+- Integration is temporary. Safe sequential task approval includes normal integration authority; parallel_batch and high_risk require explicit user confirmation. Use background execution only when the host supports it, otherwise switch roles or provide a one-time launch instruction truthfully.
+- Hooks expose status and enforce boundaries; they do not choose parallelism, launch agents, merge code, write semantic memory, or replace review.
 - SessionStart may inject latest integrated results into new or resumed sessions; this is not a live push into a continuously running window.
 - Prefer one atomic commit per completed execution unit. A tiny approved ad-hoc edit may omit a task file, but not closeout.
 - When `.wishgraph/hooks/memory_sync.py` exists, run its worktree check before claiming completion.
@@ -39,7 +43,7 @@ When working on planning, task writing, or execution, read:
 ## Handoff
 
 - When the user asks to migrate discussion, update `prompts/DISCUSSION_AI.md` and print its full content for copying.
-- When PRD and the first task are ready, tell the user to open a fresh execution session with `prompts/EXECUTION_AI.md` plus the approved task file.
+- When PRD and the first task are ready, ask whether to create the execution session. After explicit authorization, create and configure the user-visible Worker when supported; otherwise provide the complete prompt and approved task file as a manual fallback.
 
 ## Debugging
 

@@ -15,6 +15,7 @@
 - 不扩大范围。
 - 不依赖聊天历史。
 - 你是 Worker，不是集成 Agent；不要修改共享项目记忆。
+- 不启动其他 Worker 或集成 Agent；Worker 必须保持用户显式可见。
 
 ## 语言模式
 
@@ -47,6 +48,8 @@
 - 有任务文件时更新任务状态。
 - 从 `reports/RUN_REPORT.md` 创建唯一的新文件 `reports/runs/<work-unit-id>.md`。正式任务使用 task ID；直接修改使用 `ad-hoc/YYYYMMDD-HHMM-short-slug`。
 - 在该执行报告中记录验证证据，并对每个共享记忆文件填写 `Integrate` 或 `N/A`。
+- 把任务的工作类型、批次 ID 和集成授权写入执行报告，并记录集成就绪状态、范围检查、冲突状态和是否出现新产品／架构／数据决策。
+- 验证失败、超出范围、仍有冲突、出现重大新决策或无法安全回滚时，把报告标记为 Blocked 或 Incomplete，不得写 Completed。
 - 不要修改 `PRD.md`、`ARCHITECTURE.md`、`CODEMAP.md`、`CONVENTIONS.md`、`reports/DEV_REPORT.md` 或任何提示词文件；它们只有集成 Agent 可以写。
 - 已安装 hooks 时运行 `python3 .wishgraph/hooks/memory_sync.py check --scope worktree`，解决失败后才能宣称完成。
 - 除非用户明确说不提交，否则为完成任务创建一个原子 commit。
@@ -64,3 +67,4 @@
 - 执行报告路径。
 - 共享记忆的 Integrate 建议和 N/A 理由。
 - commit hash，或为什么没有 commit。
+- 集成是否就绪，以及讨论 AI 是否必须请求用户决定。

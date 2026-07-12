@@ -101,21 +101,23 @@ reports/DEV_REPORT.md
 
 保持稳定。它告诉执行 AI 如何启动、读哪些文件、如何收尾。任务具体要求属于 `.tasks/build/*.md`，不属于这个提示词。
 
-## 双窗口循环
+## 前台讨论、显式 Worker、临时集成
 
 ```text
 Human idea
 -> Discussion AI grills and updates PRD
 -> Discussion AI writes a self-contained task spec
--> Human approves task boundary
--> Execution AI opens a separate window
+-> Discussion AI classifies sequential / parallel_batch / high_risk
+-> Human approves task boundary and explicitly authorizes the named Worker task(s)
+-> Discussion AI creates and configures user-visible Worker task(s)
 -> Execution AI reads EXECUTION_AI.md plus the task file
 -> Execution AI implements only that task
--> Execution AI validates, updates maps, writes Dev Report, commits
--> Discussion AI reads report and decides the next task
+-> Execution AI validates, writes one immutable run report, commits
+-> Temporary Integration AI applies approved results and shared-memory updates
+-> Discussion AI presents the integrated result for human review
 ```
 
-讨论窗口控制方向。执行窗口执行有边界的实现。
+讨论窗口控制方向并推荐串行或并行；人类明确发出创建命令后，宿主支持时由讨论 Agent 创建并配置用户可见 Worker。不得静默创建或使用隐藏 subagent，手动复制只作降级。安全串行任务批准包含正常集成授权；并行批次在临时集成前需要用户再次确认。
 
 ## 示例首个实现任务
 
@@ -135,6 +137,7 @@ Bootstrap 后，第一个真实任务可能是：
 - 验证命令
 - 手动检查
 - 执行后必须更新的文件
+- 工作类型、批次 ID 和集成授权
 - 回滚边界
 - 报告格式
 

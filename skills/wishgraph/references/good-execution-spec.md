@@ -16,6 +16,7 @@ It should answer:
 - Which shared-memory files should the integration agent update?
 - What is the rollback boundary?
 - Which language mode should human-facing explanations and reports use?
+- Is the work sequential, parallel, or high-risk, and what integration authority applies?
 
 ## Context Budget Rule
 
@@ -52,6 +53,7 @@ Before handing a task to execution AI, confirm:
 - The worker report must record Integrate or N/A with a reason for every managed shared-memory file.
 - The WishGraph worktree memory check is explicit when project hooks are installed.
 - The language mode is explicit when the project uses bilingual handoff.
+- Work type, batch ID, integration authorization, and the unique report path are explicit.
 
 ## Compact Example
 
@@ -63,6 +65,9 @@ Spec source: `PRD.md` "Now" roadmap says dashboard first paint must not wait on 
 Dependencies: None.
 Language mode: English.
 Run report: `reports/runs/012-dashboard-token-refresh.md`
+Work type: sequential
+Batch ID: N/A
+Integration authorization: Inherited task approval
 
 ## Intent
 

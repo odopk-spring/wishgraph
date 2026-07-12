@@ -102,13 +102,13 @@ If the user requests mechanical memory enforcement, install project-local hooks 
 When the PRD and first task are ready, tell the user:
 
 ```text
-下一步请新开一个执行窗口。复制 `prompts/EXECUTION_AI.md` 的内容，再附上 `.tasks/build/<task>.md`，让执行 AI 只按这个任务实现。
+首个任务已经准备好。建议先说明为什么采用串行或并行，然后询问：“任务已准备好，是否创建执行窗口？”用户明确回复“创建执行窗口”后，由讨论 Agent 创建用户可见 Worker，自动交接 `prompts/EXECUTION_AI.md` 和 `.tasks/build/<task>.md`。平台不支持创建可见任务时，才提供完整内容让用户手动复制。
 ```
 
 English:
 
 ```text
-Next, open a new execution window. Copy the content of `prompts/EXECUTION_AI.md`, then attach `.tasks/build/<task>.md`, and ask the execution AI to implement only that task.
+First classify the task and explain why it is sequential or parallel. Then ask whether to create the execution window. Only after an explicit human command, create a user-visible Worker task and automatically hand off `prompts/EXECUTION_AI.md` plus `.tasks/build/<task>.md`. Explain that the Worker is explicit and visible, the user returns to discussion after completion, and they do not edit memory or integration files. Use manual copying only when visible task creation is unavailable or fails. State whether task approval includes safe sequential integration or whether a parallel batch will require a second integration confirmation.
 ```
 
 If the user wants to continue discussing instead, continue in the discussion window and keep `prompts/DISCUSSION_AI.md` current.

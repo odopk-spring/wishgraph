@@ -109,6 +109,10 @@ Worker reports use `Integrate` or `N/A` and do not edit shared project memory:
 
 The integration agent merges worker commits with `--no-commit`, reads all new run reports, updates affected shared memory, updates `reports/DEV_REPORT.md`, and updates the dynamic handoff state in `prompts/DISCUSSION_AI.md`. The overview lists every absorbed run report and uses Updated or N/A rows.
 
+Task and run-report metadata distinguish `sequential`, `parallel_batch`, and `high_risk`. Safe sequential task approval includes normal integration authority. Parallel batches and high-risk work require explicit user confirmation before integration. Hooks enforce the recorded authority but do not grant it.
+
+Worker creation always requires an explicit human command. The discussion Agent may then create user-visible Worker tasks through a supported host capability; Hooks never do so. Hidden subagents are not Worker windows, and manual copying is the fallback when visible task creation is unavailable. Integration is a temporary event role: use an authorized background task or independent thread when the platform supports it; otherwise explicitly switch the current main agent or give one user-launch command. Never claim unsupported background execution.
+
 On the next supported session start or resume, hooks inject a concise `Latest Integrated Results` excerpt and discussion handoff into agent context. A discussion AI can then present the result automatically. This is not a live push into a window that remains continuously active; that case needs an explicit refresh.
 
 In a continuously running discussion window, say: `Refresh WishGraph project state and present the latest integrated results.`
@@ -120,7 +124,10 @@ An ad-hoc edit may omit `.tasks/build/*.md`; it still needs validation, a unique
 ```bash
 python3 .wishgraph/hooks/memory_sync.py check --scope worktree
 python3 .wishgraph/hooks/memory_sync.py check --scope staged
+python3 .wishgraph/hooks/memory_sync.py status
 ```
+
+The status command emits machine-readable pending integration, integration kind, ready reports, waiting reports, blocked reports, confirmation requirement, and reason. It scans immutable reports on visible Git refs without writing a shared queue file. SessionStart may inject this status so discussion AI can guide the user.
 
 For strict `enforce` mode, add `--git-hook` so commits made outside an agent and tool paths that lifecycle hooks cannot intercept are also checked. The installer refuses to overwrite an existing Git pre-commit hook and prints chaining guidance instead.
 
@@ -129,5 +136,6 @@ For strict `enforce` mode, add `--git-hook` so commits made outside an agent and
 - Hooks do not generate PRD, architecture, CODEMAP, or handoff prose.
 - Hooks do not stage, commit, or amend files.
 - Hooks ignore their own generated runtime and host configuration.
+- Hooks do not choose parallelism, start workers or integration agents, merge code, or replace human review.
 - A blocked or incomplete worker can stop after creating a unique Blocked or Incomplete run report with validation and impact proposals.
 - Set mode to `warn` while adapting rules for a repository; do not satisfy the hook with false Updated claims.

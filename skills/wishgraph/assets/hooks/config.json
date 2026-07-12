@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "mode": "enforce",
   "paths": {
     "prd": "PRD.md",
@@ -34,6 +34,7 @@
   ],
   "allow_noop_with_reason": true,
   "require_discussion_update_for_substantive_changes": true,
+  "scan_worker_refs_for_status": true,
   "inject_project_summary_on_session_start": true,
   "session_summary_max_chars": 2000
 }

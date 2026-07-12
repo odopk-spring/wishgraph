@@ -9,6 +9,9 @@
 - Agent：
 - 状态：Completed / Blocked / Incomplete
 - 目标分支：
+- 集成类型：sequential / parallel_batch / high_risk
+- 授权：随任务批准授权 / 用户明确确认
+- 后台能力：临时 Agent / 当前 Agent 降级 / 用户启动降级
 
 ## 已集成执行报告
 
@@ -36,6 +39,14 @@
 - 剩余风险：
 - 未解决冲突：
 - 推荐下一任务：
+
+## Worker 和集成状态
+
+- 已完成 Worker：
+- 等待中 Worker：
+- 阻塞 Worker：
+- 集成状态：Waiting / Running / Blocked / Completed / Awaiting review
+- 用户 Review 状态：Pending / Accepted / Changes requested
 
 ## 讨论交接
 

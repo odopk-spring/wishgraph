@@ -10,6 +10,13 @@ Create one new file from this template for each worker execution. Use `reports/r
 - Agent:
 - Branch / worktree:
 - Status: Completed / Blocked / Incomplete
+- Work type: sequential / parallel_batch / high_risk
+- Batch ID: N/A for sequential; stable batch ID for parallel work
+- Integration authorization: Inherited task approval / Requires explicit user confirmation
+- Integration readiness: Ready / Blocked / Needs decision
+- Scope check: Pass / Fail
+- Conflict status: None / Present
+- New product / architecture / data decision: No / Yes
 
 ## Summary
 
@@ -25,9 +32,9 @@ Briefly describe what changed and why.
 
 | Check | Command / Scenario | Result | Evidence |
 |---|---|---|---|
-| Build | `<command>` | Pass / Fail / Not run | Key output or reason |
-| Tests | `<command>` | Pass / Fail / Not run | Key output or reason |
-| Manual | `<scenario>` | Pass / Fail / Not run | Notes |
+| Build | `<command>` | Pass / Fail / N/A | Key output or concrete N/A reason |
+| Tests | `<command>` | Pass / Fail / N/A | Key output or concrete N/A reason |
+| Manual | `<scenario>` | Pass / Fail / N/A | Notes or concrete N/A reason |
 
 ## Risk Notes
 
@@ -54,3 +61,4 @@ Worker agents do not edit shared project memory. Use exactly `Integrate` when th
 - Merge dependency:
 - Conflict warning:
 - Facts the integration agent must preserve:
+- Reason integration is safe, blocked, or needs a user decision:

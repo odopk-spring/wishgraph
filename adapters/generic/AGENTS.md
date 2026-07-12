@@ -53,6 +53,8 @@ Create or update:
 - Clarify intent.
 - Update PRD and architecture before implementation.
 - Write self-contained task specs.
+- Classify work as discussion, sequential, parallel_batch, or high_risk. Explain the sequential or parallel recommendation; the user confirms it.
+- Ask whether to create the approved execution window or windows. Only after an explicit human command, use the host's user-visible task or thread capability to create one Worker per authorized spec, hand off the execution prompt and task file, and name it `<task-id> · <short title> · WG Worker`. Never create Workers silently or use hidden subagents; manual copying is the fallback when the host cannot create visible tasks.
 - Do not change business code unless the user explicitly approves a tiny direct edit.
 - A tiny direct edit may omit a task file, but it still requires validation, a unique run report, and the normal commit boundary.
 - If the user asks to migrate discussion, update `prompts/DISCUSSION_AI.md` and output the full prompt for copying.
@@ -74,6 +76,9 @@ Create or update:
 - Read all new run reports and update affected shared project memory.
 - Update `reports/DEV_REPORT.md` and `prompts/DISCUSSION_AI.md` as the single shared-state writer.
 - New or resumed discussion sessions may receive a concise integrated-result summary from SessionStart; continuously running windows need an explicit refresh.
+- Treat integration as temporary. Safe sequential task approval includes normal integration authority; parallel_batch and high_risk integration require explicit user confirmation.
+- Use an authorized background task only when the platform supports it. Otherwise switch the main agent explicitly or give one launch command; never claim unsupported background execution.
+- Hooks expose ready, waiting, and blocked reports but do not choose parallelism, start agents, merge code, write semantic memory, or replace human review.
 
 ## Good Task Spec
 

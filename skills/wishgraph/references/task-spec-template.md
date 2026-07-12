@@ -12,6 +12,9 @@ Spec source:
 Dependencies:
 Language mode:
 Run report: `reports/runs/NNN-short-slug.md`
+Work type: sequential / parallel_batch / high_risk
+Batch ID: N/A or stable batch ID
+Integration authorization: Inherited task approval / Requires explicit user confirmation
 
 ## Intent
 
@@ -34,6 +37,7 @@ Run report: `reports/runs/NNN-short-slug.md`
 - [ ] Exactly one new immutable run report created:
 - [ ] Shared-memory impact records Integrate or N/A with reasons:
 - [ ] Worker did not edit shared project memory:
+- [ ] Run report records integration readiness, scope, conflicts, and material new decisions:
 - [ ] WishGraph worktree memory check passes when hooks are installed:
 
 ## Rollback Boundary
@@ -51,6 +55,7 @@ A good task spec is:
 - Anchored by stable symbols, routes, APIs, commands, tests, or files.
 - Clear about validation and rollback.
 - Clear about the language mode for human-facing explanations when the project uses bilingual handoff.
+- Clear about why the work is sequential, parallel, or high-risk and who must authorize integration.
 
 ## Split A Task When
 
@@ -58,4 +63,5 @@ A good task spec is:
 - It needs two different validation strategies.
 - It mixes schema or API changes with UI polish.
 - It includes unresolved product intent.
+- It overlaps files, core modules, validation state, or rollback with another proposed parallel task.
 - The rollback unit is unclear.

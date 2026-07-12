@@ -16,9 +16,12 @@
 - 新项目或模糊项目先做 intake：一次问一个关键决策，每次给推荐默认值，再写实现任务。
 - 只问会实质改变范围的决策。
 - 在 `.tasks/build/` 写自包含任务规格。
+- 创建 Worker 前把工作判断为 discussion、sequential、parallel_batch 或 high_risk。讨论 Agent 推荐执行形态，项目 owner 最终确认。
+- 推荐并行前检查任务依赖、相同文件或核心模块、独立验证和回滚、任务间污染，以及未确认的产品或架构决策。
 - 除非项目 owner 明确批准低风险直接编辑例外，否则不改业务代码。
 - 直接编辑例外可以省略 task 文件，但不能省略验证、唯一执行报告或正常 commit 边界。
 - 向用户呈现已集成结果前，先读 `reports/DEV_REPORT.md`。
+- 展示已批准任务和工作类型后，询问是否创建执行窗口。只有人类明确命令才授权创建；随后由讨论 Agent 为每个已授权规格创建并配置用户可见 Worker，自动交接 `prompts/EXECUTION_AI.md` 和任务文件，并使用 `<task-id> · <short title> · WG Worker` 命名，让任务身份优先显示。平台不能创建可见任务时才降级为手动复制；不要求用户自己修改记忆或集成文件。
 
 ### 执行 Agent
 
@@ -33,10 +36,13 @@
 - 有任务文件时更新任务状态，并且只新增一个不可变的 `reports/runs/<work-unit-id>.md`。
 - 在执行报告中对共享记忆填写 `Integrate` 或 `N/A`。不要修改 `PRD.md`、`ARCHITECTURE.md`、`CODEMAP.md`、`CONVENTIONS.md`、`reports/DEV_REPORT.md` 或提示词文件。
 - 除非项目 owner 明确说不提交，否则一个完成任务对应一个原子 commit。
+- Worker 默认不得在后台自动启动。
 
 ### 集成 Agent
 
 集成 Agent 是共享项目状态的唯一写入者。
+
+它是事件触发的临时角色，不是常驻窗口。
 
 职责：
 
@@ -45,6 +51,10 @@
 - 更新受影响的共享记忆、`reports/DEV_REPORT.md` 和 `prompts/DISCUSSION_AI.md` 动态状态。
 - 在 `reports/DEV_REPORT.md` 中列出本次吸收的全部执行报告。
 - 运行集成验证并创建集成 commit。
+- 安全串行结果使用任务批准时继承的集成授权，不重复询问。
+- parallel_batch 或 high_risk 必须取得明确列出待集成报告的用户授权。
+- 只有平台具备后台任务或独立线程能力且授权允许时，才使用临时后台 Agent；否则明确切换当前主 Agent，或提供一次性启动指令，不得虚构后台执行。
+- 把集成状态和结果返回讨论 Agent 后结束临时角色。
 
 ## 任务文件规则
 
@@ -53,6 +63,7 @@
 - 任务必须不依赖聊天历史即可执行。
 - 用符号、模块、路由、API 或测试锚定，不依赖行号。
 - 必须有 "Do Not Do" 防止范围漂移。
+- 记录 Work type、Batch ID、Integration authorization 和唯一 Run report 路径。
 
 ## 启动提示词文件
 
@@ -83,6 +94,7 @@ Worker 在自己的不可变执行报告中提出共享记忆影响；集成 Age
 - Worker 执行报告使用 `Integrate` 或 `N/A`；集成概览使用 `Updated` 或 `N/A`。
 - Ad-hoc 修改可以没有 task 文件，但必须有唯一执行报告 ID。
 - SessionStart 或恢复时，Hook 可以把最新集成结果和讨论交接作为只读上下文注入。这不是向正在运行的窗口实时推送。
+- Hooks 可以输出待集成状态、集成类型、准备／等待／阻塞报告、是否需要确认和理由；不得决定是否并行、启动 Agent、合并代码、编写语义记忆或代替人类 Review。
 
 ## 验证
 
@@ -98,6 +110,7 @@ Worker 在自己的不可变执行报告中提出共享记忆影响；集成 Age
 
 - 除非项目 owner 明确说不提交，一个完成执行任务应该产生一个原子 commit。
 - 并行 Worker 必须使用不同 branch 或 worktree，并使用唯一工作单元 ID。
+- 讨论 Agent 推荐串行或并行，项目 owner 最终决定。
 - 只有集成 Agent 更新共享记忆，不能让多个 Worker 竞争修改同一文件。
 - 不要 stage 无关用户改动。
 - 除非项目 owner 明确要求，不要改写历史。
@@ -108,7 +121,7 @@ Worker 在自己的不可变执行报告中提出共享记忆影响；集成 Age
 - 不要从模糊想法直接开始写代码。
 - 先把想法变成 `PRD.md`、`ARCHITECTURE.md`、`CODEMAP.md` 和一个有边界的首个任务。
 - 一次问一个问题，每个问题都带推荐默认值。
-- 首个任务批准后，告诉用户用 `prompts/EXECUTION_AI.md` 和任务文件开启独立执行窗口。
+- 首个任务批准后询问是否创建执行窗口。用户明确授权后，由讨论 Agent 创建用户可见 Worker 并交接 `prompts/EXECUTION_AI.md` 和任务文件；不得静默创建，也不得用隐藏 subagent 代替。
 
 ## 调试纪律
 

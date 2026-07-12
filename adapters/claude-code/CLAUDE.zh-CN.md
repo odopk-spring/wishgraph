@@ -28,10 +28,14 @@
 ## 协作规则
 
 - 规划 session 写 PRD、架构说明、代码地图、提示词和任务规格。
+- 规划 session 把工作判断为 discussion、sequential、parallel_batch 或 high_risk，推荐执行形态并由用户确认。
 - 执行 session 只实现已批准任务规格。
 - 任务规格必须自包含；不要依赖聊天历史。
 - Worker session 使用独立 branch 或 worktree，创建一个不可变的 `reports/runs/<work-unit-id>.md`，填写 Integrate 或 N/A 建议，不修改共享记忆。
 - 集成 session 使用 `--no-commit` 合并，更新受影响共享记忆、`reports/DEV_REPORT.md` 和 `prompts/DISCUSSION_AI.md` 动态交接状态。
+- 创建 Worker 必须有人类明确命令。宿主支持创建用户可见任务或 session 时，由规划 Agent 为每个已授权规格创建可见 Worker，自动交接执行提示词和任务文件，并命名为 `<task-id> · <short title> · WG Worker`。不得静默创建或使用隐藏 subagent；宿主不支持时才降级为手动复制。
+- 集成是临时角色。安全串行任务批准包含正常集成授权；parallel_batch 和 high_risk 必须取得用户明确确认。只有宿主支持时才使用后台执行，否则如实切换角色或提供一次性启动指令。
+- Hooks 只输出状态并执行门禁，不决定是否并行，不启动 Agent，不合并代码，不编写语义记忆，也不代替 Review。
 - SessionStart 可以向新建或恢复 session 注入最新集成结果；这不是向持续运行窗口实时推送。
 - 每个完成的执行单元优先对应一个原子 commit。极小且已批准的 ad-hoc 修改可以没有 task 文件，但不能省略收尾。
 - 存在 `.wishgraph/hooks/memory_sync.py` 时，宣称完成前运行 worktree 检查。
@@ -39,7 +43,7 @@
 ## 交接
 
 - 用户要求迁移讨论时，更新 `prompts/DISCUSSION_AI.md`，并打印完整内容供复制。
-- PRD 和首个任务准备好后，告诉用户开启新的执行 session，提供 `prompts/EXECUTION_AI.md` 和已批准任务文件。
+- PRD 和首个任务准备好后，询问是否创建执行 session。用户明确授权后，在宿主支持时创建并配置用户可见 Worker；否则提供完整提示词和已批准任务文件作为手动降级方案。
 
 ## 调试
 

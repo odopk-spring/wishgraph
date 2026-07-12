@@ -5,6 +5,9 @@ Spec source: 链接或概述已批准需求。
 Dependencies: 列出依赖的前置任务、migration 或决策。
 Language mode: 默认遵循 `prompts/DISCUSSION_AI.md`，除非本任务明确覆盖。
 Run report: `reports/runs/NNN-short-slug.md`
+Work type: sequential / parallel_batch / high_risk
+Batch ID: 串行填写 N/A；并行填写稳定批次 ID
+Integration authorization: 随任务批准授权 / 需要用户明确确认
 
 ## Intent
 
@@ -40,6 +43,7 @@ Run report: `reports/runs/NNN-short-slug.md`
 - [ ] 在上面指定路径创建唯一的新不可变执行报告。
 - [ ] 执行报告对每个共享记忆文件填写 Integrate 或 N/A 加理由。
 - [ ] Worker 没有修改共享项目记忆或 `reports/DEV_REPORT.md`。
+- [ ] 执行报告记录工作类型、批次 ID、集成就绪状态、范围检查、冲突状态和新增决策状态。
 - [ ] 已安装 hooks 时，`python3 .wishgraph/hooks/memory_sync.py check --scope worktree` 通过。
 - [ ] 除非用户明确要求不提交，否则为本任务创建一个原子 commit。
 - [ ] 未 stage 无关 diff。
@@ -58,3 +62,4 @@ Run report: `reports/runs/NNN-short-slug.md`
 - 风险或未运行检查。
 - 执行报告路径、Integrate 建议和 N/A 理由。
 - 后续任务候选。
+- 集成是就绪、阻塞还是需要用户决定。

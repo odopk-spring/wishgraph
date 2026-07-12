@@ -144,7 +144,9 @@ To switch in one command, re-run the top-level installer with `--setup-project -
 
 Hooks do not write PRD, architecture, CODEMAP, or handoff prose. Workers record Integrate or N/A in task-scoped run reports; one integration agent applies shared updates and records Updated or N/A in `reports/DEV_REPORT.md`.
 
-## 3. Use The Two-Window Workflow
+The read-only command `python3 .wishgraph/hooks/memory_sync.py status` reports ready, waiting, and blocked worker reports, integration kind, whether confirmation is required, and a reason. Hooks do not start workers or integration agents.
+
+## 3. Use The Foreground Discussion Workflow
 
 ### Discussion AI Window
 
@@ -158,6 +160,8 @@ Use it to:
 - Read the latest integrated overview before presenting completed results.
 - Decide the next discussion direction.
 - Capture user dissatisfaction and turn it into a follow-up task or spec update.
+- Classify proposed work as discussion, sequential, parallel_batch, or high_risk and explain the recommendation.
+- Present completed, waiting, and blocked workers plus pending integration and one next action.
 
 The discussion AI should not edit business code unless the project explicitly allows a trivial direct-edit exception.
 
@@ -184,14 +188,37 @@ Use it to:
 
 The execution AI should not redesign the feature. If the task spec is wrong, it should stop and report the conflict.
 
-### Integration AI Window
+Workers do not start silently or as hidden subagents. When a task is ready, discussion AI asks whether to create the execution window. After an explicit human command, the discussion AI creates a user-visible Worker task when the platform supports it, hands off `prompts/EXECUTION_AI.md` and the named task specification automatically, and then the user can observe or control that Worker from the task list. The user does not edit project-memory or integration files.
 
-Use `prompts/INTEGRATION_AI.md` after worker branches are ready. It merges without committing, reads all new run reports, resolves conflicts, updates shared memory and the project overview, refreshes the discussion handoff, validates, and creates the integration commit.
+### Temporary Integration Agent
 
-After the PRD and first task are ready, open a new execution window and paste:
+Use `prompts/INTEGRATION_AI.md` as a temporary event task after worker branches are ready. It merges without committing, reads approved run reports, resolves or reports conflicts, updates shared memory and the project overview, refreshes the discussion handoff, validates, creates the integration commit, returns the result, and ends.
 
-1. The full content of `prompts/EXECUTION_AI.md`.
-2. The full content of the approved `.tasks/build/NNN-short-slug.md`.
+For one safe sequential task, approving the task also authorizes normal integration after all validation, scope, conflict, decision, rollback, and target-worktree gates pass. Do not ask twice. For parallel_batch or high_risk work, discussion AI first lists ready, waiting, and blocked reports, overlap and dependency checks, validation, conflicts, and risk; the user must explicitly approve which reports may be integrated.
+
+If the platform supports an authorized background task or independent thread, discussion AI may launch the temporary integration there and show Waiting, Running, Blocked, or Completed. Otherwise it must explicitly switch the current main agent to integration or give one natural-language launch instruction. It must not claim background execution when unsupported.
+
+After the PRD and first task are ready, discussion AI states the work type, explains the sequential or parallel recommendation, names the approved task files, and asks:
+
+```text
+The task is ready. Create the execution window?
+```
+
+The user can reply:
+
+```text
+创建执行窗口
+```
+
+For an approved parallel batch, one explicit batch command can authorize exactly the listed Workers:
+
+```text
+为这三个任务分别创建执行窗口
+```
+
+The discussion Agent then creates one user-visible task per authorized Worker, automatically provides the execution prompt and corresponding task specification, prefers an isolated branch or worktree, and names each task `<task-id> · <short title> · WG Worker` so the useful task identity appears before any sidebar truncation. This is still explicit execution: the Agent cannot create a Worker before the human command, cannot create unlisted Workers, and cannot substitute hidden subagents.
+
+If the current platform cannot create user-visible tasks, or a creation attempt fails, the discussion Agent says so and provides one complete copyable package containing the canonical title, the full `prompts/EXECUTION_AI.md`, and the approved task specification. Manual copy-and-paste is the fallback, not the normal path. Hooks never launch Workers.
 
 ## 4. Execution Loop
 
@@ -201,12 +228,17 @@ The normal loop is:
 Human intent
 -> Discussion AI updates PRD / roadmap / current state
 -> Discussion AI writes task spec
+-> Discussion AI explains discussion / sequential / parallel_batch / high_risk
+-> Human explicitly authorizes creation of the named Worker task(s)
+-> Discussion AI creates and configures user-visible Worker task(s)
 -> Worker AI implements task spec in an isolated branch or worktree
 -> Worker AI validates and creates an immutable run report
--> Integration AI merges without committing and updates shared memory
+-> Discussion AI checks ready / waiting / blocked status and applicable authority
+-> Temporary Integration AI merges approved results and updates shared memory
 -> Integration AI updates DEV_REPORT and discussion handoff
+-> Temporary Integration AI ends
 -> Discussion AI receives the summary on next start/resume and presents it
--> Human decides next direction or correction
+-> Human reviews the result and decides next direction or correction
 ```
 
 If a single execution result is unsatisfactory, keep the correction in the discussion window. The discussion AI should decide whether the fix is:

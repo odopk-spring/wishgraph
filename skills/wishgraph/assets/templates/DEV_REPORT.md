@@ -9,6 +9,9 @@ This is the current integrated project snapshot. Only the integration agent upda
 - Agent:
 - Status: Completed / Blocked / Incomplete
 - Target branch:
+- Integration kind: sequential / parallel_batch / high_risk
+- Authorization: Inherited task approval / Explicit user confirmation
+- Background capability: Temporary agent / Current-agent fallback / User-launched fallback
 
 ## Integrated Run Reports
 
@@ -36,6 +39,14 @@ List every run report absorbed by this integration. Integrate worker branches wi
 - Residual risk:
 - Unresolved conflict:
 - Next recommended task:
+
+## Worker and Integration Status
+
+- Completed workers:
+- Waiting workers:
+- Blocked workers:
+- Integration state: Waiting / Running / Blocked / Completed / Awaiting review
+- User review state: Pending / Accepted / Changes requested
 
 ## Discussion Handoff
 

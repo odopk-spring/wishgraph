@@ -10,6 +10,13 @@
 - Agent：
 - 分支 / worktree：
 - 状态：Completed / Blocked / Incomplete
+- 工作类型：sequential / parallel_batch / high_risk
+- 批次 ID：串行填写 N/A；并行填写稳定批次 ID
+- 集成授权：随任务批准授权 / 需要用户明确确认
+- 集成就绪状态：Ready / Blocked / Needs decision
+- 范围检查：Pass / Fail
+- 冲突状态：None / Present
+- 新增产品 / 架构 / 数据决策：No / Yes
 
 ## 摘要
 
@@ -25,9 +32,9 @@
 
 | 检查 | 命令 / 场景 | 结果 | 证据 |
 |---|---|---|---|
-| 构建 | `<command>` | Pass / Fail / Not run | 关键输出或原因 |
-| 测试 | `<command>` | Pass / Fail / Not run | 关键输出或原因 |
-| 手动 | `<scenario>` | Pass / Fail / Not run | 说明 |
+| 构建 | `<command>` | Pass / Fail / N/A | 关键输出或具体 N/A 理由 |
+| 测试 | `<command>` | Pass / Fail / N/A | 关键输出或具体 N/A 理由 |
+| 手动 | `<scenario>` | Pass / Fail / N/A | 说明或具体 N/A 理由 |
 
 ## 风险
 
@@ -54,3 +61,4 @@ Worker 不直接修改共享项目记忆。需要集成 Agent 更新时使用 `I
 - 合并依赖：
 - 冲突提醒：
 - 集成 Agent 必须保留的事实：
+- 可以安全集成、阻塞或需要用户决定的理由：

@@ -5,6 +5,9 @@ Spec source: Link or summarize the approved requirement.
 Dependencies: List required prior tasks, migrations, or decisions.
 Language mode: Follow `prompts/DISCUSSION_AI.md` unless this task explicitly overrides it.
 Run report: `reports/runs/NNN-short-slug.md`
+Work type: sequential / parallel_batch / high_risk
+Batch ID: N/A for sequential; stable batch ID for parallel work
+Integration authorization: Inherited task approval / Requires explicit user confirmation
 
 ## Intent
 
@@ -40,6 +43,7 @@ Summarize the relevant repo facts discovered from files, tests, logs, or docs.
 - [ ] Exactly one new immutable run report created at the path above.
 - [ ] Run report records Integrate or N/A with a reason for every shared-memory file.
 - [ ] Worker did not modify shared project memory or `reports/DEV_REPORT.md`.
+- [ ] Run report records work type, batch ID, integration readiness, scope check, conflict status, and new-decision status.
 - [ ] `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` passes when hooks are installed.
 - [ ] One atomic commit created for this task, unless the user explicitly requested no commit.
 - [ ] No unrelated diffs staged.
@@ -58,3 +62,4 @@ The final report must include:
 - Risks or checks not run.
 - Run report path, Integrate proposals, and N/A reasons.
 - Any follow-up task candidates.
+- Whether integration is ready, blocked, or requires a user decision.

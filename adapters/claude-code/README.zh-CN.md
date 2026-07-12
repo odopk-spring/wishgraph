@@ -109,9 +109,9 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
    reports/DEV_REPORT.md
    ```
 
-3. 开启新的执行 session，粘贴执行提示词和已批准任务文件；也可以再次调用 `/wishgraph`，要求它严格按指定任务执行。
+3. 先让讨论 AI 解释任务应串行还是并行，并询问是否创建执行 session。只有人类明确命令后，宿主支持时才由讨论 Agent 为每个已授权规格创建并配置用户可见 Worker，自动交接执行提示词、已批准任务文件，并使用 `<task-id> · <short title> · WG Worker` 命名。不得静默创建或使用隐藏 subagent；不能创建可见 session 时才降级为手动复制。
 
-   明确批准的极小 ad-hoc 修改可以省略 task 文件，但仍要创建唯一不可变执行报告；之后由集成 session 更新共享记忆和项目概览。
+   明确批准的极小 ad-hoc 修改可以省略 task 文件，但仍要创建唯一不可变执行报告。安全串行批准包含正常临时集成；并行或高风险集成需要明确确认。平台不支持后台任务时，Agent 必须如实切换角色或给出一次性启动指令。
 
 4. 如果讨论 session 需要迁移，提问：
 

@@ -105,6 +105,15 @@ class MemorySyncTests(unittest.TestCase):
         self,
         unit: str,
         overrides: Optional[dict[str, tuple[str, str]]] = None,
+        *,
+        work_type: str = "sequential",
+        batch_id: str = "N/A",
+        status: str = "Completed",
+        readiness: str = "Ready",
+        validation: str = "Pass",
+        scope_check: str = "Pass",
+        conflict_status: str = "None",
+        new_decision: str = "No",
     ) -> str:
         table = self.impact_table(
             ("N/A", "Shared project truth did not change"), overrides
@@ -113,7 +122,23 @@ class MemorySyncTests(unittest.TestCase):
             "# Run Report\n\n"
             "## Work Unit\n\n"
             f"- Unit: {unit}\n"
-            "- Status: Completed\n\n"
+            f"- Status: {status}\n"
+            f"- Work type: {work_type}\n"
+            f"- Batch ID: {batch_id}\n"
+            "- Integration authorization: "
+            + (
+                "Requires explicit user confirmation\n"
+                if work_type in {"parallel_batch", "high_risk"}
+                else "Inherited task approval\n"
+            )
+            + f"- Integration readiness: {readiness}\n"
+            + f"- Scope check: {scope_check}\n"
+            + f"- Conflict status: {conflict_status}\n"
+            + f"- New product / architecture / data decision: {new_decision}\n\n"
+            "## Validation\n\n"
+            "| Check | Command / Scenario | Result | Evidence |\n"
+            "|---|---|---|---|\n"
+            f"| Tests | test | {validation} | evidence |\n\n"
             "## Shared Memory Impact Proposal\n\n"
             "| File | Result | Reason |\n"
             "|---|---|---|\n"
@@ -124,6 +149,9 @@ class MemorySyncTests(unittest.TestCase):
         self,
         reports: list[str],
         overrides: Optional[dict[str, tuple[str, str]]] = None,
+        *,
+        integration_kind: Optional[str] = None,
+        authorization: Optional[str] = None,
     ) -> str:
         rows = {
             "prompts/DISCUSSION_AI.md": (
@@ -134,11 +162,19 @@ class MemorySyncTests(unittest.TestCase):
         rows.update(overrides or {})
         table = self.impact_table(("N/A", "Integrated project truth did not change"), rows)
         report_list = "\n".join(f"- `{path}`" for path in reports)
+        kind = integration_kind or ("parallel_batch" if len(reports) > 1 else "sequential")
+        auth = authorization or (
+            "Explicit user confirmation"
+            if kind in {"parallel_batch", "high_risk"}
+            else "Inherited task approval"
+        )
         return (
             "# Project Report Overview\n\n"
             "## Latest Integration\n\n"
             "- Integration ID: integration/test\n"
-            "- Status: Completed\n\n"
+            "- Status: Completed\n"
+            f"- Integration kind: {kind}\n"
+            f"- Authorization: {auth}\n\n"
             "## Integrated Run Reports\n\n"
             f"{report_list}\n\n"
             "## Latest Integrated Results\n\n"
@@ -359,6 +395,162 @@ class MemorySyncTests(unittest.TestCase):
         self.assertIn("latest worker results integrated", context)
         self.assertIn("Current Handoff State", context)
 
+    def test_safe_sequential_result_needs_no_second_confirmation(self) -> None:
+        self.write("src/app.py", "print('safe sequential')\n")
+        report_path = "reports/runs/006-sequential.md"
+        self.write(report_path, self.run_report("006-sequential"))
+        state = memory_sync.integration_state(self.root, self.config).as_dict()
+        self.assertTrue(state["pending_integration"])
+        self.assertEqual(state["integration_kind"], "sequential")
+        self.assertEqual(state["ready_reports"], [report_path])
+        self.assertFalse(state["requires_user_confirmation"])
+
+    def test_failed_sequential_result_blocks_integration(self) -> None:
+        report_path = "reports/runs/007-failed.md"
+        self.write(
+            report_path,
+            self.run_report(
+                "007-failed",
+                status="Blocked",
+                readiness="Blocked",
+                validation="Fail",
+                scope_check="Fail",
+            ),
+        )
+        state = memory_sync.integration_state(self.root, self.config).as_dict()
+        self.assertEqual(state["blocked_reports"], [report_path])
+        self.assertTrue(state["requires_user_confirmation"])
+        self.assertIn("unsafe", state["reason"].lower())
+
+    def test_sequential_safety_failures_block_auto_integration(self) -> None:
+        cases = {
+            "validation": {"validation": "Fail"},
+            "scope": {"scope_check": "Fail"},
+            "conflict": {"conflict_status": "Present"},
+            "decision": {"new_decision": "Yes"},
+        }
+        for index, (name, overrides) in enumerate(cases.items(), start=20):
+            with self.subTest(case=name):
+                report_path = f"reports/runs/{index}-{name}.md"
+                self.write(report_path, self.run_report(f"{index}-{name}", **overrides))
+                state = memory_sync.integration_state(self.root, self.config).as_dict()
+                self.assertIn(report_path, state["blocked_reports"])
+                report_path_on_disk = self.root / report_path
+                report_path_on_disk.unlink()
+
+    def test_parallel_integration_requires_explicit_user_confirmation(self) -> None:
+        report_path = "reports/runs/008-parallel.md"
+        self.write("src/parallel.py", "print('parallel')\n")
+        self.write(
+            report_path,
+            self.run_report(
+                "008-parallel",
+                work_type="parallel_batch",
+                batch_id="batch-008",
+            ),
+        )
+        self.write("prompts/DISCUSSION_AI.md", self.discussion("integration/008"))
+        self.write(
+            "reports/DEV_REPORT.md",
+            self.overview(
+                [report_path],
+                integration_kind="parallel_batch",
+                authorization="Inherited task approval",
+            ),
+        )
+        result = memory_sync.check_sync(self.root, self.config, "worktree")
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any("explicit user confirmation" in error for error in result.errors)
+        )
+
+    def test_parallel_status_lists_ready_waiting_and_blocked(self) -> None:
+        ready_path = "reports/runs/009-ready.md"
+        blocked_path = "reports/runs/010-blocked.md"
+        waiting_path = "reports/runs/011-waiting.md"
+        self.write(
+            ready_path,
+            self.run_report(
+                "009-ready", work_type="parallel_batch", batch_id="batch-009"
+            ),
+        )
+        self.write(
+            blocked_path,
+            self.run_report(
+                "010-blocked",
+                work_type="parallel_batch",
+                batch_id="batch-009",
+                status="Blocked",
+                readiness="Blocked",
+                validation="Fail",
+            ),
+        )
+        self.write(
+            ".tasks/build/011-waiting.md",
+            "# 011\n\nStatus: Pending\n"
+            f"Run report: `{waiting_path}`\n"
+            "Work type: parallel_batch\nBatch ID: batch-009\n",
+        )
+        state = memory_sync.integration_state(self.root, self.config).as_dict()
+        self.assertEqual(state["integration_kind"], "parallel_batch")
+        self.assertEqual(state["ready_reports"], [ready_path])
+        self.assertEqual(state["waiting_reports"], [waiting_path])
+        self.assertEqual(state["blocked_reports"], [blocked_path])
+        self.assertTrue(state["requires_user_confirmation"])
+
+    def test_status_discovers_completed_worker_on_separate_branch(self) -> None:
+        original_branch = self.git("branch", "--show-current").stdout.strip()
+        report_path = "reports/runs/013-branch-worker.md"
+        self.write(
+            ".tasks/build/013-branch-worker.md",
+            "# 013\n\nStatus: Pending\n"
+            f"Run report: `{report_path}`\n"
+            "Work type: sequential\nBatch ID: N/A\n",
+        )
+        self.git("add", ".tasks/build/013-branch-worker.md")
+        self.git("commit", "-qm", "plan worker")
+        self.git("checkout", "-qb", "worker-013")
+        self.write(report_path, self.run_report("013-branch-worker"))
+        self.git("add", report_path)
+        self.git("commit", "-qm", "complete worker")
+        self.git("checkout", "-q", original_branch)
+
+        state = memory_sync.integration_state(self.root, self.config).as_dict()
+        self.assertEqual(state["ready_reports"], [report_path])
+        self.assertEqual(state["waiting_reports"], [])
+        self.assertFalse(state["requires_user_confirmation"])
+
+    def test_status_command_is_read_only(self) -> None:
+        before = self.git("status", "--porcelain").stdout
+        process = subprocess.run(
+            [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "status"],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        payload = json.loads(process.stdout)
+        self.assertIn("pending_integration", payload)
+        after = self.git("status", "--porcelain").stdout
+        self.assertEqual(before, after)
+
+    def test_session_start_injects_pending_integration_status(self) -> None:
+        self.write("src/app.py", "print('pending')\n")
+        self.write("reports/runs/012-pending.md", self.run_report("012-pending"))
+        process = subprocess.run(
+            [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "session-start"],
+            cwd=self.root,
+            input=json.dumps({"cwd": str(self.root)}),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        context = json.loads(process.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn('"pending_integration":true', context)
+        self.assertIn('"integration_kind":"sequential"', context)
+
 
 class InstallerTests(unittest.TestCase):
     def test_installer_rejects_non_git_directory_before_writing(self) -> None:
@@ -457,8 +649,9 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue((root / ".wishgraph" / "hooks" / "memory_sync.py").exists())
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
-            self.assertEqual(config["version"], 2)
+            self.assertEqual(config["version"], 3)
             self.assertEqual(config["paths"]["run_report_glob"], "reports/runs/*.md")
+            self.assertTrue(config["scan_worker_refs_for_status"])
             self.assertIn("prompts/INTEGRATION_AI.md", config["required_impact_rows"])
 
             second = subprocess.run(
@@ -484,6 +677,42 @@ class InstallerTests(unittest.TestCase):
                 if any("memory_sync.py" in hook["command"] for hook in group["hooks"])
             ]
             self.assertEqual(len(memory_groups), 1)
+
+    def test_installer_migrates_version_two_status_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            (root / ".wishgraph").mkdir()
+            (root / ".wishgraph" / "config.json").write_text(
+                json.dumps(
+                    {
+                        "version": 2,
+                        "mode": "warn",
+                        "session_summary_max_chars": 1234,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            process = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALLER),
+                    "--target",
+                    str(root),
+                    "--host",
+                    "codex",
+                    "--mode",
+                    "warn",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(process.returncode, 0, process.stderr)
+            config = json.loads((root / ".wishgraph" / "config.json").read_text())
+            self.assertEqual(config["version"], 3)
+            self.assertEqual(config["session_summary_max_chars"], 1234)
+            self.assertTrue(config["scan_worker_refs_for_status"])
 
 
 class OneCommandInstallerTests(unittest.TestCase):
@@ -703,6 +932,79 @@ class OneCommandInstallerTests(unittest.TestCase):
         self.assertIn("exact short reply that will resume setup", skill)
         self.assertIn("选择", installation)
         self.assertIn("已安装 Python", installation)
+
+    def test_discussion_prompt_guides_workers_and_work_classification(self) -> None:
+        prompt = (ROOT / "templates" / "prompts" / "DISCUSSION_AI.md").read_text(
+            encoding="utf-8"
+        )
+        for expected in (
+            "## Work Classification",
+            "discussion",
+            "sequential",
+            "parallel_batch",
+            "high_risk",
+            "The task is ready. Create the execution window?",
+            "explicit human command",
+            "user-visible, user-owned Worker tasks",
+            "<task-id> · <short title> · WG Worker",
+            "Do not use hidden subagents",
+            "manual fallback",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, prompt)
+
+    def test_worker_launch_protocol_requires_visible_human_authorized_tasks(self) -> None:
+        reference = (
+            ROOT
+            / "skills"
+            / "wishgraph"
+            / "references"
+            / "worker-window-launch.md"
+        ).read_text(encoding="utf-8")
+        chinese_prompt = (
+            ROOT / "templates" / "zh-CN" / "prompts" / "DISCUSSION_AI.md"
+        ).read_text(encoding="utf-8")
+        for expected in (
+            "创建执行窗口",
+            "为这三个任务分别创建执行窗口",
+            "visible, user-owned, inspectable, and controllable",
+            "<task-id> · <short title> · WG Worker",
+            "Do not create extra Workers",
+            "Manual copying is the fallback, not the default",
+            "Do not use a hidden subagent as the Worker",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, reference)
+        for expected in (
+            "任务已准备好，是否创建执行窗口？",
+            "创建执行窗口",
+            "为这三个任务分别创建执行窗口",
+            "不得用隐藏 subagent 代替 Worker",
+            "手动复制仅作为降级方案",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, chinese_prompt)
+
+    def test_integration_prompt_is_temporary_and_has_truthful_fallback(self) -> None:
+        discussion = (
+            ROOT / "templates" / "prompts" / "DISCUSSION_AI.md"
+        ).read_text(encoding="utf-8")
+        integration = (
+            ROOT / "templates" / "prompts" / "INTEGRATION_AI.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("temporary background integration agent", discussion)
+        self.assertIn("If the platform does not support background work", discussion)
+        self.assertIn("do not pretend it does", discussion)
+        self.assertIn("end this temporary agent", integration)
+
+    def test_hooks_are_not_semantic_reviewers_or_agent_launchers(self) -> None:
+        runtime = (HOOK_ASSETS / "memory_sync.py").read_text(encoding="utf-8")
+        reference = (
+            ROOT / "skills" / "wishgraph" / "references" / "memory-sync-hooks.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Hooks do not start agents", runtime)
+        self.assertIn("never start them", reference)
+        self.assertNotIn("subprocess.Popen", runtime)
 
 
 class TemplateMirrorTests(unittest.TestCase):

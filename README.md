@@ -10,6 +10,8 @@ Wish -> Spec Graph -> Task Graph -> Code Change -> Probe -> Report -> Human Revi
 
 The core move is simple: stop depending on chat memory for complex work. Put the project state in durable files that any future agent can read, audit, and continue.
 
+The normal user experience is one foreground discussion AI, human-authorized user-visible Worker tasks created and configured by that Agent, and an event-triggered temporary integration agent. Discussion AI recommends discussion, sequential, parallel_batch, or high_risk work; the user confirms the execution shape and explicitly authorizes Worker creation. Hooks expose state and enforce boundaries but do not choose parallelism, launch workers, merge code, write semantic memory, or replace human review.
+
 ## Install For Your Agent
 
 Install only the skill or adapter you need first. You do not need to clone the whole repository just to try WishGraph.
@@ -129,7 +131,7 @@ The installer checks prerequisites before writing files. WishGraph itself uses a
 
 For the recommended first-use workflow, see [GETTING_STARTED.md](GETTING_STARTED.md).
 
-For bilingual docs and a desensitized carrier example of the workflow, see [docs](docs). The PaperChat-style example explains the zero-to-PRD and two-window process without exposing private product code or business details.
+For bilingual docs and a desensitized carrier example of the workflow, see [docs](docs). The PaperChat-style example explains the foreground discussion, explicit worker, and temporary integration process without exposing private product code or business details.
 
 ## Why This Exists
 
@@ -142,6 +144,8 @@ WishGraph addresses that by externalizing the working memory:
 - **Causal Log**: why the project changed, which decisions were made, and what failed before.
 - **Probe**: the checks that catch regressions and prove behavior.
 - **Review Window**: the compressed human-facing summary of plans, risks, validation, and choices.
+
+Review remains a human-facing view inside discussion, not a permanent fourth agent. Safe sequential task approval includes normal integration authority; parallel batches require a second explicit integration approval.
 
 The human stays in charge of direction and judgment. AI handles the high-bandwidth translation into specs, tasks, code edits, validation, repair, and reports.
 
@@ -282,16 +286,17 @@ It should not create personal branding content, social media drafts, or project-
 
 ## Collaboration Model
 
-WishGraph separates two roles:
+WishGraph separates three runtime roles:
 
 - **Planning / Discussion Agent**: resolves intent, writes self-contained task specs, and does not touch business code.
-- **Execution Agent**: reads the task spec as the only source of formal requirements, implements the smallest safe change, runs validation, updates project maps, and reports evidence. Explicitly approved ad-hoc edits may omit the task file but use the same closeout.
+- **Execution Agent**: reads the task spec as the only source of formal requirements, implements the smallest safe change, runs validation, records evidence in an immutable run report, and proposes project-memory updates without applying them. Explicitly approved ad-hoc edits may omit the task file but use the same closeout.
+- **Temporary Integration Agent**: absorbs approved Worker results, verifies the combined state, and is the single writer for shared project memory before ending.
 
 This keeps the project from depending on one long chat window.
 
 The recommended workflow is to start with a planning AI conversation that creates or refines the PRD and architecture frame, then move implementation into task-by-task execution windows.
 
-For a brand-new project, the planning AI starts by asking what idea the user has, then grills one decision at a time until the PRD and first execution task are concrete enough. After that, the user opens a separate execution window and copies `prompts/EXECUTION_AI.md` plus the approved task file.
+For a brand-new project, the planning AI starts by asking what idea the user has, then grills one decision at a time until the PRD and first execution task are concrete enough. It then asks whether to create the execution window. After the user explicitly replies with a command such as `创建执行窗口`, the planning AI creates and configures a user-visible Worker task, hands off `prompts/EXECUTION_AI.md` plus the approved task file, and uses a name such as `012 · Auth Refresh · WG Worker` so task identity appears first. A batch command may authorize exactly the listed parallel Workers. No Worker may be created silently or replaced with a hidden subagent; manual copying is only the fallback on platforms without visible task creation.
 
 If the user wants to migrate the discussion window, the planning AI should update `prompts/DISCUSSION_AI.md` and print the full prompt for copying into another agent.
 

@@ -109,9 +109,9 @@ This safely merges `SessionStart`, `PreToolUse`, `Stop`, and `TaskCompleted` gro
    reports/DEV_REPORT.md
    ```
 
-3. Open a fresh execution session and paste the execution prompt plus the approved task file, or invoke `/wishgraph` again and ask it to follow the assigned task exactly.
+3. Let discussion AI explain whether the task is sequential or parallel and ask whether to create the execution session. After an explicit human command, it should create and configure one user-visible Worker per authorized spec when the host supports that capability, including the execution prompt, approved task file, and canonical `<task-id> · <short title> · WG Worker` name. It must not create Workers silently or use hidden subagents. Manual copying is the fallback when visible session creation is unavailable.
 
-   An explicitly approved tiny ad-hoc edit may omit the task file, but it still creates a unique immutable run report. An integration session later updates shared memory and the project overview.
+   An explicitly approved tiny ad-hoc edit may omit the task file, but it still creates a unique immutable run report. Safe sequential approval includes normal temporary integration; parallel or high-risk integration requires explicit confirmation. If background tasks are unavailable, the agent must switch roles or provide a one-time launch command truthfully.
 
 4. If the discussion session must move, ask:
 

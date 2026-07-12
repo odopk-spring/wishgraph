@@ -4,6 +4,9 @@ Status: Example
 Spec source: `PRD.md` "Now" roadmap 要求 dashboard first paint 不能等待 auth refresh。
 Dependencies: None.
 Run report: `reports/runs/012-dashboard-token-refresh.md`
+Work type: sequential
+Batch ID: N/A
+Integration authorization: 随任务批准授权
 
 ## Intent
 

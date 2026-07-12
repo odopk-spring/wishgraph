@@ -54,7 +54,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - `reports/RUN_REPORT.md`
 7. Use the bundled templates under `assets/templates/` as structure, then adapt them to the repository. For Chinese-first projects, use `assets/templates/zh-CN/` as the source template set. For bilingual projects, start from the user's primary language template and add bilingual user-facing explanations only where useful.
 8. For Skill or hook installation, follow **Natural-Language Installation** and `references/installation.md`. Adapt the required governance files before enabling strict mode, preserve unrelated hook configuration, and tell Codex users to review `/hooks`.
-9. When the PRD and first task are ready, tell the user to open a new execution window and copy `prompts/EXECUTION_AI.md` plus the chosen `.tasks/build/*.md`.
+9. When the PRD and first task are ready, classify the work, explain the sequential or parallel recommendation, name the approved tasks, and ask whether the user wants the execution window or windows created. Only after an explicit command, create one user-visible Worker task per authorized spec, inject `prompts/EXECUTION_AI.md` plus the named `.tasks/build/*.md`, and apply the naming and fallback rules in `references/worker-window-launch.md`. Tell the user to return to discussion after workers finish; do not require them to copy prompts by default or edit memory files.
 10. Finish with a short review summary listing files created or updated, assumptions, hook mode when installed, and next recommended task.
 
 ## Workflow
@@ -90,34 +90,47 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - Include goal, context summary, anchored files/symbols, implementation instructions, "do not do" boundaries, validation commands, rollback boundary, and required report format.
    - Follow the project's language mode for human-facing explanations. Do not translate file paths, commands, code identifiers, symbols, routes, package names, or environment variables.
    - Prefer small atomic tasks. Split any task whose validation, risk, or rollback boundary is unclear.
+   - Record Work type, Batch ID, Integration authorization, and a unique Run report path.
 
-5. **Separate planning, worker, and integration roles**
+5. **Classify work and obtain the right authority**
+   - Use `discussion` while requirements or architecture remain unclear; start no worker or integration.
+   - Use `sequential` for one task or ordered dependencies. The user explicitly authorizes Worker creation; task approval also authorizes a later safe integration when every gate passes.
+   - Use `parallel_batch` only for two or more independent, non-overlapping, independently testable and revertible tasks. Show the batch first; the user explicitly authorizes exactly which visible Worker tasks to create and confirms integration again after statuses are summarized.
+   - Use `high_risk` for product or architecture decisions, data migration, conflict, failed validation, unsafe rollback, or scope drift. Return to the user; do not auto-integrate.
+   - Check dependencies, shared files or core modules, validation and rollback independence, cross-task contamination, and unresolved decisions. Discussion AI recommends; the user decides. Hooks and integration agents do not choose parallelism.
+
+6. **Separate planning, worker, and integration roles**
    - Planning agents grill the intent and write specs.
    - Worker execution agents use separate branches or worktrees, implement only the approved spec or bounded ad-hoc instruction, update task status, and create one immutable `reports/runs/<work-unit-id>.md`.
    - Workers record `Integrate` or `N/A` proposals and never edit shared project memory.
    - The integration agent merges workers with `--no-commit`, reads every new run report, resolves conflicts, updates affected shared memory, updates `reports/DEV_REPORT.md`, and updates the dynamic state in `prompts/DISCUSSION_AI.md`.
    - Keep `prompts/EXECUTION_AI.md` stable; put task-specific instructions in `.tasks/build/*.md`.
    - For trivial one-line changes, allow direct execution only if the repo conventions explicitly permit it.
+   - Never start Workers without an explicit human creation command. When the platform supports user-visible task or thread creation, the discussion agent creates and configures those visible tasks; it must not use hidden subagents. Manual prompt copying is only the truthful fallback when visible task creation is unavailable or fails.
 
-6. **Close every execution unit**
+7. **Close every execution unit**
    - Formal tasks and approved ad-hoc edits use the same validation and external-memory closeout. Only the task file is optional for ad-hoc work.
    - Create one new immutable run report for every worker execution. Use the task ID or a unique timestamped ad-hoc ID.
    - Record Integrate or N/A with a concrete reason for each managed shared-memory file.
    - When project hooks are installed, run `.wishgraph/hooks/memory_sync.py check` before claiming completion. Hooks inspect and block; they do not invent semantic memory content.
 
-7. **Integrate worker results**
+8. **Integrate worker results**
    - Keep shared memory single-writer. Do not let workers race on PRD, architecture, CODEMAP, prompts, or the project overview.
    - Merge or cherry-pick worker commits without committing, so their new run reports remain visible in the integration diff.
    - Update `reports/DEV_REPORT.md` with the absorbed run-report paths, latest integrated results, validation, risks, and Updated/N/A rows.
    - Update the dynamic state block in `prompts/DISCUSSION_AI.md`. SessionStart can inject a concise overview and handoff into new or resumed agent sessions.
+   - Run `.wishgraph/hooks/memory_sync.py status` when available and show ready, waiting, and blocked reports plus pending integration and the next action.
+   - For one safe sequential result, use the authority inherited from task approval without asking twice. Require Completed and ready metadata, passing prescribed validation, bounded scope, no conflict or new product/architecture/data decision, and a safe target worktree.
+   - For parallel_batch or high_risk results, require explicit user confirmation naming the reports to integrate. Keep integration authorization separate from post-integration human review.
+   - Treat integration as a temporary event task. If the platform exposes an authorized background-task or independent-thread tool, launch a temporary integration agent with `prompts/INTEGRATION_AI.md`, report Waiting/Running/Blocked/Completed, return the result, and end it. Otherwise explicitly switch the current main agent or give one natural-language launch instruction; never pretend background execution exists.
    - Do not describe this as real-time push. An already-running discussion window receives results only after a supported resume/start event or an explicit refresh.
 
-8. **Handle discussion-window migration**
+9. **Handle discussion-window migration**
    - If the user says they want to migrate, hand off, continue in another agent, open a new discussion window, or copy the discussion prompt, update `prompts/DISCUSSION_AI.md` first if it is stale.
    - Then output the full current discussion prompt in a fenced code block for direct copying.
    - Do not replace the prompt with a summary unless the user asks for a shorter version.
 
-9. **Debug through causality**
+10. **Debug through causality**
    - For bugs, trace `Error -> State -> Code -> Spec`.
    - Do not start by guessing the most familiar file.
    - Find the earliest polluted assumption, state transition, cache, persisted field, or spec ambiguity.
@@ -129,6 +142,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
 - Read `references/core-concepts.md` when the user asks about WishGraph concepts, naming, or public explanation.
 - Read `references/bilingual-operation.md` when the user asks for Chinese, English, bilingual output, mixed-language handoff, or language rules for generated project memory.
 - Read `references/zero-project-bootstrap.md` when the user is starting from a vague idea, has no PRD, wants the first project conversation, or asks for grill-style project shaping.
+- Read `references/worker-window-launch.md` before offering, creating, naming, or falling back from a user-visible Worker task or thread.
 - Read `references/task-spec-template.md` before creating or revising task files.
 - Read `references/good-execution-spec.md` when creating the first task spec for a project, reviewing whether a task spec is good enough, or showing the user an example.
 - Read `references/review-window.md` before producing human-facing review summaries, Dev Reports, or single-window status digests.
@@ -181,6 +195,8 @@ Chinese mirror:
 - Do not force meaningless memory-file edits. Require an explicit N/A reason when a managed file did not need a change.
 - Do not let an ad-hoc edit bypass validation, a unique run report, or memory-impact review merely because it has no task file.
 - Do not let worker agents update shared memory. Integrate their reports through a single integration writer.
+- Do not let hooks choose parallelism, launch agents, merge code, write semantic project memory, or replace human review.
+- Do not start parallel integration without explicit user approval.
 - For a brand-new project, do not start implementation until the PRD is concrete enough to write a bounded first task.
 - For discussion migration requests, show the copyable prompt itself, not only a description of where it lives.
 - Make scope boundaries explicit. Every task should say what it will not do.

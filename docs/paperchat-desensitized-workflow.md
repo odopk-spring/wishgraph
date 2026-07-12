@@ -101,21 +101,23 @@ Stores the current planning state. When the user says "迁移讨论窗口", the 
 
 Stays stable. It tells an execution AI how to start, what files to read, and how to close a task. Task-specific requirements belong in `.tasks/build/*.md`, not in this prompt.
 
-## Two-Window Loop
+## Foreground Discussion, Explicit Worker, Temporary Integration
 
 ```text
 Human idea
 -> Discussion AI grills and updates PRD
 -> Discussion AI writes a self-contained task spec
--> Human approves task boundary
--> Execution AI opens a separate window
+-> Discussion AI classifies sequential / parallel_batch / high_risk
+-> Human approves task boundary and explicitly authorizes the named Worker task(s)
+-> Discussion AI creates and configures user-visible Worker task(s)
 -> Execution AI reads EXECUTION_AI.md plus the task file
 -> Execution AI implements only that task
--> Execution AI validates, updates maps, writes Dev Report, commits
--> Discussion AI reads report and decides the next task
+-> Execution AI validates, writes one immutable run report, commits
+-> Temporary Integration AI applies approved results and shared-memory updates
+-> Discussion AI presents the integrated result for human review
 ```
 
-The discussion window controls direction. The execution window performs scoped implementation.
+Discussion controls direction and recommends serial or parallel work. After an explicit human creation command, it creates and configures user-visible Workers when the host supports that capability. It never creates them silently or uses hidden subagents; manual copying is the fallback. Safe sequential approval includes normal integration authority; parallel batches require a second user confirmation before temporary integration.
 
 ## Example First Implementation Task
 
@@ -135,6 +137,7 @@ A good task spec should include:
 - validation commands
 - manual checks
 - files that must be updated after execution
+- work type, batch ID, and integration authorization
 - rollback boundary
 - report format
 
