@@ -21,7 +21,7 @@ from typing import Any, Optional
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "version": 3,
+    "version": 4,
     "mode": "enforce",
     "paths": {
         "prd": "PRD.md",
@@ -33,7 +33,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "integration_prompt": "prompts/INTEGRATION_AI.md",
         "dev_report": "reports/DEV_REPORT.md",
         "run_report_glob": "reports/runs/*.md",
-        "task_glob": ".tasks/build/*.md",
+        "task_glob": "tasks/build/*.md",
+        "task_globs": ["tasks/build/*.md", ".tasks/build/*.md"],
     },
     "required_impact_rows": [
         "PRD.md",
@@ -166,6 +167,20 @@ def load_config(root: Path) -> Optional[dict[str, Any]]:
     if not isinstance(data, dict):
         raise ValueError(".wishgraph/config.json must contain a JSON object")
     return deep_merge(DEFAULT_CONFIG, data)
+
+
+def configured_task_globs(config: dict[str, Any]) -> list[str]:
+    """Return the visible task path first while retaining legacy compatibility."""
+    paths = config["paths"]
+    configured = paths.get("task_globs", [])
+    if isinstance(configured, str):
+        configured = [configured]
+    candidates = [paths.get("task_glob", ""), *configured]
+    return list(
+        dict.fromkeys(
+            pattern for pattern in candidates if isinstance(pattern, str) and pattern
+        )
+    )
 
 
 def nul_paths(data: bytes) -> set[str]:
@@ -425,23 +440,29 @@ def report_contents_across_refs(
 
 
 def task_report_states(root: Path, config: dict[str, Any]) -> dict[str, tuple[str, str]]:
-    task_glob = config["paths"]["task_glob"]
     tasks: dict[str, tuple[str, str]] = {}
-    for path in root.glob(task_glob):
-        if path.name.startswith("EXAMPLE-") or path.name.startswith("NNN-"):
-            continue
-        try:
-            content = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        report_path = parse_labeled_field(
-            content, "Run report", "执行报告", lowercase=False
-        )
-        if not report_path:
-            continue
-        status = parse_labeled_field(content, "Status", "状态") or "pending"
-        work_type = parse_labeled_field(content, "Work type", "工作类型") or "missing"
-        tasks[normalize_cell(report_path)] = (status, work_type)
+    seen: set[Path] = set()
+    for task_glob in configured_task_globs(config):
+        for path in root.glob(task_glob):
+            if path in seen:
+                continue
+            seen.add(path)
+            if path.name.startswith("EXAMPLE-") or path.name.startswith("NNN-"):
+                continue
+            try:
+                content = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            report_path = parse_labeled_field(
+                content, "Run report", "执行报告", lowercase=False
+            )
+            if not report_path:
+                continue
+            status = parse_labeled_field(content, "Status", "状态") or "pending"
+            work_type = (
+                parse_labeled_field(content, "Work type", "工作类型") or "missing"
+            )
+            tasks[normalize_cell(report_path)] = (status, work_type)
     return tasks
 
 
@@ -534,7 +555,9 @@ def is_substantive(path: str, config: dict[str, Any]) -> bool:
         config["paths"]["conventions"],
         config["paths"]["execution_prompt"],
     }
-    if path in stateful or fnmatch.fnmatch(path, config["paths"]["task_glob"]):
+    if path in stateful or any(
+        fnmatch.fnmatch(path, pattern) for pattern in configured_task_globs(config)
+    ):
         return True
     return Path(path).suffix.lower() not in TEXT_ONLY_SUFFIXES
 

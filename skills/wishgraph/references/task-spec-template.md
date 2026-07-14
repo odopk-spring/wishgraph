@@ -1,6 +1,6 @@
 # WishGraph Task Spec Template
 
-Use this structure when creating `.tasks/build/NNN-short-slug.md`.
+Use this structure when creating `tasks/build/NNN-short-slug.md`.
 
 For a worked example and review checklist, read `references/good-execution-spec.md`.
 

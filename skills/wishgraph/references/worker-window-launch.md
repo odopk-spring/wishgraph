@@ -32,7 +32,7 @@ Worker-creation authority is not integration authority. Apply the separate seque
 
 Verify all of the following:
 
-- The task is approved and has a self-contained `.tasks/build/*.md` specification.
+- The task is approved and has a self-contained `tasks/build/*.md` specification.
 - The discussion agent has classified the work and explained the serial or parallel recommendation.
 - `prompts/EXECUTION_AI.md` is present and current.
 - Each Worker can use an isolated branch or worktree when the platform supports it.
@@ -47,7 +47,7 @@ Give each Worker:
 1. Its canonical display name as the first line.
 2. The instruction to act only as the Worker for the assigned task.
 3. The authoritative content or accessible location of `prompts/EXECUTION_AI.md`.
-4. The authoritative content or accessible location of the assigned `.tasks/build/*.md` file.
+4. The authoritative content or accessible location of the assigned `tasks/build/*.md` file.
 5. The project, target branch, isolated-worktree expectation, and required immutable run-report path.
 6. A reminder that it must not edit shared project memory or start other agents.
 

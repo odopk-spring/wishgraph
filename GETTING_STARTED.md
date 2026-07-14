@@ -105,8 +105,9 @@ Minimum files:
 - `prompts/DISCUSSION_AI.md`: mutable launch prompt for planning windows.
 - `prompts/EXECUTION_AI.md`: stable launch prompt for execution windows.
 - `prompts/INTEGRATION_AI.md`: stable launch prompt for merging workers and updating shared state.
-- `.tasks/build/NNN-short-slug.md`: self-contained execution task specs.
-- `.tasks/build/001-bootstrap-project.md`: first-use bootstrap task when the project starts from a vague idea.
+- `tasks/build/NNN-short-slug.md`: self-contained execution task specs.
+- `tasks/build/001-bootstrap-project.md`: first-use bootstrap task when the project starts from a vague idea.
+- Existing `.tasks/build/*.md` projects remain supported, but new projects use the visible `tasks/build/*.md` path.
 - `reports/RUN_REPORT.md`: template for one immutable report per worker execution.
 - `reports/runs/<work-unit-id>.md`: worker-specific validation and integration proposals.
 - `reports/DEV_REPORT.md`: latest integrated project overview and discussion handoff.
@@ -155,7 +156,7 @@ Use it to:
 - Discuss user intent.
 - Update or refine the PRD.
 - Decide the next task boundary.
-- Write `.tasks/build/*.md` execution specs.
+- Write `tasks/build/*.md` execution specs.
 - Read execution reports.
 - Read the latest integrated overview before presenting completed results.
 - Decide the next discussion direction.
@@ -261,7 +262,7 @@ Update these files when relevant:
 - `CODEMAP.md`: feature status, file locations, public contracts, runtime probes.
 - `CONVENTIONS.md`: workflow rules, validation rules, git rules, memory update obligations.
 - `prompts/DISCUSSION_AI.md`: current progress, active task, next likely task, open decisions, known risks.
-- `.tasks/build/*.md`: task status and execution-relevant corrections.
+- `tasks/build/*.md`: task status and execution-relevant corrections.
 - `reports/runs/<work-unit-id>.md`: worker facts, validation, risk, and integration proposals.
 - `reports/DEV_REPORT.md`: latest integrated results, validation summary, residual risk, and next handoff.
 - `.wishgraph/config.json`: hook mode and machine-readable closeout paths when hooks are installed.

@@ -63,7 +63,7 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 cp adapters/claude-code/CLAUDE.zh-CN.md /path/to/project/CLAUDE.md
 ```
 
-`CLAUDE.md` 用于 always-loaded 项目规则。较大的任务过程应留在 `/wishgraph` skill 和 WishGraph 项目文件中，例如 `PRD.md`、`CODEMAP.md`、`.tasks/build/*.md`、`reports/runs/*.md` 和 `reports/DEV_REPORT.md`。
+`CLAUDE.md` 用于 always-loaded 项目规则。较大的任务过程应留在 `/wishgraph` skill 和 WishGraph 项目文件中，例如 `PRD.md`、`CODEMAP.md`、`tasks/build/*.md`、`reports/runs/*.md` 和 `reports/DEV_REPORT.md`。
 
 ## 安装项目记忆同步 Hooks
 
@@ -104,7 +104,7 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
    prompts/DISCUSSION_AI.md
    prompts/EXECUTION_AI.md
    prompts/INTEGRATION_AI.md
-   .tasks/build/*.md
+   tasks/build/*.md
    reports/RUN_REPORT.md
    reports/DEV_REPORT.md
    ```

@@ -1,6 +1,6 @@
 # Good Execution Spec
 
-Use this reference when writing or reviewing `.tasks/build/*.md`.
+Use this reference when writing or reviewing `tasks/build/*.md`.
 
 ## What "Good" Means
 

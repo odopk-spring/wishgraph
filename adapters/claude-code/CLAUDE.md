@@ -22,7 +22,7 @@ When working on planning, task writing, or execution, read:
 3. `CODEMAP.md`
 4. `CONVENTIONS.md`
 5. `prompts/DISCUSSION_AI.md` for planning sessions
-6. `prompts/EXECUTION_AI.md` and the assigned `.tasks/build/*.md` for execution sessions
+6. `prompts/EXECUTION_AI.md` and the assigned `tasks/build/*.md` for execution sessions
 7. `reports/DEV_REPORT.md` for the latest integrated handoff
 
 ## Collaboration Rules

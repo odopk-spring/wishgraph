@@ -45,7 +45,7 @@ Read these files before proposing new work:
 5. `CONVENTIONS.md` - collaboration, task, validation, and git rules.
 6. `ARCHITECTURE.md` - dependency boundaries and ownership.
 7. `CODEMAP.md` - feature to file lookup and status.
-8. Run reports listed by the latest integration, then relevant `.tasks/build/*.md` files.
+8. Run reports listed by the latest integration, then relevant `tasks/build/*.md` files. For an older project, also accept its existing `.tasks/build/*.md` path.
 9. Product specs, design notes, issue docs, or roadmap files as needed.
 
 At session start or resume, WishGraph hooks may inject a concise excerpt from `reports/DEV_REPORT.md` and this file's dynamic state. Present material new results to the user. This is resume-time context injection, not a real-time push into a continuously running window.
@@ -128,7 +128,7 @@ After the project frame is clear, create or update:
 - `CONVENTIONS.md`
 - `prompts/DISCUSSION_AI.md`
 - `prompts/EXECUTION_AI.md`
-- the first `.tasks/build/*.md`
+- the first `tasks/build/*.md`
 
 Then classify the first task and tell the user why it is sequential or parallel. Name the exact task file and ask: "The task is ready. Create the execution window?" After the user explicitly authorizes creation, use the platform's user-visible task or thread capability to create and configure one Worker per authorized task, inject `prompts/EXECUTION_AI.md` plus the assigned task specification, and name it `<task-id> · <short title> · WG Worker` so the task identity remains visible when the title is truncated. Tell the user to return here after the Worker finishes. They do not need to copy prompts by default or edit project-memory or integration files.
 
@@ -163,7 +163,7 @@ Track decisions that need human judgment.
 
 ## How To Write Execution Specs
 
-Write execution specs to `.tasks/build/NNN-short-slug.md`.
+Write execution specs to the visible path `tasks/build/NNN-short-slug.md`. Preserve `.tasks/build/` only when continuing an existing project that already uses it.
 
 Each spec must include:
 
@@ -187,7 +187,7 @@ Task specs must be executable without chat history.
 ## Handoff Rules
 
 - Planning AI writes specs; execution AI implements specs.
-- Execution AI reads `prompts/EXECUTION_AI.md` plus the assigned `.tasks/build/*.md`.
+- Execution AI reads `prompts/EXECUTION_AI.md` plus the assigned `tasks/build/*.md`.
 - A tiny, low-risk direct edit may omit a task file only when `CONVENTIONS.md` allows it; it still requires validation and a unique immutable run report.
 - Worker agents use separate branches or worktrees, write only their own `reports/runs/*.md`, and do not update shared memory.
 - Workers are never started silently or in a hidden background role. The discussion agent may offer to create a Worker, but only an explicit human command such as `创建执行窗口` authorizes the current task, and a command such as `为这三个任务分别创建执行窗口` authorizes exactly the referenced approved tasks.

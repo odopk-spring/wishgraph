@@ -22,7 +22,7 @@
 3. `CODEMAP.md`
 4. `CONVENTIONS.md`
 5. 规划 session 阅读 `prompts/DISCUSSION_AI.md`
-6. 执行 session 阅读 `prompts/EXECUTION_AI.md` 和指定 `.tasks/build/*.md`
+6. 执行 session 阅读 `prompts/EXECUTION_AI.md` 和指定 `tasks/build/*.md`
 7. `reports/DEV_REPORT.md` 读取最新集成交接
 
 ## 协作规则

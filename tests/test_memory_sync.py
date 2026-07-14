@@ -486,7 +486,7 @@ class MemorySyncTests(unittest.TestCase):
             ),
         )
         self.write(
-            ".tasks/build/011-waiting.md",
+            "tasks/build/011-waiting.md",
             "# 011\n\nStatus: Pending\n"
             f"Run report: `{waiting_path}`\n"
             "Work type: parallel_batch\nBatch ID: batch-009\n",
@@ -502,12 +502,12 @@ class MemorySyncTests(unittest.TestCase):
         original_branch = self.git("branch", "--show-current").stdout.strip()
         report_path = "reports/runs/013-branch-worker.md"
         self.write(
-            ".tasks/build/013-branch-worker.md",
+            "tasks/build/013-branch-worker.md",
             "# 013\n\nStatus: Pending\n"
             f"Run report: `{report_path}`\n"
             "Work type: sequential\nBatch ID: N/A\n",
         )
-        self.git("add", ".tasks/build/013-branch-worker.md")
+        self.git("add", "tasks/build/013-branch-worker.md")
         self.git("commit", "-qm", "plan worker")
         self.git("checkout", "-qb", "worker-013")
         self.write(report_path, self.run_report("013-branch-worker"))
@@ -519,6 +519,17 @@ class MemorySyncTests(unittest.TestCase):
         self.assertEqual(state["ready_reports"], [report_path])
         self.assertEqual(state["waiting_reports"], [])
         self.assertFalse(state["requires_user_confirmation"])
+
+    def test_status_keeps_legacy_hidden_task_path_compatible(self) -> None:
+        report_path = "reports/runs/014-legacy-waiting.md"
+        self.write(
+            ".tasks/build/014-legacy-waiting.md",
+            "# 014\n\nStatus: Pending\n"
+            f"Run report: `{report_path}`\n"
+            "Work type: sequential\nBatch ID: N/A\n",
+        )
+        state = memory_sync.integration_state(self.root, self.config).as_dict()
+        self.assertEqual(state["waiting_reports"], [report_path])
 
     def test_status_command_is_read_only(self) -> None:
         before = self.git("status", "--porcelain").stdout
@@ -649,8 +660,13 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue((root / ".wishgraph" / "hooks" / "memory_sync.py").exists())
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
-            self.assertEqual(config["version"], 3)
+            self.assertEqual(config["version"], 4)
             self.assertEqual(config["paths"]["run_report_glob"], "reports/runs/*.md")
+            self.assertEqual(config["paths"]["task_glob"], "tasks/build/*.md")
+            self.assertEqual(
+                config["paths"]["task_globs"],
+                ["tasks/build/*.md", ".tasks/build/*.md"],
+            )
             self.assertTrue(config["scan_worker_refs_for_status"])
             self.assertIn("prompts/INTEGRATION_AI.md", config["required_impact_rows"])
 
@@ -689,6 +705,7 @@ class InstallerTests(unittest.TestCase):
                         "version": 2,
                         "mode": "warn",
                         "session_summary_max_chars": 1234,
+                        "paths": {"task_glob": ".tasks/build/*.md"},
                     }
                 ),
                 encoding="utf-8",
@@ -710,9 +727,14 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertEqual(process.returncode, 0, process.stderr)
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
-            self.assertEqual(config["version"], 3)
+            self.assertEqual(config["version"], 4)
             self.assertEqual(config["session_summary_max_chars"], 1234)
             self.assertTrue(config["scan_worker_refs_for_status"])
+            self.assertEqual(config["paths"]["task_glob"], ".tasks/build/*.md")
+            self.assertEqual(
+                config["paths"]["task_globs"],
+                ["tasks/build/*.md", ".tasks/build/*.md"],
+            )
 
 
 class OneCommandInstallerTests(unittest.TestCase):
@@ -1017,9 +1039,9 @@ class TemplateMirrorTests(unittest.TestCase):
             ("prompts/INTEGRATION_AI.md", "INTEGRATION_AI.md"),
             ("reports/DEV_REPORT.md", "DEV_REPORT.md"),
             ("reports/RUN_REPORT.md", "RUN_REPORT.md"),
-            (".tasks/build/001-bootstrap-project.md", "001-bootstrap-project.md"),
-            (".tasks/build/EXAMPLE-good-task.md", "EXAMPLE-good-task.md"),
-            (".tasks/build/NNN-task.md", "NNN-task.md"),
+            ("tasks/build/001-bootstrap-project.md", "001-bootstrap-project.md"),
+            ("tasks/build/EXAMPLE-good-task.md", "EXAMPLE-good-task.md"),
+            ("tasks/build/NNN-task.md", "NNN-task.md"),
         ]
         for manual, bundled in pairs:
             with self.subTest(template=manual):
@@ -1037,9 +1059,9 @@ class TemplateMirrorTests(unittest.TestCase):
             ("prompts/INTEGRATION_AI.md", "prompts/INTEGRATION_AI.md"),
             ("reports/DEV_REPORT.md", "reports/DEV_REPORT.md"),
             ("reports/RUN_REPORT.md", "reports/RUN_REPORT.md"),
-            (".tasks/build/001-bootstrap-project.md", ".tasks/build/001-bootstrap-project.md"),
-            (".tasks/build/EXAMPLE-good-task.md", ".tasks/build/EXAMPLE-good-task.md"),
-            (".tasks/build/NNN-task.md", ".tasks/build/NNN-task.md"),
+            ("tasks/build/001-bootstrap-project.md", "tasks/build/001-bootstrap-project.md"),
+            ("tasks/build/EXAMPLE-good-task.md", "tasks/build/EXAMPLE-good-task.md"),
+            ("tasks/build/NNN-task.md", "tasks/build/NNN-task.md"),
         ]
         for manual, bundled in pairs:
             with self.subTest(template=manual):

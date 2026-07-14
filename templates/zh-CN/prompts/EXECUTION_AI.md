@@ -1,6 +1,6 @@
 # 执行 AI 启动提示词
 
-把这个文件复制到新的执行 agent 窗口，然后提供具体的 `.tasks/build/NNN-short-slug.md` 任务文件。如果明确批准直接编辑例外，则改为提供有边界的 ad-hoc 指令。
+在新的执行 agent 窗口使用本文件，然后提供具体的 `tasks/build/NNN-short-slug.md` 任务文件；旧项目可以保留 `.tasks/build/`。如果明确批准直接编辑例外，则改为提供有边界的 ad-hoc 指令。
 
 这个提示词是稳定的。不要把具体任务要求写在这里；任务要求应写在任务文件里。
 
@@ -29,7 +29,7 @@
 2. `CONVENTIONS.md` - 协作、验证和 git 规则。
 3. `ARCHITECTURE.md` - 依赖边界。
 4. `CODEMAP.md` - 功能到文件查找表。
-5. 指定的 `.tasks/build/NNN-short-slug.md` - 正式任务需求的唯一来源；只有明确批准直接编辑例外时才能省略。
+5. 指定的 `tasks/build/NNN-short-slug.md` - 正式任务需求的唯一来源；只有明确批准直接编辑例外时才能省略。
 6. 任务明确引用的任何文件。
 
 ## 执行规则

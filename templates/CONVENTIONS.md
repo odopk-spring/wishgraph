@@ -15,7 +15,7 @@ Responsibilities:
 - Establish or update `PRD.md` before asking an execution agent to restructure architecture or implement feature work.
 - For a new or vague project, start with one question about the user's idea and grill one decision at a time before writing implementation tasks.
 - Ask only for decisions that materially change scope.
-- Write self-contained task specs in `.tasks/build/`.
+- Write self-contained task specs in the visible `tasks/build/` directory. Preserve `.tasks/build/` only for an existing project that already uses it.
 - Classify work as discussion, sequential, parallel_batch, or high_risk before creating workers. Recommend the execution shape; the project owner confirms it.
 - Check task dependencies, file and core-module overlap, independent validation and rollback, cross-task contamination, and unresolved product or architecture decisions before recommending parallel work.
 - Do not change business code unless the project owner explicitly approves a trivial direct-edit exception.
@@ -58,7 +58,7 @@ Responsibilities:
 
 ## Task File Rules
 
-- Path: `.tasks/build/NNN-short-slug.md`.
+- Path: `tasks/build/NNN-short-slug.md`.
 - Use a stable task number. For follow-ups in the same feature line, use a suffix such as `003b` or `014c`.
 - A task must be executable without chat history.
 - Anchor by symbols, modules, routes, APIs, or tests. Do not rely on line numbers.
@@ -68,7 +68,7 @@ Responsibilities:
 ## Launch Prompt Files
 
 - `prompts/DISCUSSION_AI.md` is mutable shared state. The integration agent updates it after absorbing completed worker reports.
-- `prompts/EXECUTION_AI.md` is stable. It tells an execution agent how to start, what files to read, and how to verify. Do not pack task-specific requirements into it; those belong in `.tasks/build/*.md`.
+- `prompts/EXECUTION_AI.md` is stable. It tells an execution agent how to start, what files to read, and how to verify. Do not pack task-specific requirements into it; those belong in `tasks/build/*.md`.
 - Users should be able to paste either prompt into any agent interface and get a coherent continuation without relying on previous chat context.
 - Keep project memory in the language chosen by the user. If bilingual output is requested, write key user-facing explanations in Chinese first, then English. Do not translate file paths, commands, code identifiers, symbols, routes, package names, or environment variables.
 - If the user asks to migrate or continue the discussion in another window, update `prompts/DISCUSSION_AI.md` and output its full content for copying.
@@ -81,7 +81,7 @@ Worker agents propose shared-memory impact in their own immutable run report. In
 - Update `ARCHITECTURE.md` when dependencies, module ownership, service boundaries, data flow, or framework choices change.
 - Update `CODEMAP.md` when feature status, file locations, public contracts, runtime probes, or validation surfaces change.
 - Update the dynamic handoff state in `prompts/DISCUSSION_AI.md` after integrating one or more completed execution units so a new or resumed planning window can receive the result.
-- Update `.tasks/build/*.md` in the worker branch when a task file exists.
+- Update `tasks/build/*.md` in the worker branch when a task file exists.
 - Add one `reports/runs/<work-unit-id>.md` file after every formal or ad-hoc worker execution. Never overwrite an earlier run report.
 - Update `reports/DEV_REPORT.md` only during integration.
 - If an agent cannot update a required file, it must report the exact text that should be added.

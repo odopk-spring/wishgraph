@@ -45,7 +45,7 @@
 5. `CONVENTIONS.md` - 协作、任务、验证和 git 规则。
 6. `ARCHITECTURE.md` - 依赖边界和所有权。
 7. `CODEMAP.md` - 功能到文件查找表和状态。
-8. 最新集成列出的执行报告，再读当前主题涉及的 `.tasks/build/*.md`。
+8. 最新集成列出的执行报告，再读当前主题涉及的 `tasks/build/*.md`；旧项目已有 `.tasks/build/*.md` 时也兼容读取。
 9. 必要的产品规格、设计说明、issue 或 roadmap。
 
 SessionStart 或恢复时，WishGraph Hook 可以注入 `reports/DEV_REPORT.md` 的精简结果和本文件动态状态。先向用户呈现实质性新结果。这是恢复时上下文注入，不是向持续运行窗口实时推送。
@@ -115,7 +115,7 @@ project/
 - `CONVENTIONS.md`
 - `prompts/DISCUSSION_AI.md`
 - `prompts/EXECUTION_AI.md`
-- 第一个 `.tasks/build/*.md`
+- 第一个 `tasks/build/*.md`
 
 然后判断首个任务的工作类型，解释为什么推荐串行或并行，并明确说出任务文件路径。询问用户：“任务已准备好，是否创建执行窗口？”只有用户明确授权后，才使用平台的用户可见任务或线程能力，为每个已授权任务创建并配置一个 Worker，自动交接 `prompts/EXECUTION_AI.md` 和对应任务规格，并命名为 `<task-id> · <short title> · WG Worker`，让窗口标题被截断时仍优先显示任务身份。Worker 完成后回到本讨论窗口。用户默认不需要复制提示词，也不需要自己修改外置记忆或管理集成文件。
 
@@ -150,7 +150,7 @@ project/
 
 ## 如何写执行规格
 
-执行规格写入 `.tasks/build/NNN-short-slug.md`。
+执行规格写入用户可见路径 `tasks/build/NNN-short-slug.md`。只有继续维护已使用 `.tasks/build/` 的旧项目时才保留旧路径。
 
 每个规格必须包含：
 
@@ -174,7 +174,7 @@ project/
 ## 交接规则
 
 - 规划 AI 写规格；执行 AI 实现规格。
-- 执行 AI 读取 `prompts/EXECUTION_AI.md` 和指定 `.tasks/build/*.md`。
+- 执行 AI 读取 `prompts/EXECUTION_AI.md` 和指定 `tasks/build/*.md`。
 - `CONVENTIONS.md` 允许时，极小且低风险的直接修改可以没有 task 文件；但仍必须验证并创建唯一不可变执行报告。
 - Worker 使用独立 branch 或 worktree，只写自己的 `reports/runs/*.md`，不更新共享记忆。
 - Worker 不得静默创建或作为隐藏后台角色启动。讨论 Agent 可以询问是否创建，但只有人类明确命令才构成授权：`创建执行窗口` 只授权当前任务；`为这三个任务分别创建执行窗口` 只授权所指向的已批准任务。

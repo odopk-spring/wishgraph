@@ -63,7 +63,7 @@ Copy this adapter's `CLAUDE.md` into the target project root or merge it into an
 cp adapters/claude-code/CLAUDE.md /path/to/project/CLAUDE.md
 ```
 
-Use `CLAUDE.md` for always-loaded project rules. Keep large task procedures in the `/wishgraph` skill and in WishGraph project files such as `PRD.md`, `CODEMAP.md`, `.tasks/build/*.md`, `reports/runs/*.md`, and `reports/DEV_REPORT.md`.
+Use `CLAUDE.md` for always-loaded project rules. Keep large task procedures in the `/wishgraph` skill and in WishGraph project files such as `PRD.md`, `CODEMAP.md`, `tasks/build/*.md`, `reports/runs/*.md`, and `reports/DEV_REPORT.md`.
 
 ## Install Project Memory-Sync Hooks
 
@@ -104,7 +104,7 @@ This safely merges `SessionStart`, `PreToolUse`, `Stop`, and `TaskCompleted` gro
    prompts/DISCUSSION_AI.md
    prompts/EXECUTION_AI.md
    prompts/INTEGRATION_AI.md
-   .tasks/build/*.md
+   tasks/build/*.md
    reports/RUN_REPORT.md
    reports/DEV_REPORT.md
    ```

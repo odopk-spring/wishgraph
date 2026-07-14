@@ -93,6 +93,8 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
 
 安装器会把公共运行时放进 `.wishgraph/`，并安全合并 Codex 或 Claude Code 的项目级 JSON 配置，不会替换无关的现有 hooks。
 
+新项目使用用户可见的 `tasks/build/*.md` 路径。运行时也会扫描旧 `.tasks/build/*.md`；升级安装器会保留旧项目配置的主任务路径，不会自动移动已有文件。
+
 建议先用 `warn`。完成一次正式任务和一次 ad-hoc 修改的正确收尾后，再把 `.wishgraph/config.json` 改成 `enforce`。
 
 Codex 用户还需要信任目标仓库，并通过 `/hooks` 审阅新 hook；未信任项目不会运行项目级 hooks。
@@ -125,7 +127,7 @@ Worker 使用 `Integrate` 或 `N/A`，不直接修改共享项目记忆：
 
 持续运行的讨论窗口中可以直接说：`刷新 WishGraph 项目状态并呈现最新集成结果。`
 
-Ad-hoc 修改可以省略 `.tasks/build/*.md`，但不能省略验证、唯一执行报告 ID 或正常 commit 边界。
+Ad-hoc 修改可以省略 `tasks/build/*.md`，但不能省略验证、唯一执行报告 ID 或正常 commit 边界；旧项目的 `.tasks/build/*.md` 仍受支持。
 
 ## 直接运行检查
 

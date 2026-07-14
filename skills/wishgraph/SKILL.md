@@ -49,12 +49,12 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - `prompts/DISCUSSION_AI.md`
    - `prompts/EXECUTION_AI.md`
    - `prompts/INTEGRATION_AI.md`
-   - `.tasks/build/001-bootstrap-project.md` or the first implementation task
+   - `tasks/build/001-bootstrap-project.md` or the first implementation task
    - `reports/DEV_REPORT.md`
    - `reports/RUN_REPORT.md`
 7. Use the bundled templates under `assets/templates/` as structure, then adapt them to the repository. For Chinese-first projects, use `assets/templates/zh-CN/` as the source template set. For bilingual projects, start from the user's primary language template and add bilingual user-facing explanations only where useful.
 8. For Skill or hook installation, follow **Natural-Language Installation** and `references/installation.md`. Adapt the required governance files before enabling strict mode, preserve unrelated hook configuration, and tell Codex users to review `/hooks`.
-9. When the PRD and first task are ready, classify the work, explain the sequential or parallel recommendation, name the approved tasks, and ask whether the user wants the execution window or windows created. Only after an explicit command, create one user-visible Worker task per authorized spec, inject `prompts/EXECUTION_AI.md` plus the named `.tasks/build/*.md`, and apply the naming and fallback rules in `references/worker-window-launch.md`. Tell the user to return to discussion after workers finish; do not require them to copy prompts by default or edit memory files.
+9. When the PRD and first task are ready, classify the work, explain the sequential or parallel recommendation, name the approved tasks, and ask whether the user wants the execution window or windows created. Only after an explicit command, create one user-visible Worker task per authorized spec, inject `prompts/EXECUTION_AI.md` plus the named `tasks/build/*.md`, and apply the naming and fallback rules in `references/worker-window-launch.md`. Tell the user to return to discussion after workers finish; do not require them to copy prompts by default or edit memory files.
 10. Finish with a short review summary listing files created or updated, assumptions, hook mode when installed, and next recommended task.
 
 ## Workflow
@@ -80,7 +80,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
      - `prompts/DISCUSSION_AI.md` as the mutable launch prompt for planning or discussion agents.
      - `prompts/EXECUTION_AI.md` as the stable launch prompt for execution agents.
      - `prompts/INTEGRATION_AI.md` as the stable launch prompt for the shared-state integration agent.
-     - `.tasks/build/NNN-short-slug.md` for self-contained execution specs.
+     - `tasks/build/NNN-short-slug.md` for visible, self-contained execution specs. Preserve `.tasks/build/*.md` only when adapting an existing project that already uses it.
      - `reports/DEV_REPORT.md` for the latest integrated project overview.
      - `reports/RUN_REPORT.md` as the template for immutable worker reports under `reports/runs/`.
    - Use `assets/templates/` as the file-shape source, but remove generic placeholder content that does not fit the target repo.
@@ -104,7 +104,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - Worker execution agents use separate branches or worktrees, implement only the approved spec or bounded ad-hoc instruction, update task status, and create one immutable `reports/runs/<work-unit-id>.md`.
    - Workers record `Integrate` or `N/A` proposals and never edit shared project memory.
    - The integration agent merges workers with `--no-commit`, reads every new run report, resolves conflicts, updates affected shared memory, updates `reports/DEV_REPORT.md`, and updates the dynamic state in `prompts/DISCUSSION_AI.md`.
-   - Keep `prompts/EXECUTION_AI.md` stable; put task-specific instructions in `.tasks/build/*.md`.
+   - Keep `prompts/EXECUTION_AI.md` stable; put task-specific instructions in `tasks/build/*.md`.
    - For trivial one-line changes, allow direct execution only if the repo conventions explicitly permit it.
    - Never start Workers without an explicit human creation command. When the platform supports user-visible task or thread creation, the discussion agent creates and configures those visible tasks; it must not use hidden subagents. Manual prompt copying is only the truthful fallback when visible task creation is unavailable or fails.
 
@@ -164,8 +164,8 @@ For English or language-neutral projects, use the root files under `assets/templ
 | `assets/templates/DISCUSSION_AI.md` | `prompts/DISCUSSION_AI.md` |
 | `assets/templates/EXECUTION_AI.md` | `prompts/EXECUTION_AI.md` |
 | `assets/templates/INTEGRATION_AI.md` | `prompts/INTEGRATION_AI.md` |
-| `assets/templates/001-bootstrap-project.md` | `.tasks/build/001-bootstrap-project.md` when setting up a new project |
-| `assets/templates/NNN-task.md` | `.tasks/build/001-first-task.md` or the next task number |
+| `assets/templates/001-bootstrap-project.md` | `tasks/build/001-bootstrap-project.md` when setting up a new project |
+| `assets/templates/NNN-task.md` | `tasks/build/001-first-task.md` or the next task number |
 | `assets/templates/EXAMPLE-good-task.md` | Optional example for humans and planning agents |
 | `assets/templates/DEV_REPORT.md` | `reports/DEV_REPORT.md` |
 | `assets/templates/RUN_REPORT.md` | `reports/RUN_REPORT.md` |
@@ -181,9 +181,9 @@ Chinese mirror:
 | `assets/templates/zh-CN/prompts/DISCUSSION_AI.md` | `prompts/DISCUSSION_AI.md` |
 | `assets/templates/zh-CN/prompts/EXECUTION_AI.md` | `prompts/EXECUTION_AI.md` |
 | `assets/templates/zh-CN/prompts/INTEGRATION_AI.md` | `prompts/INTEGRATION_AI.md` |
-| `assets/templates/zh-CN/.tasks/build/001-bootstrap-project.md` | `.tasks/build/001-bootstrap-project.md` |
-| `assets/templates/zh-CN/.tasks/build/NNN-task.md` | `.tasks/build/001-first-task.md` or the next task number |
-| `assets/templates/zh-CN/.tasks/build/EXAMPLE-good-task.md` | Optional example for humans and planning agents |
+| `assets/templates/zh-CN/tasks/build/001-bootstrap-project.md` | `tasks/build/001-bootstrap-project.md` |
+| `assets/templates/zh-CN/tasks/build/NNN-task.md` | `tasks/build/001-first-task.md` or the next task number |
+| `assets/templates/zh-CN/tasks/build/EXAMPLE-good-task.md` | Optional example for humans and planning agents |
 | `assets/templates/zh-CN/reports/DEV_REPORT.md` | `reports/DEV_REPORT.md` |
 | `assets/templates/zh-CN/reports/RUN_REPORT.md` | `reports/RUN_REPORT.md` |
 

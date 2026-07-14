@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "mode": "enforce",
   "paths": {
     "prd": "PRD.md",
@@ -11,7 +11,11 @@
     "integration_prompt": "prompts/INTEGRATION_AI.md",
     "dev_report": "reports/DEV_REPORT.md",
     "run_report_glob": "reports/runs/*.md",
-    "task_glob": ".tasks/build/*.md"
+    "task_glob": "tasks/build/*.md",
+    "task_globs": [
+      "tasks/build/*.md",
+      ".tasks/build/*.md"
+    ]
   },
   "required_impact_rows": [
     "PRD.md",

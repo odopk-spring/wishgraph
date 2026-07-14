@@ -1,6 +1,6 @@
 # Execution AI Start Prompt
 
-Copy this file into a fresh execution agent window, then provide the specific `.tasks/build/NNN-short-slug.md` file to execute. For an explicitly approved direct-edit exception, provide the bounded ad-hoc instruction instead.
+Copy this file into a fresh execution agent window, then provide the specific `tasks/build/NNN-short-slug.md` file to execute. Older projects may retain `.tasks/build/`. For an explicitly approved direct-edit exception, provide the bounded ad-hoc instruction instead.
 
 This prompt is stable. Do not put task-specific requirements here; put them in the task file.
 
@@ -29,7 +29,7 @@ You are the execution AI for this project.
 2. `CONVENTIONS.md` - collaboration, validation, and git rules.
 3. `ARCHITECTURE.md` - dependency boundaries.
 4. `CODEMAP.md` - feature to file lookup.
-5. The assigned `.tasks/build/NNN-short-slug.md` - the only source of formal task requirements; skip only for an explicitly approved direct-edit exception.
+5. The assigned `tasks/build/NNN-short-slug.md` - the only source of formal task requirements; skip only for an explicitly approved direct-edit exception.
 6. Any files explicitly referenced by the task.
 
 ## Execution Rules

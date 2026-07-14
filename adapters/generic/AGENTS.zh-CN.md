@@ -43,7 +43,7 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - `prompts/DISCUSSION_AI.md`：当前规划提示词和交接状态。
 - `prompts/EXECUTION_AI.md`：稳定执行提示词。
 - `prompts/INTEGRATION_AI.md`：稳定集成提示词和共享状态单写者规则。
-- `.tasks/build/*.md`：自包含执行任务规格。
+- `tasks/build/*.md`：自包含执行任务规格。
 - `reports/RUN_REPORT.md`：Worker 报告模板。
 - `reports/runs/*.md`：不可变 Worker 执行证据。
 - `reports/DEV_REPORT.md`：最新集成项目概览和下次交接。

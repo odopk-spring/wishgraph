@@ -30,7 +30,7 @@ Integration authorization: 随任务批准授权
 | `prompts/DISCUSSION_AI.md` | Current handoff | 保存当前讨论状态、开放决策和下一个可能任务。 |
 | `prompts/EXECUTION_AI.md` | Execution handoff | 保存执行窗口稳定提示词。 |
 | `prompts/INTEGRATION_AI.md` | Temporary integration handoff | 保存授权单写者集成和真实后台降级的稳定提示词。 |
-| `.tasks/build/002-first-slice.md` | First implementation task | PRD 批准后写首个有边界的实现任务。 |
+| `tasks/build/002-first-slice.md` | First implementation task | PRD 批准后写首个有边界的实现任务。 |
 | `reports/runs/001-bootstrap-project.md` | Bootstrap run report | 记录创建文件、假设、验证和共享记忆建议。 |
 | `reports/DEV_REPORT.md` | Initial project overview | 把 bootstrap 汇总为第一份集成快照。 |
 | `.wishgraph/` 和宿主 hook 配置 | 可选收尾强制 | Owner 要求 hooks 时，以 `warn` 模式安装，且不替换现有 hook groups。 |
@@ -54,7 +54,7 @@ Integration authorization: 随任务批准授权
 - [ ] 治理文件存在并且彼此一致。
 - [ ] `PRD.md` 包含目标用户、目标、非目标、首个薄切片和验收标准。
 - [ ] `prompts/DISCUSSION_AI.md` 可复制到新讨论窗口。
-- [ ] `prompts/EXECUTION_AI.md` 加 `.tasks/build/002-first-slice.md` 可复制到新执行窗口。
+- [ ] `prompts/EXECUTION_AI.md` 加 `tasks/build/002-first-slice.md` 可复制到新执行窗口。
 - [ ] 讨论提示词解释首个任务的工作类型、为什么串行或并行、准确 Worker 启动步骤，以及何时需要用户确认集成。
 - [ ] `reports/runs/001-bootstrap-project.md` 记录创建内容和未知项。
 - [ ] `reports/DEV_REPORT.md` 列出 bootstrap 执行报告并汇总初始集成状态。

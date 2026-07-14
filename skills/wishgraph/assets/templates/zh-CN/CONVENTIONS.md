@@ -15,7 +15,7 @@
 - 在要求执行 agent 重构架构或实现功能前，先建立或更新 `PRD.md`。
 - 新项目或模糊项目先做 intake：一次问一个关键决策，每次给推荐默认值，再写实现任务。
 - 只问会实质改变范围的决策。
-- 在 `.tasks/build/` 写自包含任务规格。
+- 在用户可见的 `tasks/build/` 目录写自包含任务规格。只有旧项目已经使用 `.tasks/build/` 时才保留该路径。
 - 创建 Worker 前把工作判断为 discussion、sequential、parallel_batch 或 high_risk。讨论 Agent 推荐执行形态，项目 owner 最终确认。
 - 推荐并行前检查任务依赖、相同文件或核心模块、独立验证和回滚、任务间污染，以及未确认的产品或架构决策。
 - 除非项目 owner 明确批准低风险直接编辑例外，否则不改业务代码。
@@ -58,7 +58,7 @@
 
 ## 任务文件规则
 
-- 路径：`.tasks/build/NNN-short-slug.md`。
+- 路径：`tasks/build/NNN-short-slug.md`。
 - 使用稳定任务编号。同一功能线后续任务使用 `003b` 或 `014c` 这类后缀。
 - 任务必须不依赖聊天历史即可执行。
 - 用符号、模块、路由、API 或测试锚定，不依赖行号。
@@ -68,7 +68,7 @@
 ## 启动提示词文件
 
 - `prompts/DISCUSSION_AI.md` 是可变共享状态。集成 Agent 在吸收完成的 Worker 报告后更新它。
-- `prompts/EXECUTION_AI.md` 是稳定的。它告诉执行 agent 如何启动、读哪些文件、如何验证。不要把具体任务要求塞进去；具体要求属于 `.tasks/build/*.md`。
+- `prompts/EXECUTION_AI.md` 是稳定的。它告诉执行 agent 如何启动、读哪些文件、如何验证。不要把具体任务要求塞进去；具体要求属于 `tasks/build/*.md`。
 - 用户应该能把任一提示词复制到任意 agent 界面，并在不依赖旧聊天上下文的情况下继续。
 - 项目记忆使用用户选择的语言。若要求双语，面向用户的解释按中文在前、英文在后写。文件路径、命令、代码符号、路由、包名和环境变量不要翻译。
 - 如果用户要求迁移讨论窗口或换窗口继续，先更新 `prompts/DISCUSSION_AI.md`，再输出完整内容供复制。
@@ -81,7 +81,7 @@ Worker 在自己的不可变执行报告中提出共享记忆影响；集成 Age
 - 依赖、模块所有权、服务边界、数据流或框架选择变化时，更新 `ARCHITECTURE.md`。
 - 功能状态、文件位置、public contracts、runtime probes 或验证面变化时，更新 `CODEMAP.md`。
 - 集成一个或多个执行单元后，更新 `prompts/DISCUSSION_AI.md` 动态状态，让新建或恢复的规划窗口收到结果。
-- Worker 分支有 task 文件时更新 `.tasks/build/*.md`。
+- Worker 分支有 task 文件时更新 `tasks/build/*.md`。
 - 每个正式或 ad-hoc Worker 执行都新增一个 `reports/runs/<work-unit-id>.md`，不得覆盖旧报告。
 - 只有集成阶段更新 `reports/DEV_REPORT.md`。
 - 如果 agent 无法更新必要文件，必须报告应添加的准确文本。

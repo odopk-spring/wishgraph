@@ -52,7 +52,7 @@ CODEMAP.md
 CONVENTIONS.md
 prompts/DISCUSSION_AI.md
 prompts/EXECUTION_AI.md
-.tasks/build/001-bootstrap-project.md
+tasks/build/001-bootstrap-project.md
 reports/DEV_REPORT.md
 ```
 
@@ -99,7 +99,7 @@ Stores the current planning state. When the user says "迁移讨论窗口", the 
 
 ### prompts/EXECUTION_AI.md
 
-Stays stable. It tells an execution AI how to start, what files to read, and how to close a task. Task-specific requirements belong in `.tasks/build/*.md`, not in this prompt.
+Stays stable. It tells an execution AI how to start, what files to read, and how to close a task. Task-specific requirements belong in `tasks/build/*.md`, not in this prompt.
 
 ## Foreground Discussion, Explicit Worker, Temporary Integration
 
@@ -124,7 +124,7 @@ Discussion controls direction and recommends serial or parallel work. After an e
 After bootstrap, a first real task might be:
 
 ```text
-.tasks/build/002-import-local-text.md
+tasks/build/002-import-local-text.md
 ```
 
 A good task spec should include:

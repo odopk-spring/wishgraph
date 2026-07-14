@@ -29,7 +29,7 @@ WishGraph 把可审计性当成一等工程要求。
 - `CODEMAP.md` 用于导航。
 - `CONVENTIONS.md` 用于协作规则。
 - `ARCHITECTURE.md` 用于边界。
-- `.tasks/build/*.md` 用于可执行规格。
+- `tasks/build/*.md` 用于可执行规格。
 - `reports/DEV_REPORT.md` 用于证据。
 
 ## 人类必须评审正确层级

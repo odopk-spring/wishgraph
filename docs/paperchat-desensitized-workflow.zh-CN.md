@@ -52,7 +52,7 @@ CODEMAP.md
 CONVENTIONS.md
 prompts/DISCUSSION_AI.md
 prompts/EXECUTION_AI.md
-.tasks/build/001-bootstrap-project.md
+tasks/build/001-bootstrap-project.md
 reports/DEV_REPORT.md
 ```
 
@@ -99,7 +99,7 @@ reports/DEV_REPORT.md
 
 ### prompts/EXECUTION_AI.md
 
-保持稳定。它告诉执行 AI 如何启动、读哪些文件、如何收尾。任务具体要求属于 `.tasks/build/*.md`，不属于这个提示词。
+保持稳定。它告诉执行 AI 如何启动、读哪些文件、如何收尾。任务具体要求属于 `tasks/build/*.md`，不属于这个提示词。
 
 ## 前台讨论、显式 Worker、临时集成
 
@@ -124,7 +124,7 @@ Human idea
 Bootstrap 后，第一个真实任务可能是：
 
 ```text
-.tasks/build/002-import-local-text.md
+tasks/build/002-import-local-text.md
 ```
 
 好的任务规格应该包含：

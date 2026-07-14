@@ -43,7 +43,7 @@ Create or update:
 - `prompts/DISCUSSION_AI.md`: current planning prompt and handoff state.
 - `prompts/EXECUTION_AI.md`: stable execution prompt.
 - `prompts/INTEGRATION_AI.md`: stable integration prompt and shared-state single-writer rules.
-- `.tasks/build/*.md`: self-contained execution task specs.
+- `tasks/build/*.md`: self-contained execution task specs.
 - `reports/RUN_REPORT.md`: worker-report template.
 - `reports/runs/*.md`: immutable worker execution evidence.
 - `reports/DEV_REPORT.md`: latest integrated project overview and next handoff.

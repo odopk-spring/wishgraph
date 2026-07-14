@@ -178,9 +178,9 @@ wishgraph/
 │   │   ├── DISCUSSION_AI.md
 │   │   ├── EXECUTION_AI.md
 │   │   └── INTEGRATION_AI.md
-│   ├── .tasks/build/001-bootstrap-project.md
-│   ├── .tasks/build/EXAMPLE-good-task.md
-│   ├── .tasks/build/NNN-task.md
+│   ├── tasks/build/001-bootstrap-project.md
+│   ├── tasks/build/EXAMPLE-good-task.md
+│   ├── tasks/build/NNN-task.md
 │   ├── reports/DEV_REPORT.md
 │   ├── reports/RUN_REPORT.md
 │   └── zh-CN/
@@ -239,13 +239,13 @@ cp templates/PRD.md /path/to/project/PRD.md
 cp templates/CODEMAP.md /path/to/project/CODEMAP.md
 cp templates/CONVENTIONS.md /path/to/project/CONVENTIONS.md
 cp templates/ARCHITECTURE.md /path/to/project/ARCHITECTURE.md
-mkdir -p /path/to/project/prompts /path/to/project/.tasks/build /path/to/project/reports
+mkdir -p /path/to/project/prompts /path/to/project/tasks/build /path/to/project/reports
 cp templates/prompts/DISCUSSION_AI.md /path/to/project/prompts/DISCUSSION_AI.md
 cp templates/prompts/EXECUTION_AI.md /path/to/project/prompts/EXECUTION_AI.md
 cp templates/prompts/INTEGRATION_AI.md /path/to/project/prompts/INTEGRATION_AI.md
-cp templates/.tasks/build/001-bootstrap-project.md /path/to/project/.tasks/build/001-bootstrap-project.md
-cp templates/.tasks/build/EXAMPLE-good-task.md /path/to/project/.tasks/build/EXAMPLE-good-task.md
-cp templates/.tasks/build/NNN-task.md /path/to/project/.tasks/build/001-first-task.md
+cp templates/tasks/build/001-bootstrap-project.md /path/to/project/tasks/build/001-bootstrap-project.md
+cp templates/tasks/build/EXAMPLE-good-task.md /path/to/project/tasks/build/EXAMPLE-good-task.md
+cp templates/tasks/build/NNN-task.md /path/to/project/tasks/build/001-first-task.md
 cp templates/reports/DEV_REPORT.md /path/to/project/reports/DEV_REPORT.md
 cp templates/reports/RUN_REPORT.md /path/to/project/reports/RUN_REPORT.md
 ```
@@ -261,9 +261,10 @@ In a target project, the skill creates or updates:
 - `prompts/DISCUSSION_AI.md`: mutable start prompt for planning or discussion agents; the integration agent updates its dynamic handoff state.
 - `prompts/EXECUTION_AI.md`: stable start prompt for execution agents; execution details stay in task files.
 - `prompts/INTEGRATION_AI.md`: stable start prompt for merging workers and updating shared project state.
-- `.tasks/build/001-bootstrap-project.md`: first-use task for turning a vague idea into durable project memory before implementation.
-- `.tasks/build/EXAMPLE-good-task.md`: a compact example of a good execution spec.
-- `.tasks/build/NNN-short-slug.md`: self-contained execution task specs.
+- `tasks/build/001-bootstrap-project.md`: first-use task for turning a vague idea into durable project memory before implementation.
+- `tasks/build/EXAMPLE-good-task.md`: a compact example of a good execution spec.
+- `tasks/build/NNN-short-slug.md`: self-contained execution task specs.
+- Existing projects that already use `.tasks/build/*.md` remain supported; new projects use the visible `tasks/build/*.md` path.
 - `reports/RUN_REPORT.md`: template for immutable task-scoped worker reports.
 - `reports/runs/<work-unit-id>.md`: one report per worker or ad-hoc execution.
 - `reports/DEV_REPORT.md`: latest integrated project overview; only the integration agent updates it.

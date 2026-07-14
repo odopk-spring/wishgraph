@@ -85,6 +85,8 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
 
 The installer creates the common runtime under `.wishgraph/` and safely merges project-level Codex or Claude Code JSON configuration. It does not replace unrelated existing hooks.
 
+New projects use the visible `tasks/build/*.md` path. The runtime also scans legacy `.tasks/build/*.md`, and installer upgrades preserve an existing project's configured primary task path instead of moving its files automatically.
+
 Start with `warn`. After one successful formal-task and ad-hoc closeout, change `.wishgraph/config.json` to `enforce`.
 
 Codex users must trust the repository and review new hook definitions with `/hooks`. Project hooks do not run in an untrusted repository.
@@ -117,7 +119,7 @@ On the next supported session start or resume, hooks inject a concise `Latest In
 
 In a continuously running discussion window, say: `Refresh WishGraph project state and present the latest integrated results.`
 
-An ad-hoc edit may omit `.tasks/build/*.md`; it still needs validation, a unique run-report ID, and the normal commit boundary.
+An ad-hoc edit may omit `tasks/build/*.md`; it still needs validation, a unique run-report ID, and the normal commit boundary. Existing `.tasks/build/*.md` projects remain supported.
 
 ## Direct checks
 
