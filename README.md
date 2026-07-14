@@ -147,7 +147,7 @@ WishGraph addresses that by externalizing the working memory:
 
 WishGraph uses a hybrid state boundary. PRD, architecture, CODEMAP, evidence, risks, and decisions remain human-readable Markdown. Machine workflow facts such as task status, work type, authorization, safety gates, validation results, and absorbed report paths live in small versioned JSON blocks embedded in Task Specs, Run Reports, and Project Status. Hooks evaluate those blocks but never generate semantic project truth.
 
-Review remains a human-facing view inside discussion, not a permanent fourth agent. Safe sequential task approval includes normal integration authority; parallel batches require a second explicit integration approval.
+Review remains a human-facing view inside discussion, not a permanent fourth agent. Safe sequential and mechanically independent parallel results integrate silently under existing Worker authority; only high-risk, conflicting, blocked, or ambiguous results return for a user decision.
 
 The human stays in charge of direction and judgment. AI handles the high-bandwidth translation into specs, tasks, code edits, validation, repair, and reports.
 

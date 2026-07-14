@@ -4,7 +4,7 @@ Spec source: 链接或概述已批准需求。
 Dependencies: 列出依赖的前置任务、migration 或决策。
 Language mode: 默认遵循 `prompts/DISCUSSION_AI.md`，除非本任务明确覆盖。
 
-下面的 JSON 块是机器可读任务生命周期真相源。用户明确授权创建这个可见 Worker 前，保持 `worker_creation_authorized` 为 false。`parallel_batch` 或 `high_risk` 的 `integration_policy` 使用 `requires_explicit_user_confirmation`。
+下面的 JSON 块是机器可读任务生命周期真相源。用户明确授权创建这个可见 Worker 前，保持 `worker_creation_authorized` 为 false。安全 `parallel_independent` 可沿用 Worker 授权；`high_risk` 的 `integration_policy` 使用 `requires_explicit_user_confirmation`。
 
 <!-- wishgraph:task-state:start -->
 ```json

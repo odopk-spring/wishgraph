@@ -117,9 +117,9 @@ Default size controls keep the snapshot usable: Project Status is limited to 160
 
 Existing `paths.dev_report` settings migrate to `paths.project_status` while preserving custom path values. An old-only `reports/DEV_REPORT.md` remains readable with a migration warning. If old and new standard files both exist, WishGraph reports an ambiguous truth source and strict mode blocks integration until the project keeps one authoritative `reports/PROJECT_STATUS.md`.
 
-Task and run-report metadata distinguish `sequential`, `parallel_batch`, and `high_risk`. Safe sequential task approval includes normal integration authority. Parallel batches and high-risk work require explicit user confirmation before integration. Hooks enforce the recorded authority but do not grant it.
+Task and run-report metadata distinguish `sequential`, `parallel_batch`, and `high_risk`, while execution mode distinguishes `exclusive`, `parallel_independent`, and `competitive`. Safe sequential results and mechanically proven independent parallel batches are eligible for silent integration under existing Worker authority. High-risk, conflicting, blocked, competitive, or mechanically ambiguous results return to Discussion. Hooks calculate and enforce recorded gates but do not grant authority or launch an Integrator.
 
-Worker creation always requires an explicit human command. The discussion Agent may then create user-visible Worker tasks through a supported host capability; Hooks never do so. Hidden subagents are not Worker windows, and manual copying is the fallback when visible task creation is unavailable. Integration is a temporary event role: use an authorized background task or independent thread when the platform supports it; otherwise explicitly switch the current main agent or give one user-launch command. Never claim unsupported background execution.
+Worker creation always requires an explicit human command. The discussion Agent may then create user-visible Worker tasks through a supported host capability; Hooks never do so. Hidden subagents are not Worker windows, and manual copying is the fallback when visible task creation is unavailable. Integration is an invisible temporary control role: use a real background task when available, fall back to an isolated phase in the active Agent, or leave derived work pending until the next Discussion entry/refresh. Never require a user-visible Integration window or claim unsupported background execution.
 
 New sessions are neutral. With the default `session_start_context_mode: safety_only`, hooks emit context only when they find safety or synchronization issues; they do not load the discussion prompt or activate a role. Say `Start discussion` to load Discussion state in the current visible window, or `Refresh WishGraph project state and present the latest integrated results` to refresh an active discussion. Existing installations that explicitly retain `discussion_summary` compatibility mode can still receive the old concise injection.
 
@@ -136,6 +136,18 @@ python3 .wishgraph/hooks/memory_sync.py status
 ```
 
 The status command emits machine-readable pending integration, integration kind, ready reports, waiting reports, blocked reports, confirmation requirement, and reason. It scans immutable reports on visible Git refs without writing a shared queue file. Discussion entry and explicit refresh read this status; SessionStart only includes it in opt-in compatibility mode.
+
+It also emits `auto_integration_eligible` and one of `nothing_to_integrate`, `wait_for_worker`, `auto_integrate`, `await_user_confirmation`, `discuss_blocker`, or `compare_candidates` as `next_action`. These are internal routing fields; normal users should see only Discussion and Execution.
+
+Hosts can select a truthful silent fallback without launching anything from a Hook:
+
+```bash
+python3 .wishgraph/hooks/memory_sync.py integration-plan --host-capability background
+python3 .wishgraph/hooks/memory_sync.py integration-plan --host-capability active_agent
+python3 .wishgraph/hooks/memory_sync.py integration-plan --host-capability inactive
+```
+
+The returned action is respectively: launch a temporary background Integrator through a real host capability, enter an isolated Integration phase in the active Agent, or keep derived pending state until the next explicit Discussion entry/refresh. The command is read-only; Hooks never call `subprocess.Popen`, merge branches, or write semantic state.
 
 The read-only task router is also available to host adapters:
 

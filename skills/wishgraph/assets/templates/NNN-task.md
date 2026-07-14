@@ -4,7 +4,7 @@ Spec source: Link or summarize the approved requirement.
 Dependencies: List required prior tasks, migrations, or decisions.
 Language mode: Follow `prompts/DISCUSSION_AI.md` unless this task explicitly overrides it.
 
-The JSON block is the machine-readable task lifecycle source. Keep `worker_creation_authorized` false until the user explicitly authorizes this visible Worker. For `parallel_batch` or `high_risk`, use `requires_explicit_user_confirmation` as the integration policy.
+The JSON block is the machine-readable task lifecycle source. Keep `worker_creation_authorized` false until the user explicitly authorizes this visible Worker. Safe `parallel_independent` work may use inherited Worker authority; `high_risk` uses `requires_explicit_user_confirmation`.
 
 <!-- wishgraph:task-state:start -->
 ```json

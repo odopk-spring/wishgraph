@@ -86,7 +86,7 @@ Worker reports use the exact shared-memory rows from `reports/RUN_REPORT.md`:
 
 The integration agent merges Worker commits with `--no-commit` or an equivalent no-commit cherry-pick. It reads every new Run Report, updates affected shared memory, rewrites `reports/PROJECT_STATUS.md` as the current snapshot with only this integration's absorbed report paths, and then refreshes the concise dynamic state block in `prompts/DISCUSSION_AI.md`. Project Status uses Updated or N/A rows and records integration kind and authorization.
 
-Safe sequential work inherits integration authority from task approval. Parallel batches and high-risk work require explicit user confirmation naming the reports. Hooks enforce this distinction but never grant authority themselves.
+Safe sequential work and mechanically proven `parallel_independent` batches inherit integration authority from explicit Worker approval. High-risk, conflicting, blocked, competitive, or ambiguous work returns to Discussion. Hooks calculate this distinction but never grant authority or launch an agent.
 
 ## Integration Status
 
@@ -116,13 +116,15 @@ It scans task specs, the current target branch, and immutable run reports visibl
     }
   ],
   "requires_user_confirmation": true,
+  "auto_integration_eligible": false,
+  "next_action": "await_user_confirmation",
   "reason": ""
 }
 ```
 
 Explicit Discussion entry or project-state refresh reads the same status. Optional `discussion_summary` compatibility mode may also inject it at SessionStart. Discussion AI combines it with platform thread status when available, presents completed, waiting, and blocked workers, and recommends the next action. The status is evidence, not a semantic review or an instruction to merge.
 
-Treat integration as an event-triggered temporary agent. If the platform exposes an authorized background-task or independent-thread capability, discussion AI may launch it after the applicable authority exists and must report Waiting, Running, Blocked, or Completed before it ends. If unsupported, switch the current main agent explicitly or give one user-launch command. Never claim background work that the platform cannot perform.
+Treat integration as an invisible event-triggered control transaction. If the host has a real background capability, launch a temporary Integrator silently. Otherwise an active Agent enters an isolated Integration phase; with no active Agent, leave the derived work pending until the next explicit Discussion entry or refresh. Never require a user-visible Integration window or claim background work that the host cannot perform.
 
 New windows remain neutral until the user explicitly says "Start discussion" or an equivalent phrase. Use explicit refresh in a continuously active discussion. Do not rely on SessionStart to select or activate a role.
 

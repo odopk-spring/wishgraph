@@ -127,6 +127,8 @@ class IntegrationState:
     blocked_reports: list[str] = field(default_factory=list)
     work_units: list[dict[str, Any]] = field(default_factory=list)
     requires_user_confirmation: bool = False
+    auto_integration_eligible: bool = False
+    next_action: str = "nothing_to_integrate"
     reason: str = "No worker results are waiting for integration."
 
     def as_dict(self) -> dict[str, Any]:
@@ -140,6 +142,8 @@ class IntegrationState:
             "blocked_reports": self.blocked_reports,
             "work_units": self.work_units,
             "requires_user_confirmation": self.requires_user_confirmation,
+            "auto_integration_eligible": self.auto_integration_eligible,
+            "next_action": self.next_action,
             "reason": self.reason,
         }
 
@@ -155,6 +159,8 @@ def report_state(report_path: str, content: str) -> ReportState:
     errors = state.safety_errors
     if state.work_type not in WORK_TYPES:
         errors.append("missing or invalid work type")
+    if state.execution_mode not in EXECUTION_MODES:
+        errors.append("missing or invalid execution_mode")
     if state.work_type == "parallel_batch" and state.batch_id in {
         "",
         "n/a",
@@ -163,11 +169,17 @@ def report_state(report_path: str, content: str) -> ReportState:
         "无",
     }:
         errors.append("parallel_batch requires a batch ID")
-    if state.work_type in {"parallel_batch", "high_risk"}:
+    if state.work_type == "high_risk":
         if state.authorization not in EXPLICIT_AUTHORIZATIONS:
             errors.append(
-                "parallel or high-risk work requires explicit integration authorization"
+                "high-risk work requires explicit integration authorization"
             )
+    elif state.work_type == "parallel_batch" and state.execution_mode not in {
+        "parallel_independent",
+        "competitive",
+    }:
+        if state.authorization not in EXPLICIT_AUTHORIZATIONS:
+            errors.append("legacy parallel work requires explicit integration authorization")
     elif state.authorization not in EXPLICIT_AUTHORIZATIONS | INHERITED_AUTHORIZATIONS:
         errors.append("missing or invalid integration authorization")
     if state.readiness not in READY_STATUSES | BLOCKED_READINESS:
@@ -228,11 +240,15 @@ def task_state(task_path: str, content: str) -> TaskState:
         errors.append(
             f"{state.status} task requires explicit Worker creation authorization"
         )
-    if state.work_type in {"parallel_batch", "high_risk"}:
+    if state.work_type == "high_risk":
         if state.integration_policy != "requires_explicit_user_confirmation":
-            errors.append(
-                "parallel or high-risk task requires explicit integration confirmation policy"
-            )
+            errors.append("high-risk task requires explicit integration confirmation policy")
+    elif state.work_type == "parallel_batch" and state.execution_mode not in {
+        "parallel_independent",
+        "competitive",
+    }:
+        if state.integration_policy != "requires_explicit_user_confirmation":
+            errors.append("legacy parallel task requires explicit integration confirmation policy")
     elif state.integration_policy not in {
         "inherited_task_approval",
         "requires_explicit_user_confirmation",
@@ -322,18 +338,109 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
         kind = "none"
 
     pending = bool(ready or blocked)
-    confirmation = kind in {"parallel_batch", "high_risk"} or bool(blocked)
+    pending_by_path = {state.path: state for state in pending_states}
+    task_by_report = tasks
+    task_status_by_id = {task.task_id: task.status for task in tasks.values() if task.task_id}
+
+    def dependencies_satisfied(task: TaskState) -> bool:
+        return all(
+            task_status_by_id.get(dependency) in {"integrated", "reviewed"}
+            for dependency in task.dependencies
+        )
+
+    structured_ready_tasks = [task_by_report.get(path) for path in ready]
+    sequential_safe = bool(ready) and all(
+        (
+            task is None
+            and pending_by_path[path].authorization in INHERITED_AUTHORIZATIONS
+        )
+        or (
+            task is not None
+            and task.state_source == "legacy"
+            and pending_by_path[path].authorization in INHERITED_AUTHORIZATIONS
+        )
+        or (
+            task is not None
+            and task.worker_creation_authorized
+            and task.integration_policy == "inherited_task_approval"
+            and dependencies_satisfied(task)
+        )
+        for path, task in zip(ready, structured_ready_tasks)
+    )
+
+    parallel_states = [pending_by_path[path] for path in ready]
+    parallel_tasks_safe = bool(ready) and all(
+        task is not None
+        and task.state_source == "structured"
+        and task.execution_mode == "parallel_independent"
+        and task.worker_creation_authorized
+        and task.integration_policy
+        in {"inherited_task_approval", "requires_explicit_user_confirmation"}
+        and dependencies_satisfied(task)
+        for task in structured_ready_tasks
+    )
+    changed_path_sets = [set(state.changed_paths) for state in parallel_states]
+    paths_are_known = bool(changed_path_sets) and all(changed_path_sets)
+    paths_do_not_overlap = all(
+        not left.intersection(right)
+        for index, left in enumerate(changed_path_sets)
+        for right in changed_path_sets[index + 1 :]
+    )
+    parallel_reports_safe = bool(parallel_states) and all(
+        state.execution_mode == "parallel_independent"
+        and state.risk_flags_known
+        and state.risk_flags_clear
+        for state in parallel_states
+    )
+    parallel_safe = (
+        parallel_tasks_safe
+        and parallel_reports_safe
+        and paths_are_known
+        and paths_do_not_overlap
+    )
+    competitive = any(
+        task is not None and task.execution_mode == "competitive"
+        for task in structured_ready_tasks
+    ) or any(state.execution_mode == "competitive" for state in parallel_states)
+
+    auto_eligible = False
+    confirmation = False
     if blocked:
+        next_action = "discuss_blocker"
+        confirmation = True
         reason = "Blocked or unsafe worker results require discussion and user review."
-    elif kind == "parallel_batch" and waiting:
-        reason = "Parallel batch still has planned workers waiting; review before partial integration."
-    elif kind == "parallel_batch" and ready:
-        reason = "Parallel worker results are ready; explicit user integration approval is required."
-    elif kind == "sequential" and ready:
-        reason = "A safe sequential result is ready under the task approval's integration authority."
+    elif competitive:
+        if waiting:
+            next_action = "wait_for_worker"
+            reason = "Competitive candidates are still running or waiting for reports."
+        else:
+            next_action = "compare_candidates"
+            reason = "Competitive candidates are ready and exactly one winner must be selected."
+    elif kind == "high_risk" and ready:
+        next_action = "await_user_confirmation"
+        confirmation = True
+        reason = "High-risk work requires a Discussion decision before integration."
     elif waiting:
-        reason = "Planned workers have not produced run reports yet."
+        next_action = "wait_for_worker"
+        reason = "Planned workers have not all produced terminal run reports yet."
+    elif kind == "parallel_batch" and ready and parallel_safe:
+        next_action = "auto_integrate"
+        auto_eligible = True
+        reason = "Independent parallel results passed mechanical risk and overlap gates."
+    elif kind == "parallel_batch" and ready:
+        next_action = "await_user_confirmation"
+        confirmation = True
+        reason = "Parallel results need user judgment because independence is not mechanically proven."
+    elif kind == "sequential" and ready and sequential_safe:
+        next_action = "auto_integrate"
+        auto_eligible = True
+        reason = "A safe sequential result is ready under inherited task authority."
+    elif kind == "sequential" and ready:
+        next_action = "discuss_blocker"
+        confirmation = True
+        reason = "Sequential integration gates are incomplete or its dependencies are unresolved."
     else:
+        next_action = "nothing_to_integrate"
         reason = "No worker results are waiting for integration."
     work_units: list[dict[str, Any]] = []
     for report_path, task in sorted(tasks.items(), key=lambda item: item[1].path):
@@ -378,6 +485,8 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
         blocked_reports=blocked,
         work_units=work_units,
         requires_user_confirmation=confirmation,
+        auto_integration_eligible=auto_eligible,
+        next_action=next_action,
         reason=reason,
     )
 

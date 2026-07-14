@@ -352,6 +352,41 @@ def status_main() -> int:
     return 0
 
 
+def integration_plan_main(host_capability: str) -> int:
+    root = find_git_root(Path.cwd())
+    if root is None:
+        print(json.dumps({"ok": False, "error": "git_repository_required"}))
+        return 2
+    try:
+        config = load_config(root)
+    except ValueError as exc:
+        print(json.dumps({"ok": False, "error": "invalid_config", "detail": str(exc)}))
+        return 2
+    if config is None:
+        print(json.dumps({"ok": False, "error": "wishgraph_not_installed"}))
+        return 2
+    state = integration_state(root, config).as_dict()
+    if not state["auto_integration_eligible"]:
+        host_action = state["next_action"]
+    elif host_capability == "background":
+        host_action = "launch_temporary_background_integrator"
+    elif host_capability == "active_agent":
+        host_action = "enter_internal_integration_phase"
+    else:
+        host_action = "keep_pending_until_discussion_or_refresh"
+    payload = {
+        "ok": True,
+        "visibility": "silent_unless_blocked",
+        "host_capability": host_capability,
+        "host_action": host_action,
+        "integration_prompt": config["paths"]["integration_prompt"],
+        "ready_reports": state["ready_reports"],
+        "status": state,
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
 def task_specs(root: Path, config: dict[str, Any]) -> list[dict[str, Any]]:
     specs: list[dict[str, Any]] = []
     seen: set[Path] = set()
@@ -562,6 +597,12 @@ def main() -> int:
     check_parser = subparsers.add_parser("check")
     check_parser.add_argument("--scope", choices=("worktree", "staged"), default="worktree")
     subparsers.add_parser("status")
+    integration_plan_parser = subparsers.add_parser("integration-plan")
+    integration_plan_parser.add_argument(
+        "--host-capability",
+        choices=("background", "active_agent", "inactive"),
+        required=True,
+    )
     task_parser = subparsers.add_parser("task")
     task_parser.add_argument("action", choices=("resolve", "family", "route"))
     task_parser.add_argument("value")
@@ -590,6 +631,8 @@ def main() -> int:
         return check_main(args.scope)
     if args.command == "status":
         return status_main()
+    if args.command == "integration-plan":
+        return integration_plan_main(args.host_capability)
     if args.command == "task":
         return task_main(args.action, args.value)
     if args.command == "claim":

@@ -200,7 +200,7 @@ Workers do not start silently or as hidden subagents. When a task is ready, disc
 
 Use `prompts/INTEGRATION_AI.md` as a temporary event task after worker branches are ready. It merges without committing, reads approved run reports, resolves or reports conflicts, updates shared memory, rewrites the current Project Status, refreshes the discussion handoff, validates, creates the integration commit, returns the result, and ends.
 
-For one safe sequential task, approving the task also authorizes normal integration after all validation, scope, conflict, decision, rollback, and target-worktree gates pass. Do not ask twice. For parallel_batch or high_risk work, discussion AI first lists ready, waiting, and blocked reports, overlap and dependency checks, validation, conflicts, and risk; the user must explicitly approve which reports may be integrated.
+For one safe sequential task, approving the task also authorizes normal integration after all validation, scope, conflict, decision, rollback, and target-worktree gates pass. Do not ask twice. A `parallel_independent` batch also integrates silently when every expected Worker is terminal and overlap, dependency, interface, risk, merge, and combined-validation gates are mechanically clear. High-risk, conflicting, blocked, or ambiguous results return to Discussion for a user decision.
 
 If the platform supports an authorized background task or independent thread, discussion AI may launch the temporary integration there and show Waiting, Running, Blocked, or Completed. Otherwise it must explicitly switch the current main agent to integration or give one natural-language launch instruction. It must not claim background execution when unsupported.
 

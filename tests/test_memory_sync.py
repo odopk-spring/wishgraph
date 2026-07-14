@@ -198,6 +198,12 @@ class MemorySyncTests(unittest.TestCase):
         status: str = "completed",
         readiness: str = "ready",
         validation: str = "pass",
+        execution_mode: str = "exclusive",
+        changed_paths: Optional[list[str]] = None,
+        public_api_change: bool = False,
+        schema_change: bool = False,
+        security_impact: bool = False,
+        dependency_change: bool = False,
     ) -> str:
         legacy = self.run_report(
             unit,
@@ -213,7 +219,13 @@ class MemorySyncTests(unittest.TestCase):
             "unit": unit,
             "status": status,
             "work_type": work_type,
+            "execution_mode": execution_mode,
             "batch_id": batch_id,
+            "changed_paths": changed_paths or [],
+            "public_api_change": public_api_change,
+            "schema_change": schema_change,
+            "security_impact": security_impact,
+            "dependency_change": dependency_change,
             "integration_authorization": (
                 "explicit_user_confirmation"
                 if work_type in {"parallel_batch", "high_risk"}
@@ -1264,6 +1276,35 @@ class MemorySyncTests(unittest.TestCase):
         self.assertEqual(state["integration_kind"], "sequential")
         self.assertEqual(state["ready_reports"], [report_path])
         self.assertFalse(state["requires_user_confirmation"])
+        self.assertTrue(state["auto_integration_eligible"])
+        self.assertEqual(state["next_action"], "auto_integrate")
+
+    def test_host_integration_plan_has_silent_fallback_levels(self) -> None:
+        self.write("reports/runs/006a-sequential.md", self.run_report("006a-sequential"))
+        expected = {
+            "background": "launch_temporary_background_integrator",
+            "active_agent": "enter_internal_integration_phase",
+            "inactive": "keep_pending_until_discussion_or_refresh",
+        }
+        for capability, action in expected.items():
+            with self.subTest(capability=capability):
+                process = subprocess.run(
+                    [
+                        sys.executable,
+                        str(HOOK_ASSETS / "memory_sync.py"),
+                        "integration-plan",
+                        "--host-capability",
+                        capability,
+                    ],
+                    cwd=self.root,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=True,
+                )
+                payload = json.loads(process.stdout)
+                self.assertEqual(payload["visibility"], "silent_unless_blocked")
+                self.assertEqual(payload["host_action"], action)
 
     def test_failed_sequential_result_blocks_integration(self) -> None:
         report_path = "reports/runs/007-failed.md"
@@ -1280,6 +1321,8 @@ class MemorySyncTests(unittest.TestCase):
         state = memory_sync.integration_state(self.root, self.config).as_dict()
         self.assertEqual(state["blocked_reports"], [report_path])
         self.assertTrue(state["requires_user_confirmation"])
+        self.assertFalse(state["auto_integration_eligible"])
+        self.assertEqual(state["next_action"], "discuss_blocker")
         self.assertIn("unsafe", state["reason"].lower())
 
     def test_sequential_safety_failures_block_auto_integration(self) -> None:
@@ -1337,6 +1380,69 @@ class MemorySyncTests(unittest.TestCase):
         self.assertEqual(state["integration_kind"], "high_risk")
         self.assertEqual(state["ready_reports"], [report_path])
         self.assertEqual(state["blocked_reports"], [])
+        self.assertTrue(state["requires_user_confirmation"])
+        self.assertFalse(state["auto_integration_eligible"])
+        self.assertEqual(state["next_action"], "await_user_confirmation")
+
+    def test_parallel_independent_results_can_auto_integrate_when_risk_is_clear(self) -> None:
+        for task_id, changed_path in (("031", "src/one.py"), ("032", "src/two.py")):
+            report_path = f"reports/runs/{task_id}-attempt-1.md"
+            self.write(
+                f"tasks/build/{task_id}-independent.md",
+                self.structured_task(
+                    f"{task_id}-independent",
+                    status="completed",
+                    work_type="parallel_batch",
+                    batch_id="batch-independent",
+                    worker_authorized=True,
+                    execution_mode="parallel_independent",
+                    run_report=report_path,
+                ),
+            )
+            self.write(
+                report_path,
+                self.structured_run_report(
+                    f"{task_id}-attempt-1",
+                    work_type="parallel_batch",
+                    batch_id="batch-independent",
+                    execution_mode="parallel_independent",
+                    changed_paths=[changed_path],
+                ),
+            )
+        state = memory_sync.integration_state(self.root, self.config).as_dict()
+        self.assertTrue(state["auto_integration_eligible"])
+        self.assertEqual(state["next_action"], "auto_integrate")
+        self.assertFalse(state["requires_user_confirmation"])
+
+    def test_parallel_overlap_or_risk_returns_to_user(self) -> None:
+        for task_id, security_impact in (("033", False), ("034", True)):
+            report_path = f"reports/runs/{task_id}-attempt-1.md"
+            self.write(
+                f"tasks/build/{task_id}-parallel.md",
+                self.structured_task(
+                    f"{task_id}-parallel",
+                    status="completed",
+                    work_type="parallel_batch",
+                    batch_id="batch-risk",
+                    worker_authorized=True,
+                    execution_mode="parallel_independent",
+                    run_report=report_path,
+                ),
+            )
+            self.write(
+                report_path,
+                self.structured_run_report(
+                    f"{task_id}-attempt-1",
+                    work_type="parallel_batch",
+                    batch_id="batch-risk",
+                    execution_mode="parallel_independent",
+                    changed_paths=["src/shared.py"],
+                    security_impact=security_impact,
+                ),
+            )
+        state = memory_sync.integration_state(self.root, self.config).as_dict()
+        self.assertFalse(state["auto_integration_eligible"])
+        self.assertEqual(state["next_action"], "await_user_confirmation")
         self.assertTrue(state["requires_user_confirmation"])
 
     def test_parallel_status_lists_ready_waiting_and_blocked(self) -> None:
@@ -1947,9 +2053,9 @@ class OneCommandInstallerTests(unittest.TestCase):
         integration = (
             ROOT / "templates" / "prompts" / "INTEGRATION_AI.md"
         ).read_text(encoding="utf-8")
-        self.assertIn("temporary background integration agent", discussion)
-        self.assertIn("If the platform does not support background work", discussion)
-        self.assertIn("do not pretend it does", discussion)
+        self.assertIn("silently launch a temporary Integrator", discussion)
+        self.assertIn("no background thread exists", discussion)
+        self.assertIn("Never require a user-visible Integration window", discussion)
         self.assertIn("end this temporary agent", integration)
         self.assertIn("task-state", integration)
         self.assertIn("`completed` to `integrated`", integration)

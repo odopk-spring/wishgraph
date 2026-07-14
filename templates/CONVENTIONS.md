@@ -57,7 +57,7 @@ Responsibilities:
 - After the Project Status is complete, refresh the concise dynamic state in `prompts/DISCUSSION_AI.md`.
 - Run integration validation and create the integration commit.
 - For a safe sequential result, use the integration authority inherited when the task was approved; do not ask twice.
-- For parallel_batch or high_risk work, require explicit user approval naming the reports to integrate.
+- Auto-integrate safe sequential and mechanically proven `parallel_independent` results under existing Worker authority. Return high-risk, conflicting, blocked, competitive, or ambiguous results to Discussion.
 - Use a platform background task or independent thread only when that capability exists and authorization permits it. Otherwise switch the current main agent explicitly or provide a one-time launch instruction; never claim fictitious background execution.
 - Return integration status and results to discussion AI, then end the temporary role.
 

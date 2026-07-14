@@ -46,6 +46,10 @@ class ReportState:
     validation_results: list[str] = field(default_factory=list)
     task_id: str = ""
     attempt: int = 1
+    execution_mode: str = "exclusive"
+    changed_paths: list[str] = field(default_factory=list)
+    risk_flags_known: bool = False
+    risk_flags_clear: bool = False
 
 
 @dataclass
@@ -339,6 +343,16 @@ def parse_report_state(report_path: str, content: str) -> ReportState:
         if raw_report_task_id is not None and raw_report_task_id != "" and not task_id:
             block_errors.append("task_id must be null or match ^\\d{3,}[a-z]*$")
         attempt = positive_attempt(data.get("attempt", 1), block_errors)
+        execution_mode = normalized_string(data.get("execution_mode"), "exclusive")
+        changed_paths = string_list(data.get("changed_paths"))
+        risk_values = [
+            data.get("public_api_change"),
+            data.get("schema_change"),
+            data.get("security_impact"),
+            data.get("dependency_change"),
+        ]
+        risk_flags_known = all(isinstance(value, bool) for value in risk_values)
+        risk_flags_clear = risk_flags_known and not any(risk_values)
         state_source = "structured"
     else:
         status = parse_report_status(content) or "missing"
@@ -364,6 +378,10 @@ def parse_report_state(report_path: str, content: str) -> ReportState:
         results = validation_results(content)
         task_id = ""
         attempt = 1
+        execution_mode = "exclusive"
+        changed_paths = []
+        risk_flags_known = False
+        risk_flags_clear = False
         state_source = "legacy"
     errors: list[str] = list(block_errors)
 
@@ -380,6 +398,10 @@ def parse_report_state(report_path: str, content: str) -> ReportState:
         validation_results=results,
         task_id=task_id,
         attempt=attempt,
+        execution_mode=execution_mode,
+        changed_paths=changed_paths,
+        risk_flags_known=risk_flags_known,
+        risk_flags_clear=risk_flags_clear,
         safety_errors=errors,
         state_source=state_source,
     )

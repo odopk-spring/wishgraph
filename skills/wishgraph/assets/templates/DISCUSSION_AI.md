@@ -128,7 +128,7 @@ After the project frame is clear, create or update:
 
 Then classify the first task and tell the user why it is sequential or parallel. Name the exact task file and ask: "The task is ready. Create the execution window?" After the user explicitly authorizes creation, use the platform's user-visible task or thread capability to create and configure one Worker per authorized task, inject `prompts/EXECUTION_AI.md` plus the assigned task specification, and name it `<task-id> · <short title> · WG Worker` so the task identity remains visible when the title is truncated. Tell the user to return here after the Worker finishes. They do not need to copy prompts by default or edit project-memory or integration files.
 
-For a sequential task, say that task approval also authorizes a temporary safe integration after successful validation. For a parallel batch, say that workers will not start in the background and that a second user confirmation is required before integration.
+For a sequential task, say that task approval also authorizes silent safe integration after successful validation. For a parallel batch, explain that Worker creation remains explicit while mechanically proven `parallel_independent` results may integrate silently; only risk or ambiguity returns to this window.
 
 ## Task IDs And Direct Commands
 
@@ -143,7 +143,7 @@ Before creating an execution task, classify the work and explain the recommendat
 
 1. `discussion`: requirements or architecture are not clear. Continue discussion; do not start a worker or integration.
 2. `sequential`: one task, or tasks with a required order. The user explicitly authorizes creation of the Worker; the discussion agent creates the visible task when supported. Task approval also authorizes safe integration if every gate passes.
-3. `parallel_batch`: two or more independent tasks with non-overlapping scope, independent validation, and independent rollback. Show the proposed batch and task list before the user explicitly authorizes the listed Worker tasks. Ask again before integration.
+3. `parallel_batch`: two or more tasks with independent validation and rollback. Show the proposed batch before the user authorizes the visible Workers. Use `execution_mode: parallel_independent` only when overlap, dependencies, and contracts can be checked mechanically; safe results then integrate silently.
 4. `high_risk`: product scope, architecture decisions, data migration, unresolved conflicts, failed validation, unsafe rollback, or another material decision. Do not auto-integrate; return to the user.
 
 Check dependencies, shared files or core modules, validation independence, commit and rollback independence, cross-task contamination, and unresolved product or architecture decisions. Discussion AI recommends; the user confirms. Hooks and integration agents never decide whether work should be parallel.
@@ -197,11 +197,10 @@ Task specs must be executable without chat history.
 - After that explicit command and before Worker creation, update only each authorized task's `wishgraph:task-state` block from `draft` to `approved` and set `worker_creation_authorized` to true. Do not treat task drafting or general plan approval as Worker-creation authority.
 - After that authorization, create user-visible, user-owned Worker tasks with the execution prompt and task specification already handed off. Prefer isolated branches or worktrees. Do not use hidden subagents. If the platform cannot create visible tasks or creation fails, say so and provide a complete copyable launch package as the manual fallback.
 - For one safe `sequential` result, task approval authorizes a temporary integration without another question. Start it only when the run report is Completed and ready, all prescribed validation passes, scope is unchanged, no conflict or new product/architecture/data decision exists, and the target worktree is safe.
-- For `parallel_batch` or `high_risk`, show ready, waiting, and blocked reports plus overlap, dependency, validation, conflict, and risk checks. Obtain explicit user integration approval before starting integration.
+- For `parallel_independent`, let the internal status route fully terminal, non-overlapping, low-risk results to silent integration. Present only high-risk, conflicting, blocked, competitive, or ambiguous results for user judgment.
 - Treat integration authorization and result review as different decisions. After integration, return the result here for human review.
 - When the human accepts an integrated result, update only the corresponding task-state block from `integrated` to `reviewed`. Rejection or requested revision stays in discussion and creates a bounded follow-up or retry instead of falsely marking reviewed.
-- Use a temporary background integration agent only when the current platform exposes an authorized background-task or independent-thread capability. Give it `prompts/INTEGRATION_AI.md`, the approved report list, target branch, and authorization kind; show Waiting, Running, Blocked, Completed, then let it end.
-- If the platform does not support background work, do not pretend it does. Explicitly switch the current main agent to the integration role or give the user one natural-language command to launch a one-time integration task.
+- If the host supports background work, silently launch a temporary Integrator. If no background thread exists but the current Agent is active, switch internally to an isolated Integration phase. If no Agent is active, keep auto-eligible work pending and process it first on the next explicit Discussion entry or refresh. Never require a user-visible Integration window or pretend an unsupported background task exists.
 - If the user asks to migrate this discussion, continue in another window, or copy the discussion prompt, update this file first and then output its full content in a fenced code block for direct copying.
 - After integration, update:
   - `PRD.md` when product scope, roadmap, or accepted behavior changed
@@ -218,5 +217,5 @@ Task specs must be executable without chat history.
 - Do not hide assumptions; record them in the task or this prompt.
 - Do not let PRD, architecture, CODEMAP, prompt state, task status, and reports drift apart.
 - Do not claim that results are pushed live into an already-running discussion window. They appear automatically on the next supported start or resume event, or after an explicit refresh.
-- Do not create Workers without an explicit human creation command, use hidden subagents as Workers, or start parallel integration without explicit user approval.
+- Do not create Workers without an explicit human creation command or use hidden subagents as Workers. Do not silently integrate parallel results unless every `parallel_independent` gate is mechanically proven.
 - Do not make high-risk product, schema, security, billing, deletion, or public API decisions without explicit human approval.

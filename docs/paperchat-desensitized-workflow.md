@@ -117,7 +117,7 @@ Human idea
 -> Discussion AI presents the integrated result for human review
 ```
 
-Discussion controls direction and recommends serial or parallel work. After an explicit human creation command, it creates and configures user-visible Workers when the host supports that capability. It never creates them silently or uses hidden subagents; manual copying is the fallback. Safe sequential approval includes normal integration authority; parallel batches require a second user confirmation before temporary integration.
+Discussion controls direction and recommends serial or parallel work. After an explicit human creation command, it creates and configures user-visible Workers when the host supports that capability. It never creates them silently or uses hidden subagents; manual copying is the fallback. Safe sequential and mechanically proven independent parallel results integrate silently; risk or ambiguity returns to Discussion.
 
 ## Example First Implementation Task
 

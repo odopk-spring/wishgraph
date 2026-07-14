@@ -120,7 +120,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
 5. **Classify work and obtain the right authority**
    - Use `discussion` while requirements or architecture remain unclear; start no worker or integration.
    - Use `sequential` for one task or ordered dependencies. The user explicitly authorizes Worker creation; task approval also authorizes a later safe integration when every gate passes.
-   - Use `parallel_batch` only for two or more independent, non-overlapping, independently testable and revertible tasks. Show the batch first; the user explicitly authorizes exactly which visible Worker tasks to create and confirms integration again after statuses are summarized.
+   - Use `parallel_batch` only for two or more independently testable and revertible tasks. Show the batch first; the user explicitly authorizes exactly which visible Worker tasks to create. Mark mechanically independent work `parallel_independent`; it may integrate silently only after all expected Workers are terminal and overlap, dependency, interface, risk, merge, and combined-validation gates pass.
    - Use `high_risk` for product or architecture decisions, data migration, conflict, failed validation, unsafe rollback, or scope drift. Return to the user; do not auto-integrate.
    - Check dependencies, shared files or core modules, validation and rollback independence, cross-task contamination, and unresolved decisions. Discussion AI recommends; the user decides. Hooks and integration agents do not choose parallelism.
    - After an explicit Worker-creation command, change only the authorized task-state blocks from `draft` to `approved` and set `worker_creation_authorized: true` before launching Workers.
@@ -151,7 +151,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - After Project Status is complete, update only the concise dynamic state block in `prompts/DISCUSSION_AI.md`: latest integration ID, discussion focus, result to present, pending decisions, next action, and the Project Status pointer. Discussion AI maintains this block during planning and after human review; Workers never edit it.
    - Run `.wishgraph/hooks/memory_sync.py status` when available and show ready, waiting, and blocked reports plus pending integration and the next action.
    - For one safe sequential result, use the authority inherited from task approval without asking twice. Require Completed and ready metadata, passing prescribed validation, bounded scope, no conflict or new product/architecture/data decision, and a safe target worktree.
-   - For parallel_batch or high_risk results, require explicit user confirmation naming the reports to integrate. Keep integration authorization separate from post-integration human review.
+   - For high-risk, conflicting, blocked, competitive, or mechanically ambiguous results, return to Discussion and request the required decision. Do not ask again for safe sequential or proven `parallel_independent` integration.
    - Treat integration as a temporary event task. If the platform exposes an authorized background-task or independent-thread tool, launch a temporary integration agent with `prompts/INTEGRATION_AI.md`, report Waiting/Running/Blocked/Completed, return the result, and end it. Otherwise explicitly switch the current main agent or give one natural-language launch instruction; never pretend background execution exists.
    - Do not describe this as real-time push. An already-running discussion window receives results only after a supported resume/start event or an explicit refresh.
 
@@ -227,7 +227,7 @@ Chinese mirror:
 - Do not let an ad-hoc edit bypass validation, a unique run report, or memory-impact review merely because it has no task file.
 - Do not let worker agents update shared memory. Integrate their reports through a single integration writer.
 - Do not let hooks choose parallelism, launch agents, merge code, write semantic project memory, or replace human review.
-- Do not start parallel integration without explicit user approval.
+- Do not integrate parallel results unless existing Worker authority and every `parallel_independent` mechanical gate are proven; otherwise return to Discussion.
 - For a brand-new project, do not start implementation until the PRD is concrete enough to write a bounded first task.
 - For discussion migration requests, show the copyable prompt itself, not only a description of where it lives.
 - Make scope boundaries explicit. Every task should say what it will not do.

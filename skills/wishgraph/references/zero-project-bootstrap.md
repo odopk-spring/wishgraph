@@ -108,7 +108,7 @@ When the PRD and first task are ready, tell the user:
 English:
 
 ```text
-First classify the task and explain why it is sequential or parallel. Then ask whether to create the execution window. Only after an explicit human command, create a user-visible Worker task and automatically hand off `prompts/EXECUTION_AI.md` plus `tasks/build/<task>.md`. Explain that the Worker is explicit and visible, the user returns to discussion after completion, and they do not edit memory or integration files. Use manual copying only when visible task creation is unavailable or fails. State whether task approval includes safe sequential integration or whether a parallel batch will require a second integration confirmation.
+First classify the task and explain why it is sequential or parallel. Then ask whether to create the execution window. Only after an explicit human command, create a user-visible Worker task and automatically hand off `prompts/EXECUTION_AI.md` plus `tasks/build/<task>.md`. Explain that the Worker is explicit and visible, the user returns to discussion after completion, and they do not edit memory or integration files. Use manual copying only when visible task creation is unavailable or fails. State that safe sequential and mechanically proven `parallel_independent` results integrate silently, while risk or ambiguity returns to Discussion.
 ```
 
 If the user wants to continue discussing instead, continue in the discussion window and keep `prompts/DISCUSSION_AI.md` current.

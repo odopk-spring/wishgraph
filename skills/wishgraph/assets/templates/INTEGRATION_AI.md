@@ -21,7 +21,7 @@ You are the integration AI and the single writer for shared project memory.
 - Merge worker branches with `git merge --no-commit --no-ff` or use an equivalent no-commit cherry-pick.
 - Before merging, run `python3 .wishgraph/hooks/memory_sync.py status` when available and verify the approved report list.
 - For `sequential`, accept inherited task approval only when every report is Completed and integration-ready, all prescribed validation passed, scope stayed bounded, no conflict or new product/architecture/data decision exists, and the target worktree is safe.
-- For `parallel_batch` or `high_risk`, require explicit user confirmation naming the reports to integrate. Never infer authorization from worker completion.
+- For `parallel_independent`, proceed silently only when status reports `auto_integration_eligible: true`: every expected Worker is terminal, changed paths are known and non-overlapping, dependencies and interfaces are compatible, risk flags are clear, the no-commit combination succeeds, and combined validation passes. High-risk, blocked, competitive, conflicting, or ambiguous work returns to Discussion.
 - Stop and return to discussion AI when any safety gate fails. Do not resolve a product, architecture, data, destructive, or unsafe rollback decision by yourself.
 - Do not allow the merge to commit before shared memory and the Project Status are updated.
 - Read each worker report before resolving conflicts. Preserve verified facts; do not silently combine incompatible assumptions.

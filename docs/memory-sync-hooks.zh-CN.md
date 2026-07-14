@@ -125,7 +125,7 @@ Worker 使用 `Integrate` 或 `N/A`，不直接修改共享项目记忆：
 
 旧配置中的 `paths.dev_report` 会迁移为 `paths.project_status`，并保留原有自定义路径。只有旧 `reports/DEV_REPORT.md` 时仍可读取，但会收到迁移提醒；新旧标准文件同时存在时，WishGraph 会报告事实来源冲突，严格模式在只保留一个权威 `reports/PROJECT_STATUS.md` 前阻止集成。
 
-任务和执行报告元数据使用 `sequential`、`parallel_batch` 和 `high_risk` 区分工作。安全串行任务的批准包含正常集成授权；并行批次和高风险工作必须在集成前取得用户明确确认。Hooks 只检查已记录授权，不授予权限。
+任务和执行报告元数据使用 `sequential`、`parallel_batch` 和 `high_risk` 区分工作，执行模式使用 `exclusive`、`parallel_independent` 和 `competitive`。安全串行结果和机械检查证明独立的并行批次可以沿用已有 Worker 授权静默集成；高风险、冲突、阻塞、竞争或无法机械判断的结果返回 Discussion。Hooks 只计算和检查已记录门禁，不授予权限，也不启动 Integrator。
 
 创建 Worker 始终需要人类明确命令；随后宿主支持时可以由讨论 Agent 创建用户可见 Worker，Hooks 绝不创建。隐藏 subagent 不等于 Worker 窗口，平台不能创建可见任务时才降级为手动复制。集成是临时事件角色：平台支持且授权允许时使用后台任务或独立线程，否则明确切换当前主 Agent，或给出一条用户启动指令；不得虚构后台执行。
 
@@ -144,6 +144,18 @@ python3 .wishgraph/hooks/memory_sync.py status
 ```
 
 `status` 输出机器可读的待集成状态、集成类型、准备报告、等待报告、阻塞报告、是否需要用户确认和理由。它读取可见 Git refs 中的不可变报告，不写入共享队列文件。讨论入口和显式刷新会读取这个状态；SessionStart 仅在显式兼容模式下包含它。
+
+它还输出 `auto_integration_eligible`，以及 `nothing_to_integrate`、`wait_for_worker`、`auto_integrate`、`await_user_confirmation`、`discuss_blocker`、`compare_candidates` 之一作为 `next_action`。这些是内部路由字段，普通用户只看到 Discussion 和 Execution。
+
+宿主可以只读选择真实可用的静默降级路径，而不是让 Hook 启动任何东西：
+
+```bash
+python3 .wishgraph/hooks/memory_sync.py integration-plan --host-capability background
+python3 .wishgraph/hooks/memory_sync.py integration-plan --host-capability active_agent
+python3 .wishgraph/hooks/memory_sync.py integration-plan --host-capability inactive
+```
+
+返回动作依次为：通过真实宿主能力启动临时后台 Integrator、在当前活跃 Agent 内进入隔离 Integration 阶段，或保留派生 pending 状态等待下次明确“开始讨论”/“刷新项目状态”。该命令只读；Hooks 绝不调用 `subprocess.Popen`、合并分支或写入语义状态。
 
 宿主适配器还可以调用只读任务路由：
 
