@@ -34,10 +34,11 @@
 - Worker session 使用独立 branch 或 worktree，创建一个不可变的 `reports/runs/<work-unit-id>.md`，填写 Integrate 或 N/A 建议，不修改共享记忆。
 - 集成 session 使用 `--no-commit` 合并，把 `reports/PROJECT_STATUS.md` 重写为当前快照，更新受影响共享记忆，再刷新 `prompts/DISCUSSION_AI.md` 的精简动态交接。
 - 创建 Worker 必须有人类明确命令。宿主支持创建用户可见任务或 session 时，由规划 Agent 为每个已授权规格创建可见 Worker，自动交接执行提示词和任务文件，并命名为 `<task-id> · <short title> · WG Worker`。不得静默创建或使用隐藏 subagent；宿主不支持时才降级为手动复制。
+- 精确的执行、停止、重试、接管和明确 competitive 命令通过结构化 Task ID 与 Git common dir Claim 路由。micro 仍需 ad-hoc 报告，任一风险标记出现就升级为正式 Task。
 - 创建前把命令写入 task-state：`draft -> approved` 并设置 `worker_creation_authorized: true`。Worker 记录执行状态，Integration 记录 `integrated`，用户接受后讨论窗口记录 `reviewed`。
-- 集成是临时角色。安全串行任务批准包含正常集成授权；parallel_batch 和 high_risk 必须取得用户明确确认。只有宿主支持时才使用后台执行，否则如实切换角色或提供一次性启动指令。
+- 集成是用户不可见的临时控制事务。安全串行和机械检查证明独立的 `parallel_independent` 结果静默集成；风险、冲突、阻塞、竞争或不明确结果返回 Discussion。宿主依次降级为真实后台能力、当前 Agent 内部阶段或 pending 到下次刷新。
 - Hooks 只输出状态并执行门禁，不决定是否并行，不启动 Agent，不合并代码，不编写语义记忆，也不代替 Review。
-- SessionStart 可以向新建或恢复 session 注入最新集成结果；这不是向持续运行窗口实时推送。
+- 新窗口默认中立。默认 SessionStart 只做安全检查，不激活 Discussion；明确开始讨论或刷新时再加载当前状态。
 - 每个完成的执行单元优先对应一个原子 commit。极小且已批准的 ad-hoc 修改可以没有 task 文件，但不能省略收尾。
 - 存在 `.wishgraph/hooks/memory_sync.py` 时，宣称完成前运行 worktree 检查。
 

@@ -10,6 +10,8 @@ Wish -> Spec Graph -> Task Graph -> Code Change -> Probe -> Report -> Human Revi
 
 The core move is simple: stop depending on chat memory for complex work. Put the project state in durable files that any future agent can read, audit, and continue.
 
+Natural language is the user interface: `开始讨论`, `刷新项目状态`, `执行012号任务`, `停止012号任务`, `重新执行012号任务`, `接管012号任务`, and explicit competitive requests all route through structured state and safety gates. Neutral windows do not preload role context, which keeps repeated new windows from paying for unnecessary prompts.
+
 The normal user experience exposes only a Discussion window and user-visible Execution windows. A new window stays neutral until the user says "开始讨论" / "Start discussion" or explicitly asks to execute a task. Integration is an event-triggered control transaction behind those windows. Hooks expose state and enforce boundaries but do not activate roles, choose parallelism, launch workers, merge code, write semantic memory, or replace human review.
 
 ## Install For Your Agent

@@ -11,7 +11,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 
 SCHEMA_VERSION = 1
@@ -50,6 +50,9 @@ class ReportState:
     changed_paths: list[str] = field(default_factory=list)
     risk_flags_known: bool = False
     risk_flags_clear: bool = False
+    change_class: str = "formal"
+    candidate_score: Optional[float] = None
+    selection_requires_judgment: bool = False
 
 
 @dataclass
@@ -189,6 +192,29 @@ def followup_task_id(root_task_id: Any, index: int) -> str:
     return f"{number}{suffix_for_index(index)}"
 
 
+def competitive_candidate_ids(
+    root_task_id: Any, used_task_ids: Iterable[str], candidate_count: int
+) -> list[str]:
+    """Allocate the next non-reused follow-up IDs for a competitive group."""
+    number, suffix = task_id_parts(root_task_id)
+    if suffix:
+        raise ValueError("Competitive root must be a numeric Task ID")
+    used = {canonical_task_id(item) for item in used_task_ids}
+    used_indexes = [
+        suffix_index(task_id_parts(item)[1])
+        for item in used
+        if item and task_id_parts(item)[0] == number and task_id_parts(item)[1]
+    ]
+    next_index = max(used_indexes, default=0) + 1
+    candidates: list[str] = []
+    while len(candidates) < candidate_count:
+        candidate_id = followup_task_id(number, next_index)
+        next_index += 1
+        if candidate_id not in used:
+            candidates.append(candidate_id)
+    return candidates
+
+
 TASK_COMMANDS = {
     "执行": "execute",
     "继续执行": "continue",
@@ -204,6 +230,18 @@ TASK_COMMANDS = {
 def parse_task_command(text: str) -> Optional[dict[str, Any]]:
     """Parse one exact natural-language Task command without fuzzy execution."""
     candidate = text.strip().lower()
+    competitive = re.fullmatch(
+        r"让\s*(?:两个|2\s*个)\s*agent\s*分别执行\s*(\d{3,}[a-z]*)"
+        r"(?:号)?(?:任务)?[，,]?\s*最后比较谁做得好",
+        candidate,
+    )
+    if competitive:
+        return {
+            "action": "competitive",
+            "task_id": canonical_task_id(competitive.group(1)),
+            "candidate_count": 2,
+            "authorizes_execution": True,
+        }
     family = re.fullmatch(r"查看\s*(\d{3,}[a-z]*)\s*系列任务", candidate)
     if family:
         task_id = canonical_task_id(family.group(1))
@@ -348,11 +386,26 @@ def parse_report_state(report_path: str, content: str) -> ReportState:
         risk_values = [
             data.get("public_api_change"),
             data.get("schema_change"),
+            data.get("persistence_change"),
             data.get("security_impact"),
+            data.get("permission_change"),
+            data.get("billing_impact"),
+            data.get("deletion_change"),
+            data.get("migration_change"),
             data.get("dependency_change"),
+            data.get("cross_module_contract_change"),
         ]
         risk_flags_known = all(isinstance(value, bool) for value in risk_values)
         risk_flags_clear = risk_flags_known and not any(risk_values)
+        change_class = normalized_string(data.get("change_class"), "formal")
+        raw_candidate_score = data.get("candidate_score")
+        candidate_score = (
+            float(raw_candidate_score)
+            if isinstance(raw_candidate_score, (int, float))
+            and not isinstance(raw_candidate_score, bool)
+            else None
+        )
+        selection_requires_judgment = data.get("selection_requires_judgment") is True
         state_source = "structured"
     else:
         status = parse_report_status(content) or "missing"
@@ -382,6 +435,9 @@ def parse_report_state(report_path: str, content: str) -> ReportState:
         changed_paths = []
         risk_flags_known = False
         risk_flags_clear = False
+        change_class = "formal"
+        candidate_score = None
+        selection_requires_judgment = False
         state_source = "legacy"
     errors: list[str] = list(block_errors)
 
@@ -402,6 +458,9 @@ def parse_report_state(report_path: str, content: str) -> ReportState:
         changed_paths=changed_paths,
         risk_flags_known=risk_flags_known,
         risk_flags_clear=risk_flags_clear,
+        change_class=change_class,
+        candidate_score=candidate_score,
+        selection_requires_judgment=selection_requires_judgment,
         safety_errors=errors,
         state_source=state_source,
     )

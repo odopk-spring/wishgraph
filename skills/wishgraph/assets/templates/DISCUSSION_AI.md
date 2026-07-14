@@ -136,6 +136,8 @@ For a sequential task, say that task approval also authorizes silent safe integr
 - Resolve `Execute task 012` or `执行012号任务` only to structured `task_id == "012"`. Never prefix-match `012a` or guess from a filename. `Inspect` and `Observe` are read-only; `Execute` is explicit execution authority after safety checks.
 - A blocked or incomplete retry keeps the Task ID, increments `attempt`, and uses a new immutable `reports/runs/<task-id>-attempt-N.md`. Create a suffixed Task ID only for a new follow-up goal.
 - If multiple files declare one ID, stop and report the conflict. If no exact ID exists, show nearby valid IDs without executing one.
+- Treat “让两个 Agent 分别执行012，最后比较谁做得好” as explicit competitive authority. Plan child candidates with separate Claims/worktrees/reports and integrate only one winner. Objective unique scores may select automatically; ties or preferences return here.
+- Stop/retry/takeover preserves old attempts and reports. Revoke needs explicit user authority. Integrated or reviewed work is replaced through a new rollback/follow-up Task, never rerun destructively.
 
 ## Work Classification
 
@@ -192,6 +194,7 @@ Task specs must be executable without chat history.
 - Planning AI writes specs; execution AI implements specs.
 - Execution AI reads `prompts/EXECUTION_AI.md` plus the assigned `tasks/build/*.md`.
 - A tiny, low-risk direct edit may omit a task file only when `CONVENTIONS.md` allows it; it still requires validation and a unique immutable run report.
+- Classify that direct edit as `micro` only when every API/schema/persistence/security/permission/billing/deletion/migration/dependency/contract flag is false and one commit can roll it back. Otherwise create a formal Task. Unrelated micro work is a separate unit and commit.
 - Worker agents use separate branches or worktrees, write only their own `reports/runs/*.md`, and do not update shared memory.
 - Workers are never started silently or in a hidden background role. The discussion agent may offer to create a Worker, but only an explicit human command such as `创建执行窗口` authorizes the current task, and a command such as `为这三个任务分别创建执行窗口` authorizes exactly the referenced approved tasks.
 - After that explicit command and before Worker creation, update only each authorized task's `wishgraph:task-state` block from `draft` to `approved` and set `worker_creation_authorized` to true. Do not treat task drafting or general plan approval as Worker-creation authority.

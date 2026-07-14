@@ -64,7 +64,7 @@ Status: Pending
 Spec source: `PRD.md` "Now" roadmap says dashboard first paint must not wait on auth refresh.
 Dependencies: None.
 Language mode: English.
-Run report: `reports/runs/012-dashboard-token-refresh.md`
+Run report: `reports/runs/012-attempt-1.md`
 Work type: sequential
 Batch ID: N/A
 Integration authorization: Inherited task approval
@@ -107,7 +107,7 @@ Dashboard should render cached account data immediately. Token refresh should ru
 - [ ] `npm test -- dashboard`
 - [ ] `npm test -- auth`
 - [ ] Manual check: dashboard shows cached account data while simulated refresh is pending.
-- [ ] `reports/runs/012-dashboard-token-refresh.md` created with test evidence.
+- [ ] `reports/runs/012-attempt-1.md` created with test evidence.
 - [ ] Shared-memory impact records Integrate or N/A with reasons; worker does not edit shared memory.
 - [ ] `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` passes when hooks are installed.
 - [ ] One atomic commit created unless user explicitly says not to commit.

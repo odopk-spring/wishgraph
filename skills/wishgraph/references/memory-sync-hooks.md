@@ -109,7 +109,7 @@ It scans task specs, the current target branch, and immutable run reports visibl
   "blocked_reports": [],
   "work_units": [
     {
-      "task_id": "012-example",
+      "task_id": "012",
       "lifecycle_status": "completed",
       "worker_creation_authorized": true,
       "integration_policy": "inherited_task_approval"

@@ -62,7 +62,7 @@ Dashboard should render cached account data immediately. Token refresh should ru
 - [ ] `npm test -- dashboard`
 - [ ] `npm test -- auth`
 - [ ] Manual check: dashboard shows cached account data while simulated refresh is pending.
-- [ ] `reports/runs/012-dashboard-token-refresh.md` created with test evidence.
+- [ ] `reports/runs/012-attempt-1.md` created with test evidence.
 - [ ] PRD, CODEMAP, and discussion-state impact recorded as Integrate or N/A; shared files not edited by the worker.
 - [ ] WishGraph worktree memory check passes when hooks are installed.
 - [ ] One atomic commit created unless user explicitly says not to commit.

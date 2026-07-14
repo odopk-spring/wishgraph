@@ -171,6 +171,10 @@ The discussion AI should not edit business code unless the project explicitly al
 
 Task IDs are exact structured identifiers such as `012`, `012a`, and `012aa`; readable slugs stay in filenames. You can say `执行012号任务`, `查看012号任务`, or `查看012系列任务`. Exact execution never prefix-matches a follow-up. A retry keeps `012`, increments its attempt, and writes a new report instead of allocating `012a`.
 
+You can also say `停止012号任务`, `重新执行012号任务`, `接管012号任务`, or `让两个 Agent 分别执行012，最后比较谁做得好`. Stop/takeover preserves prior evidence and requires explicit Claim revocation; competitive execution creates isolated candidates and integrates exactly one winner. Tiny ad-hoc work is `micro` only when every recorded risk flag is false; otherwise WishGraph promotes it to a formal Task.
+
+WishGraph controls token use by keeping neutral windows role-free, loading only the current dynamic Discussion state, limiting Execution to its prompt/spec/necessary code, and limiting Integration to selected reports plus affected shared state. Refresh does not reload a full stable prompt. Historical detail stays in immutable Run Reports and Git; completion callbacks are used only when the host truly supports them, otherwise progress appears on the next explicit Discussion entry or refresh.
+
 If you want to move the discussion into another AI window, ask:
 
 ```text

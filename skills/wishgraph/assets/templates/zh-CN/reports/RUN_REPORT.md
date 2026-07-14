@@ -12,6 +12,8 @@
 
 下面的 JSON 块是生命周期状态的机器可读真相源；叙述性证据继续写在后续章节中。串行任务的 `batch_id` 使用 `null`。
 
+只有独立 ad-hoc 单元且不涉及 API、schema、持久化、安全、权限、计费、删除、迁移、依赖或跨模块契约时，才使用 `change_class: micro`，并列出全部 changed paths。只有 Task 定义了完整客观评分表时，竞争候选才填写分数；涉及偏好或接近的取舍时设 `selection_requires_judgment: true`。
+
 <!-- wishgraph:run-state:start -->
 ```json
 {
@@ -27,8 +29,17 @@
   "changed_paths": [],
   "public_api_change": false,
   "schema_change": false,
+  "persistence_change": false,
   "security_impact": false,
+  "permission_change": false,
+  "billing_impact": false,
+  "deletion_change": false,
+  "migration_change": false,
   "dependency_change": false,
+  "cross_module_contract_change": false,
+  "change_class": "formal",
+  "candidate_score": null,
+  "selection_requires_judgment": false,
   "integration_authorization": "inherited_task_approval",
   "integration_readiness": "ready",
   "scope_check": "pass",

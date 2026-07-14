@@ -95,7 +95,22 @@ def current_branch(root: Path) -> str:
 
 
 def worktree_is_clean(root: Path) -> bool:
-    return not run_git(root, "status", "--porcelain", "-z").stdout
+    fields = [
+        item.decode("utf-8", errors="surrogateescape")
+        for item in run_git(root, "status", "--porcelain", "-z").stdout.split(b"\0")
+        if item
+    ]
+    for field in fields:
+        path = field[3:] if len(field) > 3 and field[2] == " " else field
+        if (
+            path.startswith(".wishgraph/")
+            or path in {".codex/hooks.json", ".claude/settings.json"}
+            or "__pycache__/" in path
+            or path.endswith(".pyc")
+        ):
+            continue
+        return False
+    return True
 
 
 def utc_now() -> str:
@@ -212,9 +227,17 @@ def acquire_claim(
     except (OSError, RuntimeError) as exc:
         return {"ok": False, "error": str(exc)}
     try:
+        existing_claims = inspect_claims(root, task_id, stale_after_seconds)
+        stale_claims = [claim for claim in existing_claims if claim.get("stale")]
+        if stale_claims:
+            return {
+                "ok": False,
+                "error": "stale_claim_requires_explicit_revoke",
+                "claims": stale_claims,
+            }
         active = [
             claim
-            for claim in inspect_claims(root, task_id, stale_after_seconds)
+            for claim in existing_claims
             if claim.get("effective_lease_status") == "active"
         ]
         if active and (

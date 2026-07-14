@@ -58,7 +58,7 @@
 - 运行集成验证并创建集成 commit。
 - 安全串行结果使用任务批准时继承的集成授权，不重复询问。
 - 安全串行和机械检查证明独立的 `parallel_independent` 结果沿用已有 Worker 授权自动集成；高风险、冲突、阻塞、竞争或不明确结果返回 Discussion。
-- 只有平台具备后台任务或独立线程能力且授权允许时，才使用临时后台 Agent；否则明确切换当前主 Agent，或提供一次性启动指令，不得虚构后台执行。
+- 有真实后台能力时使用临时 Integrator；否则在当前活跃 Agent 内进入隔离 Integration 阶段，或保留 pending 到下次 Discussion 入口/刷新。不得要求用户创建 Integration 窗口，也不得虚构后台执行。
 - 把集成状态和结果返回讨论 Agent 后结束临时角色。
 
 ## 任务文件规则
@@ -70,6 +70,8 @@
 - 重试保留 Task ID，递增 `attempt`，并使用新的不可变 `reports/runs/<task-id>-attempt-N.md`。
 - 正式执行要原子获取存放在 Git common directory 下的 Worker Claim，并绑定 Task attempt、Worker、branch 和绝对 worktree；继续工作前检查绑定，长任务持续 heartbeat。
 - `exclusive` 是默认执行模式。第二个 Worker 必须获得显式接管或竞争授权，并使用独立 worktree。Claim 只协调共享同一本地 Git common directory 的 worktree，不覆盖多机器远程并发。
+- `micro` ad-hoc 单元只允许在 API、schema、持久化、安全、权限、计费、删除、迁移、依赖和跨模块契约风险全部不存在时使用；仍需报告、验证、提交和回滚边界，否则升级为正式 Task。
+- 竞争候选使用子编号、同一 comparison group、独立 Claim/worktree/report，并且只集成一个胜者；失败证据保留并标记 `rejected` 或 `superseded`。
 - 任务必须不依赖聊天历史即可执行。
 - 用符号、模块、路由、API 或测试锚定，不依赖行号。
 - 必须有 "Do Not Do" 防止范围漂移。

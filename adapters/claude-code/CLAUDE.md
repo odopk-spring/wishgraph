@@ -34,10 +34,11 @@ When working on planning, task writing, or execution, read:
 - Worker sessions use separate branches or worktrees, create one immutable `reports/runs/<work-unit-id>.md`, and record Integrate or N/A proposals without editing shared memory.
 - An integration session merges with `--no-commit`, rewrites `reports/PROJECT_STATUS.md` as the current snapshot, updates affected shared memory, and then refreshes the concise dynamic handoff in `prompts/DISCUSSION_AI.md`.
 - Worker creation requires an explicit human command. When the host supports user-visible task or session creation, the planning agent creates one visible Worker per authorized spec, hands off the execution prompt and task file, and names it `<task-id> · <short title> · WG Worker`. Never create Workers silently or use hidden subagents; manual copying is the fallback when this capability is unavailable.
+- Route exact execute/stop/retry/takeover and explicit competitive commands through structured Task IDs and Git-common-dir Claims. Micro work still needs an ad-hoc report and becomes a formal Task when any risk flag is set.
 - Persist that command in task-state before creation: `draft -> approved` and `worker_creation_authorized: true`. Workers record execution states, Integration records `integrated`, and discussion records `reviewed` after human acceptance.
-- Integration is temporary. Safe sequential task approval includes normal integration authority; parallel_batch and high_risk require explicit user confirmation. Use background execution only when the host supports it, otherwise switch roles or provide a one-time launch instruction truthfully.
+- Integration is an invisible temporary control transaction. Safe sequential and mechanically proven `parallel_independent` results integrate silently; risk, conflict, blocking, competition, or ambiguity returns to Discussion. Use real background capability, an internal active-Agent phase, or pending-until-refresh fallback.
 - Hooks expose status and enforce boundaries; they do not choose parallelism, launch agents, merge code, write semantic memory, or replace review.
-- SessionStart may inject latest integrated results into new or resumed sessions; this is not a live push into a continuously running window.
+- New windows are neutral. Default SessionStart is safety-only and does not activate Discussion; explicit Discussion entry or refresh loads current state.
 - Prefer one atomic commit per completed execution unit. A tiny approved ad-hoc edit may omit a task file, but not closeout.
 - When `.wishgraph/hooks/memory_sync.py` exists, run its worktree check before claiming completion.
 

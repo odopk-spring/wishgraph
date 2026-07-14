@@ -58,7 +58,7 @@ Responsibilities:
 - Run integration validation and create the integration commit.
 - For a safe sequential result, use the integration authority inherited when the task was approved; do not ask twice.
 - Auto-integrate safe sequential and mechanically proven `parallel_independent` results under existing Worker authority. Return high-risk, conflicting, blocked, competitive, or ambiguous results to Discussion.
-- Use a platform background task or independent thread only when that capability exists and authorization permits it. Otherwise switch the current main agent explicitly or provide a one-time launch instruction; never claim fictitious background execution.
+- Use a real background capability when available; otherwise enter an isolated Integration phase in the active Agent or keep work pending until the next Discussion entry/refresh. Never require a user-visible Integration window or claim fictitious background execution.
 - Return integration status and results to discussion AI, then end the temporary role.
 
 ## Task File Rules
@@ -70,6 +70,8 @@ Responsibilities:
 - Retries keep the Task ID, increment `attempt`, and use a new immutable `reports/runs/<task-id>-attempt-N.md` path.
 - Formal execution atomically acquires a Worker Claim stored under the Git common directory. Bind it to the Task attempt, Worker, branch, and absolute worktree; heartbeat it and verify the binding before continuing.
 - `exclusive` is the default execution mode. A second Worker requires explicit takeover or competitive authority and a separate worktree. Claims coordinate local worktrees sharing one Git common directory, not separate machines.
+- A `micro` ad-hoc unit is allowed only when API, schema, persistence, security, permission, billing, deletion, migration, dependency, and cross-module-contract risk is absent. It still needs one report, validation, commit, and rollback boundary; otherwise promote it to a formal Task.
+- Competitive candidates use child IDs, one comparison group, separate Claims/worktrees/reports, and exactly one integrated winner. Preserve and mark losing evidence `rejected` or `superseded`.
 - A task must be executable without chat history.
 - Anchor by symbols, modules, routes, APIs, or tests. Do not rely on line numbers.
 - Include a "Do Not Do" section to stop scope drift.

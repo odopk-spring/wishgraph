@@ -36,6 +36,14 @@ Use the project runtime for `claim acquire`, `inspect`, `heartbeat`, `release`, 
 
 This filesystem Claim is atomic across processes and worktrees sharing one local Git common directory. It does not guarantee mutual exclusion between different machines that only share a remote; document that boundary and use host coordination or another distributed lock when multi-machine execution is required.
 
+## Micro Changes, Stop, And Competitive Execution
+
+Allow `change_class: micro` without a Task Spec only when the goal and scope are explicit, validation exists, one atomic commit can fully roll it back, and all API, schema, persistence, security, permission, billing, deletion, migration, dependency, and cross-module-contract flags are false. It still needs a unique ad-hoc ID, `changed_paths`, one immutable Run Report, Integrate/N/A decisions, and normal integration. Any risk flag promotes the request to a formal Task. A micro change unrelated to the active Task is a separate work unit and commit, never a side edit hidden in the formal report.
+
+On stop, preserve the branch, worktree, Claim, and report evidence long enough to close safely. Before integration, a rejected or abandoned attempt can be released/revoked and retried under the same Task ID with an incremented attempt and new report. After integration, never erase history; create a replacement or rollback follow-up Task. `revoke` requires explicit user authority.
+
+When the user explicitly requests multiple Agents to solve the same goal and compare them, create candidate follow-ups (`012a`, `012b`) with `parent_task_id: 012`, `execution_mode: competitive`, and `comparison_group: 012`. Each gets its own Claim, branch/worktree, and report. Integrate exactly one winner. A complete objective scorecard may select a unique winner automatically; ties or product/architecture preferences return a compressed comparison and recommendation to Discussion. Mark losing candidates `rejected` or `superseded`, preserve their evidence, and release their Claims.
+
 ## Natural-Language Installation
 
 When the user asks to install, configure, enable, or set up WishGraph, read `references/installation.md` and translate their words into one of these outcomes:

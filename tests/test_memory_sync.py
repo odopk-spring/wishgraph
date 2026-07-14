@@ -202,8 +202,18 @@ class MemorySyncTests(unittest.TestCase):
         changed_paths: Optional[list[str]] = None,
         public_api_change: bool = False,
         schema_change: bool = False,
+        persistence_change: bool = False,
         security_impact: bool = False,
+        permission_change: bool = False,
+        billing_impact: bool = False,
+        deletion_change: bool = False,
+        migration_change: bool = False,
         dependency_change: bool = False,
+        cross_module_contract_change: bool = False,
+        task_id: Optional[str] = None,
+        change_class: str = "formal",
+        candidate_score: Optional[float] = None,
+        selection_requires_judgment: bool = False,
     ) -> str:
         legacy = self.run_report(
             unit,
@@ -216,6 +226,7 @@ class MemorySyncTests(unittest.TestCase):
         state = {
             "schema_version": 1,
             "kind": "run",
+            "task_id": task_id,
             "unit": unit,
             "status": status,
             "work_type": work_type,
@@ -224,8 +235,17 @@ class MemorySyncTests(unittest.TestCase):
             "changed_paths": changed_paths or [],
             "public_api_change": public_api_change,
             "schema_change": schema_change,
+            "persistence_change": persistence_change,
             "security_impact": security_impact,
+            "permission_change": permission_change,
+            "billing_impact": billing_impact,
+            "deletion_change": deletion_change,
+            "migration_change": migration_change,
             "dependency_change": dependency_change,
+            "cross_module_contract_change": cross_module_contract_change,
+            "change_class": change_class,
+            "candidate_score": candidate_score,
+            "selection_requires_judgment": selection_requires_judgment,
             "integration_authorization": (
                 "explicit_user_confirmation"
                 if work_type in {"parallel_batch", "high_risk"}
@@ -495,6 +515,12 @@ class MemorySyncTests(unittest.TestCase):
         )
         self.assertTrue(retried["ok"], retried)
 
+    def test_claim_cleanliness_ignores_generated_runtime_cache_only(self) -> None:
+        self.write(".wishgraph/hooks/__pycache__/runtime.pyc", "cache")
+        self.assertTrue(memory_sync.worktree_is_clean(self.root))
+        self.write("src/unrelated.py", "print('dirty')\n")
+        self.assertFalse(memory_sync.worktree_is_clean(self.root))
+
     def test_claim_stale_detection_uses_heartbeat_timestamp(self) -> None:
         acquired = memory_sync.acquire_claim(
             self.root, "028a", 1, "worker-stale", require_clean=True
@@ -510,6 +536,45 @@ class MemorySyncTests(unittest.TestCase):
         )[0]
         self.assertTrue(claim["stale"])
         self.assertEqual(claim["effective_lease_status"], "stale")
+        blocked = memory_sync.acquire_claim(
+            self.root,
+            "028a",
+            2,
+            "worker-replacement",
+            stale_after_seconds=1,
+            require_clean=True,
+        )
+        self.assertEqual(blocked["error"], "stale_claim_requires_explicit_revoke")
+        revoked = memory_sync.update_claim(self.root, claim_id, "revoke")
+        self.assertTrue(revoked["ok"], revoked)
+        replacement = memory_sync.acquire_claim(
+            self.root,
+            "028a",
+            2,
+            "worker-replacement",
+            stale_after_seconds=1,
+            require_clean=True,
+        )
+        self.assertTrue(replacement["ok"], replacement)
+
+    def test_status_uses_active_claim_as_running_evidence(self) -> None:
+        task_path = "tasks/build/028b-running.md"
+        self.write(
+            task_path,
+            self.structured_task(
+                "028b-running", status="approved", worker_authorized=True
+            ),
+        )
+        self.git("add", task_path)
+        self.git("commit", "-qm", "running claim fixture")
+        acquired = memory_sync.acquire_claim(
+            self.root, "028b", 1, "worker-running", require_clean=True
+        )
+        self.assertTrue(acquired["ok"], acquired)
+        state = memory_sync.integration_state(self.root, self.config).as_dict()
+        unit = next(item for item in state["work_units"] if item["task_id"] == "028b")
+        self.assertEqual(unit["lifecycle_status"], "running")
+        self.assertEqual(unit["active_claims"][0]["worker_id"], "worker-running")
 
     def test_claim_is_shared_across_worktrees_and_enforces_binding(self) -> None:
         other = self.root.parent / f"{self.root.name}-worker-two"
@@ -578,6 +643,98 @@ class MemorySyncTests(unittest.TestCase):
         )
         self.assertEqual(second.returncode, 1)
         self.assertEqual(json.loads(second.stdout)["error"], "active_claim_exists")
+
+    def test_claim_revoke_requires_explicit_user_authorization(self) -> None:
+        acquired = memory_sync.acquire_claim(
+            self.root, "030a", 1, "worker-revoke", require_clean=True
+        )
+        self.assertTrue(acquired["ok"], acquired)
+        claim_id = acquired["claim"]["claim_id"]
+        base = [
+            sys.executable,
+            str(HOOK_ASSETS / "memory_sync.py"),
+            "claim",
+            "revoke",
+            claim_id,
+        ]
+        denied = subprocess.run(
+            base,
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(denied.returncode, 1)
+        self.assertEqual(
+            json.loads(denied.stdout)["error"], "explicit_user_authorization_required"
+        )
+        allowed = subprocess.run(
+            base + ["--authorized-by-user"],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        self.assertEqual(json.loads(allowed.stdout)["claim"]["lease_status"], "revoked")
+
+    def test_competitive_natural_language_and_candidate_plan(self) -> None:
+        command = memory_sync.parse_task_command(
+            "让两个 Agent 分别执行012，最后比较谁做得好"
+        )
+        assert command is not None
+        self.assertEqual(command["action"], "competitive")
+        self.assertTrue(command["authorizes_execution"])
+        self.write("tasks/build/012-root.md", self.structured_task("012-root"))
+        process = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "competitive-plan",
+                "012",
+                "--candidates",
+                "2",
+            ],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        payload = json.loads(process.stdout)
+        self.assertEqual(
+            [item["task_id"] for item in payload["candidates"]], ["012a", "012b"]
+        )
+        self.assertTrue(payload["rules"]["integrate_exactly_one_winner"])
+
+    def test_competitive_claims_allow_distinct_worktrees(self) -> None:
+        other = self.root.parent / f"{self.root.name}-competitive"
+        self.git("worktree", "add", "-q", "-b", "competitive-worker", str(other))
+        try:
+            first = memory_sync.acquire_claim(
+                self.root,
+                "040a",
+                1,
+                "candidate-a",
+                execution_mode="competitive",
+                require_clean=True,
+            )
+            second = memory_sync.acquire_claim(
+                other,
+                "040b",
+                1,
+                "candidate-b",
+                execution_mode="competitive",
+                require_clean=True,
+            )
+            self.assertTrue(first["ok"], first)
+            self.assertTrue(second["ok"], second)
+            self.assertNotEqual(
+                first["claim"]["worktree"], second["claim"]["worktree"]
+            )
+        finally:
+            self.git("worktree", "remove", "--force", str(other))
+            self.git("branch", "-D", "competitive-worker")
 
     def test_invalid_structured_run_state_blocks_closeout(self) -> None:
         self.write("src/app.py", "print('structured')\n")
@@ -672,6 +829,7 @@ class MemorySyncTests(unittest.TestCase):
         self.write(path, content)
         result = memory_sync.check_sync(self.root, self.config, "worktree")
         self.assertFalse(result.ok)
+        self.assertTrue(any("task_id is immutable" in error for error in result.errors))
         self.assertTrue(any("run_report may change only" in error for error in result.errors))
 
     def test_task_rejects_invalid_draft_to_completed_transition(self) -> None:
@@ -747,6 +905,16 @@ class MemorySyncTests(unittest.TestCase):
         result = memory_sync.check_sync(self.root, self.config, "worktree")
         self.assertFalse(result.ok)
         self.assertTrue(any("filename is immutable" in error for error in result.errors))
+
+    def test_allocated_task_id_cannot_be_reused_by_deleting_spec(self) -> None:
+        path = "tasks/build/027a-allocated.md"
+        self.write(path, self.structured_task("027a-allocated"))
+        self.git("add", path)
+        self.git("commit", "-qm", "allocated task fixture")
+        (self.root / path).unlink()
+        result = memory_sync.check_sync(self.root, self.config, "worktree")
+        self.assertFalse(result.ok)
+        self.assertTrue(any("cannot be deleted" in error for error in result.errors))
 
     def test_running_task_is_not_a_valid_closeout_without_report(self) -> None:
         task_id = "022a-running"
@@ -1253,6 +1421,16 @@ class MemorySyncTests(unittest.TestCase):
         assert loaded is not None
         self.assertEqual(loaded["session_start_context_mode"], "safety_only")
 
+    def test_new_session_start_mode_takes_priority_over_legacy_boolean(self) -> None:
+        path = self.root / ".wishgraph" / "config.json"
+        config = json.loads(path.read_text(encoding="utf-8"))
+        config["session_start_context_mode"] = "safety_only"
+        config["inject_project_summary_on_session_start"] = True
+        path.write_text(json.dumps(config), encoding="utf-8")
+        loaded = memory_sync.load_config(self.root)
+        assert loaded is not None
+        self.assertEqual(loaded["session_start_context_mode"], "safety_only")
+
     def test_invalid_session_start_context_mode_is_rejected(self) -> None:
         self.update_config(session_start_context_mode="surprise")
         with self.assertRaisesRegex(ValueError, "session_start_context_mode"):
@@ -1443,6 +1621,142 @@ class MemorySyncTests(unittest.TestCase):
         state = memory_sync.integration_state(self.root, self.config).as_dict()
         self.assertFalse(state["auto_integration_eligible"])
         self.assertEqual(state["next_action"], "await_user_confirmation")
+        self.assertTrue(state["requires_user_confirmation"])
+
+    def test_safe_micro_change_is_auto_eligible_but_still_uses_run_report(self) -> None:
+        report_path = "reports/runs/ad-hoc-20260714-copy.md"
+        self.write(
+            report_path,
+            self.structured_run_report(
+                "ad-hoc-20260714-copy",
+                change_class="micro",
+                changed_paths=["src/copy.py"],
+            ),
+        )
+        state = memory_sync.integration_state(self.root, self.config).as_dict()
+        self.assertEqual(state["ready_reports"], [report_path])
+        self.assertTrue(state["auto_integration_eligible"])
+        self.assertEqual(state["selected_reports"], [report_path])
+
+    def test_micro_with_api_schema_security_or_dependency_change_is_blocked(self) -> None:
+        flags = (
+            "public_api_change",
+            "schema_change",
+            "security_impact",
+            "dependency_change",
+        )
+        for flag in flags:
+            with self.subTest(flag=flag):
+                report_path = f"reports/runs/ad-hoc-{flag}.md"
+                kwargs = {flag: True}
+                self.write(
+                    report_path,
+                    self.structured_run_report(
+                        f"ad-hoc-{flag}",
+                        change_class="micro",
+                        changed_paths=[f"src/{flag}.py"],
+                        **kwargs,
+                    ),
+                )
+                state = memory_sync.integration_state(self.root, self.config).as_dict()
+                self.assertIn(report_path, state["blocked_reports"])
+                self.assertFalse(state["auto_integration_eligible"])
+                (self.root / report_path).unlink()
+
+    def test_formal_task_cannot_hide_unrelated_ad_hoc_micro_report(self) -> None:
+        task_path = "tasks/build/035-formal.md"
+        report_path = "reports/runs/035-attempt-1.md"
+        self.write(
+            task_path,
+            self.structured_task(
+                "035-formal",
+                status="completed",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.write(
+            report_path,
+            self.structured_run_report(
+                "035-attempt-1",
+                task_id="035",
+                change_class="micro",
+                changed_paths=["src/unrelated.py"],
+            ),
+        )
+        state = memory_sync.integration_state(self.root, self.config).as_dict()
+        self.assertIn(report_path, state["blocked_reports"])
+
+    def test_objective_competitive_score_selects_exactly_one_winner(self) -> None:
+        self.write("tasks/build/040-root.md", self.structured_task("040-root"))
+        for task_id, score in (("040a", 91.0), ("040b", 87.0)):
+            report_path = f"reports/runs/{task_id}-attempt-1.md"
+            self.write(
+                f"tasks/build/{task_id}-candidate.md",
+                self.structured_task(
+                    f"{task_id}-candidate",
+                    parent_task_id="040",
+                    status="completed",
+                    work_type="parallel_batch",
+                    batch_id="compare-040",
+                    worker_authorized=True,
+                    execution_mode="competitive",
+                    comparison_group="040",
+                    run_report=report_path,
+                ),
+            )
+            self.write(
+                report_path,
+                self.structured_run_report(
+                    f"{task_id}-attempt-1",
+                    task_id=task_id,
+                    work_type="parallel_batch",
+                    batch_id="compare-040",
+                    execution_mode="competitive",
+                    changed_paths=[f"src/{task_id}.py"],
+                    candidate_score=score,
+                ),
+            )
+        state = memory_sync.integration_state(self.root, self.config).as_dict()
+        self.assertTrue(state["auto_integration_eligible"])
+        self.assertEqual(state["next_action"], "auto_integrate")
+        self.assertEqual(state["selected_reports"], ["reports/runs/040a-attempt-1.md"])
+        self.assertEqual(state["superseded_reports"], ["reports/runs/040b-attempt-1.md"])
+
+    def test_subjective_competitive_choice_returns_to_discussion(self) -> None:
+        self.write("tasks/build/041-root.md", self.structured_task("041-root"))
+        for task_id in ("041a", "041b"):
+            report_path = f"reports/runs/{task_id}-attempt-1.md"
+            self.write(
+                f"tasks/build/{task_id}-candidate.md",
+                self.structured_task(
+                    f"{task_id}-candidate",
+                    parent_task_id="041",
+                    status="completed",
+                    work_type="parallel_batch",
+                    batch_id="compare-041",
+                    worker_authorized=True,
+                    execution_mode="competitive",
+                    comparison_group="041",
+                    run_report=report_path,
+                ),
+            )
+            self.write(
+                report_path,
+                self.structured_run_report(
+                    f"{task_id}-attempt-1",
+                    task_id=task_id,
+                    work_type="parallel_batch",
+                    batch_id="compare-041",
+                    execution_mode="competitive",
+                    changed_paths=[f"src/{task_id}.py"],
+                    candidate_score=90.0,
+                    selection_requires_judgment=True,
+                ),
+            )
+        state = memory_sync.integration_state(self.root, self.config).as_dict()
+        self.assertFalse(state["auto_integration_eligible"])
+        self.assertEqual(state["next_action"], "compare_candidates")
         self.assertTrue(state["requires_user_confirmation"])
 
     def test_parallel_status_lists_ready_waiting_and_blocked(self) -> None:

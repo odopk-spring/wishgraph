@@ -123,6 +123,8 @@ project/
 - “执行012号任务”只能精确解析到结构化 `task_id == "012"`，不能前缀匹配 `012a`，也不能根据文件名猜测。“查看”和“观察”只读；“执行”在安全检查通过后构成明确执行授权。
 - blocked 或 incomplete 重试保留原 Task ID，递增 `attempt`，并创建新的不可变 `reports/runs/<task-id>-attempt-N.md`。只有新的 Follow-up Goal 才分配字母后缀。
 - 同一 ID 出现在多个文件时停止并报告冲突；没有精确匹配时只列出相近有效 ID，不擅自执行。
+- “让两个 Agent 分别执行012，最后比较谁做得好”构成明确 competitive 授权。为候选创建子编号和独立 Claim/worktree/report，只集成一个胜者；客观唯一高分可自动选择，平分或偏好取舍返回本窗口。
+- 停止、重试和接管都保留旧 attempt 与报告；revoke 需要用户明确授权。已经 integrated/reviewed 的结果通过新的回滚或 Follow-up Task 替换，不能破坏性重跑。
 
 ## 工作类型判断
 
@@ -179,6 +181,7 @@ project/
 - 规划 AI 写规格；执行 AI 实现规格。
 - 执行 AI 读取 `prompts/EXECUTION_AI.md` 和指定 `tasks/build/*.md`。
 - `CONVENTIONS.md` 允许时，极小且低风险的直接修改可以没有 task 文件；但仍必须验证并创建唯一不可变执行报告。
+- 只有 API/schema/持久化/安全/权限/计费/删除/迁移/依赖/契约风险全部为 false 且一个提交可完整回滚时，才标记为 `micro`；否则创建正式 Task。与当前 Task 无关的 micro 必须独立成单元和提交。
 - Worker 使用独立 branch 或 worktree，只写自己的 `reports/runs/*.md`，不更新共享记忆。
 - Worker 不得静默创建或作为隐藏后台角色启动。讨论 Agent 可以询问是否创建，但只有人类明确命令才构成授权：`创建执行窗口` 只授权当前任务；`为这三个任务分别创建执行窗口` 只授权所指向的已批准任务。
 - 收到明确命令后、创建 Worker 前，只把每个已授权任务的 `wishgraph:task-state` 从 `draft` 改为 `approved`，并把 `worker_creation_authorized` 设为 true。起草任务或一般性的计划认可不等于授权创建 Worker。

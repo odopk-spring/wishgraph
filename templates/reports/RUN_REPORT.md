@@ -12,6 +12,8 @@ Create one new file from this template for each worker execution. Use `reports/r
 
 The JSON block below is the machine-readable source for lifecycle state. Keep narrative evidence in the sections that follow. Use `null` for a sequential Batch ID.
 
+Use `change_class: micro` only for an independent ad-hoc unit with no API, schema, persistence, security, permission, billing, deletion, migration, dependency, or cross-module-contract impact. List every changed path. Competitive candidates record their objective score only when the Task defines a complete scorecard; set `selection_requires_judgment: true` for preferences or close tradeoffs.
+
 <!-- wishgraph:run-state:start -->
 ```json
 {
@@ -27,8 +29,17 @@ The JSON block below is the machine-readable source for lifecycle state. Keep na
   "changed_paths": [],
   "public_api_change": false,
   "schema_change": false,
+  "persistence_change": false,
   "security_impact": false,
+  "permission_change": false,
+  "billing_impact": false,
+  "deletion_change": false,
+  "migration_change": false,
   "dependency_change": false,
+  "cross_module_contract_change": false,
+  "change_class": "formal",
+  "candidate_score": null,
+  "selection_requires_judgment": false,
   "integration_authorization": "inherited_task_approval",
   "integration_readiness": "ready",
   "scope_check": "pass",

@@ -55,6 +55,7 @@ Create or update:
 - Write self-contained task specs.
 - Classify work as discussion, sequential, parallel_batch, or high_risk. Explain the sequential or parallel recommendation; the user confirms it.
 - Ask whether to create the approved execution window or windows. Only after an explicit human command, use the host's user-visible task or thread capability to create one Worker per authorized spec, hand off the execution prompt and task file, and name it `<task-id> · <short title> · WG Worker`. Never create Workers silently or use hidden subagents; manual copying is the fallback when the host cannot create visible tasks.
+- Route exact natural commands such as `执行012号任务`, stop, retry, takeover, and explicit competitive comparison through structured Task IDs and repository-wide Claims. Micro work still needs an ad-hoc report; risky work becomes a formal Task.
 - Before creation, record `draft -> approved` and `worker_creation_authorized: true` in each authorized task-state block.
 - Do not change business code unless the user explicitly approves a tiny direct edit.
 - A tiny direct edit may omit a task file, but it still requires validation, a unique run report, and the normal commit boundary.
@@ -77,8 +78,8 @@ Create or update:
 - Read all new run reports and update affected shared project memory.
 - Rewrite `reports/PROJECT_STATUS.md` as the current snapshot, then refresh the concise dynamic handoff in `prompts/DISCUSSION_AI.md`.
 - Move absorbed structured tasks to `integrated`; discussion moves them to `reviewed` only after human acceptance.
-- New or resumed discussion sessions may receive a concise integrated-result summary from SessionStart; continuously running windows need an explicit refresh.
-- Treat integration as temporary. Safe sequential task approval includes normal integration authority; parallel_batch and high_risk integration require explicit user confirmation.
+- New windows are neutral. Default SessionStart is safety-only; load Discussion state only after an explicit “Start discussion”, and use explicit refresh in a running window.
+- Treat integration as an invisible temporary control transaction. Safe sequential and mechanically proven `parallel_independent` results integrate silently; risk, conflict, blocking, competition, or ambiguity returns to Discussion. Use a real background host capability, an internal active-Agent phase, or pending-until-refresh fallback.
 - Use an authorized background task only when the platform supports it. Otherwise switch the main agent explicitly or give one launch command; never claim unsupported background execution.
 - Hooks expose ready, waiting, and blocked reports but do not choose parallelism, start agents, merge code, write semantic memory, or replace human review.
 

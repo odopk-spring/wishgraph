@@ -179,6 +179,18 @@ python3 .wishgraph/hooks/memory_sync.py claim revoke CLAIM_ID
 
 获取 Claim 使用原子文件系统操作，默认同一 Task 只允许一个 active exclusive Claim，并记录 attempt、worker、branch、绝对 worktree、时间、lease 状态、执行模式和可选宿主线程引用。heartbeat 与 release 校验 branch/worktree 绑定；显式 revoke 是接管控制路径。stale 检测保留旧记录。它能协调共享同一本地 Git common directory 的进程与 worktree，但不是只共享远程仓库的多机器分布式锁。
 
+宿主未传 `--authorized-by-user` 时，`claim revoke` 返回 `explicit_user_authorization_required`。停止或拒绝尚未集成的工作会保留 branch/report；重试保留 Task ID 并递增 attempt。已集成历史只能通过新的回滚或 Follow-up Task 替换。
+
+竞争执行使用只读计划：
+
+```bash
+python3 .wishgraph/hooks/memory_sync.py competitive-plan 012 --candidates 2
+```
+
+它提出 `012a`、`012b`、共同的 `comparison_group: 012`、独立 Claim/worktree/report，并规定只选一个胜者。status 只把客观唯一胜者放入 `selected_reports`；平分或 `selection_requires_judgment` 路由到 `compare_candidates`。失败候选不合并，标记为 `rejected` 或 `superseded`。
+
+`micro` Run Report 是独立 ad-hoc 单元，不能作为正式 Task 中的捷径。它必须列出 changed paths，明确 API/schema/security/dependency 标记为 false，并保留正常验证、不可变报告、提交、回滚和 Integrate/N/A 证据。任何风险都会把需求升级为正式 Task，并让 micro 报告失去资格。
+
 严格使用 `enforce` 模式时，建议给安装器增加 `--git-hook`，从而覆盖 Agent 以外的提交和生命周期 hook 无法拦截的工具路径。安装器不会覆盖已有 Git pre-commit hook，而是提示如何手动串联。
 
 ## 边界

@@ -24,9 +24,15 @@ from git_state import (
     standard_project_status_conflict,
     update_claim,
 )
-from policy import CheckResult, check_sync, integration_state, task_state
+from policy import (
+    CheckResult,
+    check_sync,
+    execution_preflight as evaluate_execution_preflight,
+    integration_state,
+)
 from workflow_state import (
     canonical_task_id,
+    competitive_candidate_ids,
     dynamic_state_block,
     markdown_section,
     parse_task_command,
@@ -380,7 +386,7 @@ def integration_plan_main(host_capability: str) -> int:
         "host_capability": host_capability,
         "host_action": host_action,
         "integration_prompt": config["paths"]["integration_prompt"],
-        "ready_reports": state["ready_reports"],
+        "ready_reports": state["selected_reports"] or state["ready_reports"],
         "status": state,
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -487,6 +493,62 @@ def task_main(action: str, value: str) -> int:
     return 0 if payload["ok"] else 1
 
 
+def competitive_plan_main(task_id: str, candidate_count: int) -> int:
+    root = find_git_root(Path.cwd())
+    if root is None:
+        payload = {"ok": False, "error": "git_repository_required"}
+    else:
+        try:
+            config = load_config(root)
+        except ValueError as exc:
+            payload = {"ok": False, "error": "invalid_config", "detail": str(exc)}
+        else:
+            resolved = resolve_task(root, config, task_id) if config else {
+                "ok": False,
+                "error": "wishgraph_not_installed",
+            }
+            if not resolved["ok"]:
+                payload = resolved
+            else:
+                number, suffix = task_id_parts(task_id)
+                if suffix:
+                    payload = {"ok": False, "error": "competitive_root_must_be_numeric"}
+                else:
+                    used = {
+                        item["task_id"]
+                        for item in task_specs(root, config)
+                        if item["task_id"]
+                    }
+                    candidates = []
+                    for candidate_id in competitive_candidate_ids(
+                        number, used, candidate_count
+                    ):
+                        candidates.append(
+                            {
+                                "task_id": candidate_id,
+                                "parent_task_id": number,
+                                "dependencies": [],
+                                "execution_mode": "competitive",
+                                "comparison_group": number,
+                                "attempt": 1,
+                                "run_report": f"reports/runs/{candidate_id}-attempt-1.md",
+                            }
+                        )
+                    payload = {
+                        "ok": True,
+                        "authorization": "explicit_competitive_user_command",
+                        "comparison_group": number,
+                        "candidates": candidates,
+                        "rules": {
+                            "separate_claims": True,
+                            "separate_worktrees": True,
+                            "integrate_exactly_one_winner": True,
+                        },
+                    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0 if payload.get("ok") else 1
+
+
 def execution_preflight(
     root: Path, config: dict[str, Any], task_id: str, authorization_action: str
 ) -> dict[str, Any]:
@@ -494,37 +556,9 @@ def execution_preflight(
     if not resolved["ok"]:
         return resolved
     task = resolved["task"]
-    content = read_version(root, task["task_path"], "worktree") or ""
-    state = task_state(task["task_path"], content)
-    errors = list(state.errors)
-    required_sections = {
-        "change_set": ("Change Set", "变更范围", "变更集"),
-        "do_not_do": ("Do Not Do", "不要做", "禁止事项"),
-        "validation": ("Validation", "验证"),
-        "rollback": ("Rollback", "Rollback / Recovery", "回滚", "回滚 / 恢复"),
-    }
-    for key, headings in required_sections.items():
-        if not any(markdown_section(content, heading) for heading in headings):
-            errors.append(f"missing_{key}_section")
-
-    allowed_by_action = {
-        "execute": {"draft", "approved"},
-        "continue": {"approved", "running"},
-        "retry": {"blocked", "incomplete"},
-        "take_over": {"running", "blocked", "incomplete"},
-    }
-    if state.status not in allowed_by_action.get(authorization_action, set()):
-        errors.append(f"status_{state.status}_does_not_allow_{authorization_action}")
-
-    by_id = {item["task_id"]: item for item in task_specs(root, config) if item["task_id"]}
-    unsatisfied = [
-        dependency
-        for dependency in state.dependencies
-        if dependency not in by_id
-        or by_id[dependency]["status"] not in {"integrated", "reviewed"}
-    ]
-    if unsatisfied:
-        errors.append("unsatisfied_dependencies:" + ",".join(unsatisfied))
+    _, errors = evaluate_execution_preflight(
+        root, config, task["task_path"], authorization_action
+    )
     return {"ok": not errors, "task": task, "errors": errors}
 
 
@@ -542,14 +576,17 @@ def claim_main(args: argparse.Namespace) -> int:
                 "claims": inspect_claims(root, task_id, args.stale_after),
             }
     elif args.claim_action in {"heartbeat", "release", "revoke"}:
-        enforce_binding = args.claim_action != "revoke"
-        payload = update_claim(
-            root,
-            args.claim_id,
-            args.claim_action,
-            branch=current_branch(root) if enforce_binding else None,
-            worktree=str(root) if enforce_binding else None,
-        )
+        if args.claim_action == "revoke" and not args.authorized_by_user:
+            payload = {"ok": False, "error": "explicit_user_authorization_required"}
+        else:
+            enforce_binding = args.claim_action != "revoke"
+            payload = update_claim(
+                root,
+                args.claim_id,
+                args.claim_action,
+                branch=current_branch(root) if enforce_binding else None,
+                worktree=str(root) if enforce_binding else None,
+            )
     else:
         try:
             config = load_config(root)
@@ -603,6 +640,9 @@ def main() -> int:
         choices=("background", "active_agent", "inactive"),
         required=True,
     )
+    competitive_parser = subparsers.add_parser("competitive-plan")
+    competitive_parser.add_argument("task_id")
+    competitive_parser.add_argument("--candidates", type=int, default=2, choices=range(2, 9))
     task_parser = subparsers.add_parser("task")
     task_parser.add_argument("action", choices=("resolve", "family", "route"))
     task_parser.add_argument("value")
@@ -624,6 +664,8 @@ def main() -> int:
     for claim_action in ("heartbeat", "release", "revoke"):
         parser_for_action = claim_subparsers.add_parser(claim_action)
         parser_for_action.add_argument("claim_id")
+        if claim_action == "revoke":
+            parser_for_action.add_argument("--authorized-by-user", action="store_true")
     subparsers.add_parser("git-pre-commit")
     args = parser.parse_args()
 
@@ -633,6 +675,8 @@ def main() -> int:
         return status_main()
     if args.command == "integration-plan":
         return integration_plan_main(args.host_capability)
+    if args.command == "competitive-plan":
+        return competitive_plan_main(args.task_id, args.candidates)
     if args.command == "task":
         return task_main(args.action, args.value)
     if args.command == "claim":

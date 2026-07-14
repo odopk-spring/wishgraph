@@ -171,6 +171,18 @@ python3 .wishgraph/hooks/memory_sync.py claim revoke CLAIM_ID
 
 Acquisition uses an atomic filesystem operation, defaults to one exclusive active Claim per Task, and records attempt, worker, branch, absolute worktree, timestamps, lease status, execution mode, and optional host thread reference. Heartbeat and release enforce branch/worktree binding; explicit revoke is the takeover control path. Stale detection preserves old records. This coordinates processes and worktrees sharing one local Git common directory; it is not a distributed lock across machines that only share a remote.
 
+`claim revoke` returns `explicit_user_authorization_required` unless the host passes `--authorized-by-user`. Stopping or rejecting unintegrated work preserves its branch/report, then a retry keeps the Task ID and increments the attempt. Integrated history is replaced only through a new rollback or follow-up Task.
+
+Competitive execution is planned read-only with:
+
+```bash
+python3 .wishgraph/hooks/memory_sync.py competitive-plan 012 --candidates 2
+```
+
+It proposes `012a`, `012b`, shared `comparison_group: 012`, separate Claims/worktrees/reports, and exactly one winner. Status publishes only the unique objective winner in `selected_reports`; a tie or `selection_requires_judgment` routes to `compare_candidates`. Losing candidates remain unmerged and become `rejected` or `superseded`.
+
+A `micro` Run Report is an independent ad-hoc unit, never a shortcut inside a formal Task. It must list changed paths and explicit false API/schema/security/dependency flags, plus the normal validation, immutable report, commit, rollback, and Integrate/N/A evidence. Any risk promotes the request to a formal Task and makes the micro report ineligible.
+
 For strict `enforce` mode, add `--git-hook` so commits made outside an agent and tool paths that lifecycle hooks cannot intercept are also checked. The installer refuses to overwrite an existing Git pre-commit hook and prints chaining guidance instead.
 
 ## Boundaries

@@ -52,6 +52,8 @@ The JSON block below is the machine-readable source for this integration lifecyc
 - Completed:
 - Waiting:
 - Blocked:
+- Competitive candidates:
+- Selected report(s):
 
 ## Next Step
 

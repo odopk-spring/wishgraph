@@ -14,6 +14,7 @@ from git_state import (
     changed_path_statuses,
     changed_paths,
     configured_task_globs,
+    inspect_claims,
     matches_any,
     project_status_candidates,
     read_head_version,
@@ -30,6 +31,7 @@ from workflow_state import (
     TaskState,
     dynamic_state_block,
     integrated_report_paths,
+    markdown_section,
     normalized_string,
     parse_impact_rows,
     parse_labeled_field,
@@ -42,7 +44,16 @@ from workflow_state import (
 
 
 TEXT_ONLY_SUFFIXES = {".md", ".mdx", ".rst", ".txt"}
-ACCEPTED_REPORT_STATUSES = {"completed", "blocked", "incomplete", "done"}
+ACCEPTED_REPORT_STATUSES = {
+    "completed",
+    "blocked",
+    "incomplete",
+    "done",
+    "rejected",
+    "abandoned",
+    "superseded",
+    "cancelled",
+}
 UPDATED_STATUSES = {"updated", "yes"}
 INTEGRATE_STATUSES = {"integrate", "needs integration", "review", "proposed"}
 NOOP_STATUSES = {"n/a", "na", "not applicable", "no"}
@@ -57,6 +68,9 @@ TASK_STATUSES = {
     "incomplete",
     "integrated",
     "reviewed",
+    "rejected",
+    "abandoned",
+    "superseded",
 }
 EXPLICIT_AUTHORIZATIONS = {
     "explicit_user_confirmation",
@@ -89,12 +103,16 @@ BLOCKED_READINESS = {
 PASS_RESULTS = {"pass", "passed", "ok", "n/a", "na", "not applicable", "通过", "不适用"}
 FAIL_RESULTS = {"fail", "failed", "not run", "error", "失败", "未运行", "错误"}
 TASK_TRANSITIONS = {
-    "draft": {"approved"},
+    "draft": {"approved", "cancelled"},
     "approved": {"running", "completed", "blocked", "incomplete"},
-    "running": {"completed", "blocked", "incomplete"},
-    "completed": {"integrated"},
-    "blocked": {"approved"},
-    "incomplete": {"approved"},
+    "running": {"completed", "blocked", "incomplete", "rejected", "abandoned"},
+    "completed": {"integrated", "rejected", "superseded"},
+    "blocked": {"approved", "abandoned"},
+    "incomplete": {"approved", "abandoned"},
+    "rejected": {"approved"},
+    "abandoned": {"approved"},
+    "superseded": set(),
+    "cancelled": set(),
     "integrated": {"reviewed"},
     "reviewed": set(),
 }
@@ -102,7 +120,10 @@ TASK_ONLY_TRANSITIONS = {
     ("draft", "approved"),
     ("blocked", "approved"),
     ("incomplete", "approved"),
+    ("rejected", "approved"),
+    ("abandoned", "approved"),
     ("integrated", "reviewed"),
+    ("draft", "cancelled"),
 }
 
 
@@ -129,6 +150,8 @@ class IntegrationState:
     requires_user_confirmation: bool = False
     auto_integration_eligible: bool = False
     next_action: str = "nothing_to_integrate"
+    selected_reports: list[str] = field(default_factory=list)
+    superseded_reports: list[str] = field(default_factory=list)
     reason: str = "No worker results are waiting for integration."
 
     def as_dict(self) -> dict[str, Any]:
@@ -144,6 +167,8 @@ class IntegrationState:
             "requires_user_confirmation": self.requires_user_confirmation,
             "auto_integration_eligible": self.auto_integration_eligible,
             "next_action": self.next_action,
+            "selected_reports": self.selected_reports,
+            "superseded_reports": self.superseded_reports,
             "reason": self.reason,
         }
 
@@ -161,6 +186,19 @@ def report_state(report_path: str, content: str) -> ReportState:
         errors.append("missing or invalid work type")
     if state.execution_mode not in EXECUTION_MODES:
         errors.append("missing or invalid execution_mode")
+    if state.change_class not in {"formal", "micro"}:
+        errors.append("missing or invalid change_class")
+    if state.change_class == "micro":
+        if not state.risk_flags_known:
+            errors.append("micro work requires every explicit risk flag")
+        elif not state.risk_flags_clear:
+            errors.append("recorded API, data, security, billing, deletion, migration, dependency, or contract risk cannot be micro")
+        if state.work_type != "sequential":
+            errors.append("micro work must use sequential work_type")
+        if state.task_id:
+            errors.append("micro work must use an independent ad-hoc unit, not a formal Task")
+        if not state.changed_paths:
+            errors.append("micro work requires explicit changed_paths")
     if state.work_type == "parallel_batch" and state.batch_id in {
         "",
         "n/a",
@@ -234,9 +272,9 @@ def task_state(task_path: str, content: str) -> TaskState:
         errors.append("parallel_batch task requires a batch ID")
     if not state.run_report:
         errors.append("missing run_report")
-    if state.status == "draft" and state.worker_creation_authorized:
-        errors.append("draft task cannot authorize Worker creation")
-    if state.status != "draft" and not state.worker_creation_authorized:
+    if state.status in {"draft", "cancelled"} and state.worker_creation_authorized:
+        errors.append(f"{state.status} task cannot authorize Worker creation")
+    if state.status not in {"draft", "cancelled"} and not state.worker_creation_authorized:
         errors.append(
             f"{state.status} task requires explicit Worker creation authorization"
         )
@@ -283,6 +321,54 @@ def task_report_states(
             continue
         tasks[state.run_report] = state
     return tasks
+
+
+def execution_preflight(
+    root: Path,
+    config: dict[str, Any],
+    task_path: str,
+    authorization_action: str,
+) -> tuple[TaskState, list[str]]:
+    """Evaluate formal execution gates without performing host actions or writes."""
+    content = read_version(root, task_path, "worktree") or ""
+    state = task_state(task_path, content)
+    errors = list(state.errors)
+    required_sections = {
+        "change_set": ("Change Set", "变更范围", "变更集"),
+        "do_not_do": ("Do Not Do", "不要做", "禁止事项"),
+        "validation": ("Validation", "验证"),
+        "rollback": (
+            "Rollback",
+            "Rollback / Recovery",
+            "Rollback Boundary",
+            "回滚",
+            "回滚 / 恢复",
+            "回滚边界",
+        ),
+    }
+    for key, headings in required_sections.items():
+        if not any(markdown_section(content, heading) for heading in headings):
+            errors.append(f"missing_{key}_section")
+
+    allowed_by_action = {
+        "execute": {"draft", "approved"},
+        "continue": {"approved", "running"},
+        "retry": {"blocked", "incomplete", "rejected", "abandoned"},
+        "take_over": {"running", "blocked", "incomplete", "abandoned"},
+    }
+    if state.status not in allowed_by_action.get(authorization_action, set()):
+        errors.append(f"status_{state.status}_does_not_allow_{authorization_action}")
+
+    by_id = {item.task_id: item for item in all_task_states(root, config) if item.task_id}
+    unsatisfied = [
+        dependency
+        for dependency in state.dependencies
+        if dependency not in by_id
+        or by_id[dependency].status not in {"integrated", "reviewed"}
+    ]
+    if unsatisfied:
+        errors.append("unsatisfied_dependencies:" + ",".join(unsatisfied))
+    return state, errors
 
 
 def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
@@ -405,6 +491,8 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
 
     auto_eligible = False
     confirmation = False
+    selected_reports: list[str] = []
+    superseded_reports: list[str] = []
     if blocked:
         next_action = "discuss_blocker"
         confirmation = True
@@ -414,8 +502,27 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
             next_action = "wait_for_worker"
             reason = "Competitive candidates are still running or waiting for reports."
         else:
-            next_action = "compare_candidates"
-            reason = "Competitive candidates are ready and exactly one winner must be selected."
+            scored = [
+                state
+                for state in parallel_states
+                if state.candidate_score is not None
+                and not state.selection_requires_judgment
+            ]
+            if len(scored) == len(parallel_states) and scored:
+                best_score = max(state.candidate_score for state in scored)
+                winners = [state for state in scored if state.candidate_score == best_score]
+            else:
+                winners = []
+            if len(winners) == 1:
+                selected_reports = [winners[0].path]
+                superseded_reports = sorted(set(ready) - set(selected_reports))
+                auto_eligible = True
+                next_action = "auto_integrate"
+                reason = "Objective candidate scoring selected one unique winner."
+            else:
+                next_action = "compare_candidates"
+                confirmation = True
+                reason = "Competitive candidates need a preference or tie-break decision."
     elif kind == "high_risk" and ready:
         next_action = "await_user_confirmation"
         confirmation = True
@@ -426,6 +533,7 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
     elif kind == "parallel_batch" and ready and parallel_safe:
         next_action = "auto_integrate"
         auto_eligible = True
+        selected_reports = list(ready)
         reason = "Independent parallel results passed mechanical risk and overlap gates."
     elif kind == "parallel_batch" and ready:
         next_action = "await_user_confirmation"
@@ -434,6 +542,7 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
     elif kind == "sequential" and ready and sequential_safe:
         next_action = "auto_integrate"
         auto_eligible = True
+        selected_reports = list(ready)
         reason = "A safe sequential result is ready under inherited task authority."
     elif kind == "sequential" and ready:
         next_action = "discuss_blocker"
@@ -444,17 +553,24 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
         reason = "No worker results are waiting for integration."
     work_units: list[dict[str, Any]] = []
     for report_path, task in sorted(tasks.items(), key=lambda item: item[1].path):
+        active_claims = [
+            claim
+            for claim in inspect_claims(root, task.task_id)
+            if claim.get("effective_lease_status") == "active"
+        ] if task.task_id else []
+        report = report_state(report_path, reports[report_path]) if report_path in reports else None
         if task.status == "reviewed":
             lifecycle = "reviewed"
         elif report_path in settled:
             lifecycle = "integrated"
-        elif report_path in reports:
-            report = report_state(report_path, reports[report_path])
+        elif report is not None:
             lifecycle = (
                 "completed"
                 if report.status in {"completed", "done"} and not report.safety_errors
                 else "blocked"
             )
+        elif active_claims:
+            lifecycle = "running"
         else:
             lifecycle = task.status
         work_units.append(
@@ -474,6 +590,21 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
                 "integration_policy": task.integration_policy,
                 "state_source": task.state_source,
                 "errors": task.errors,
+                "candidate_score": report.candidate_score if report else None,
+                "selection_requires_judgment": (
+                    report.selection_requires_judgment if report else False
+                ),
+                "active_claims": [
+                    {
+                        "claim_id": claim.get("claim_id"),
+                        "worker_id": claim.get("worker_id"),
+                        "branch": claim.get("branch"),
+                        "worktree": claim.get("worktree"),
+                        "updated_at": claim.get("updated_at"),
+                        "execution_mode": claim.get("execution_mode"),
+                    }
+                    for claim in active_claims
+                ],
             }
         )
 
@@ -487,6 +618,8 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
         requires_user_confirmation=confirmation,
         auto_integration_eligible=auto_eligible,
         next_action=next_action,
+        selected_reports=selected_reports,
+        superseded_reports=superseded_reports,
         reason=reason,
     )
 
@@ -816,7 +949,12 @@ def validate_task_spec(
                         result.errors.append(
                             f"{task_path} {field_name} is immutable after approval"
                         )
-                if transition in {("blocked", "approved"), ("incomplete", "approved")}:
+                if transition in {
+                    ("blocked", "approved"),
+                    ("incomplete", "approved"),
+                    ("rejected", "approved"),
+                    ("abandoned", "approved"),
+                }:
                     if previous.run_report == state.run_report:
                         result.errors.append(
                             f"{task_path} retry approval requires a new immutable run_report path"
@@ -840,7 +978,16 @@ def validate_task_spec(
                     f"{task_path} has invalid task transition {previous.status} -> {state.status}"
                 )
 
-    if state.status in {"completed", "blocked", "incomplete", "integrated", "reviewed"}:
+    if state.status in {
+        "completed",
+        "blocked",
+        "incomplete",
+        "rejected",
+        "abandoned",
+        "superseded",
+        "integrated",
+        "reviewed",
+    }:
         if read_version(root, state.run_report, scope) is None:
             result.errors.append(
                 f"{task_path} status {state.status} requires run report {state.run_report}"
@@ -940,6 +1087,17 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
         path_statuses = []
     task_globs = configured_task_globs(config)
     for status, old_path, new_path in path_statuses:
+        if status == "D" and any(
+            fnmatch.fnmatch(old_path, pattern) for pattern in task_globs
+        ):
+            previous_content = read_head_version(root, old_path)
+            if previous_content is not None:
+                previous = task_state(old_path, previous_content)
+                if previous.state_source == "structured":
+                    result.errors.append(
+                        f"Task Specs with allocated IDs cannot be deleted: {old_path}; mark the Task cancelled instead"
+                    )
+            continue
         if not status.startswith("R") or new_path is None:
             continue
         if not any(fnmatch.fnmatch(old_path, pattern) for pattern in task_globs):
@@ -1048,6 +1206,9 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
             "done": "completed",
             "blocked": "blocked",
             "incomplete": "incomplete",
+            "rejected": "rejected",
+            "abandoned": "abandoned",
+            "superseded": "superseded",
         }.get(report.status)
         if expected_task_status and task.status != expected_task_status:
             result.errors.append(

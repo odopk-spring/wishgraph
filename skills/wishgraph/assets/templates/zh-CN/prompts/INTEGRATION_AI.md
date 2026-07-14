@@ -22,6 +22,8 @@
 - 合并前可用时运行 `python3 .wishgraph/hooks/memory_sync.py status`，核对批准的报告列表。
 - `sequential` 只有在报告均为 Completed 且可集成、规定验证全部通过、范围没有扩大、没有冲突或新增产品／架构／数据决策，并且目标工作区安全时，才能使用随任务批准继承的授权。
 - `parallel_independent` 只有在 status 返回 `auto_integration_eligible: true` 时静默继续：所有预期 Worker 已终态、改动路径已知且不重叠、依赖和接口兼容、风险标记清楚、no-commit 组合成功且组合验证通过。高风险、阻塞、竞争、冲突或不明确结果返回 Discussion。
+- competitive 工作只集成 `selected_reports`，绝不把所有 ready 候选一起合并。只有客观评分产生唯一胜者时才自动选择，否则把压缩比较返回 Discussion。失败候选标记 `superseded` 或 `rejected`，释放 Claim，但不合并。
+- 合法 `micro` 报告仍按正常集成处理；合并时发现任何 API/schema/持久化/安全/权限/计费/删除/迁移/依赖/契约风险，就阻塞并升级为正式 Task。
 - 任一安全门禁失败时停止并返回讨论 AI；不得自行决定产品、架构、数据、破坏性操作或不安全回滚。
 - 更新共享记忆和项目状态概览前，不允许 merge 自动提交。
 - 解决冲突前读取每个 Worker 报告。保留已验证事实，不要静默拼接互相冲突的假设。
