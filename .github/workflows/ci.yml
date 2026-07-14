@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-tests:
+    name: Runtime tests (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run tests
+        run: python -m unittest tests.test_memory_sync
+      - name: Compile hook runtime
+        run: python -m py_compile skills/wishgraph/assets/hooks/*.py skills/wishgraph/scripts/install_project_hooks.py
+      - name: Check shell installer syntax
+        run: bash -n scripts/install-wishgraph.sh
+      - name: Check whitespace
+        run: git diff --check
+
+  windows-installer:
+    name: Windows PowerShell installer smoke test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install from the checked-out revision
+        shell: pwsh
+        run: |
+          git checkout -B ci-source $env:GITHUB_SHA
+          $project = Join-Path $env:RUNNER_TEMP "wishgraph-project"
+          $codexHome = Join-Path $env:RUNNER_TEMP "codex-home"
+          New-Item -ItemType Directory -Path $project -Force | Out-Null
+          git -C $project init -q
+          $env:CODEX_HOME = $codexHome
+          $env:WISHGRAPH_REPO_URL = $env:GITHUB_WORKSPACE
+          $env:WISHGRAPH_REF = "ci-source"
+          & ./scripts/install-wishgraph.ps1 codex -SetupProject -Project $project
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python "$project/.wishgraph/hooks/memory_sync.py" status
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path "$codexHome/skills/wishgraph/SKILL.md")) { exit 1 }
+          if (-not (Test-Path "$project/.wishgraph/hooks/memory_sync.py")) { exit 1 }

@@ -63,6 +63,36 @@ class RuntimeBoundaryTests(unittest.TestCase):
                 self.assertEqual(imports & local_modules, expected_imports)
 
 
+class UnbornRepositoryTests(unittest.TestCase):
+    def test_session_start_accepts_repository_without_first_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            hooks = root / ".wishgraph" / "hooks"
+            hooks.mkdir(parents=True)
+            shutil.copy2(HOOK_ASSETS / "config.json", root / ".wishgraph" / "config.json")
+            for runtime_name in (
+                "memory_sync.py",
+                "git_state.py",
+                "workflow_state.py",
+                "policy.py",
+                "host_adapter.py",
+            ):
+                shutil.copy2(HOOK_ASSETS / runtime_name, hooks / runtime_name)
+
+            process = subprocess.run(
+                [sys.executable, str(hooks / "memory_sync.py"), "session-start"],
+                cwd=root,
+                input=json.dumps({"cwd": str(root)}),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+
+            self.assertEqual(json.loads(process.stdout), {})
+
+
 class MemorySyncTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()

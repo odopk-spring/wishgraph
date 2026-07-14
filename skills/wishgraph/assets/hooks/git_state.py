@@ -424,6 +424,10 @@ def changed_path_statuses(root: Path, scope: str) -> list[tuple[str, str, Option
     if scope == "staged":
         args = ("diff", "--cached", "--name-status", "--find-renames", "-z", "--")
     else:
+        head = run_git(root, "rev-parse", "--verify", "HEAD", check=False)
+        if head.returncode != 0:
+            # An unborn repository has no committed paths to delete or rename.
+            return []
         args = ("diff", "HEAD", "--name-status", "--find-renames", "-z", "--")
     fields = run_git(root, *args).stdout.split(b"\0")
     records: list[tuple[str, str, Optional[str]]] = []
