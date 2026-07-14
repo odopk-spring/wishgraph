@@ -47,6 +47,7 @@ UPDATED_STATUSES = {"updated", "yes"}
 INTEGRATE_STATUSES = {"integrate", "needs integration", "review", "proposed"}
 NOOP_STATUSES = {"n/a", "na", "not applicable", "no"}
 WORK_TYPES = {"discussion", "sequential", "parallel_batch", "high_risk"}
+EXECUTION_MODES = {"exclusive", "parallel_independent", "competitive"}
 TASK_STATUSES = {
     "draft",
     "approved",
@@ -207,6 +208,10 @@ def task_state(task_path: str, content: str) -> TaskState:
         errors.append("missing or invalid task status")
     if state.work_type not in WORK_TYPES - {"discussion"}:
         errors.append("missing or invalid task work type")
+    if state.execution_mode not in EXECUTION_MODES:
+        errors.append("missing or invalid execution_mode")
+    if state.execution_mode == "competitive" and not state.comparison_group:
+        errors.append("competitive task requires comparison_group")
     if state.work_type == "parallel_batch" and state.batch_id in {
         "",
         "n/a",
@@ -352,6 +357,8 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
                 "parent_task_id": task.parent_task_id or None,
                 "dependencies": task.dependencies,
                 "attempt": task.attempt,
+                "execution_mode": task.execution_mode,
+                "comparison_group": task.comparison_group or None,
                 "lifecycle_status": lifecycle,
                 "task_status": task.status,
                 "work_type": task.work_type,
@@ -687,6 +694,8 @@ def validate_task_spec(
                     ("batch_id", previous.batch_id, state.batch_id),
                     ("parent_task_id", previous.parent_task_id, state.parent_task_id),
                     ("dependencies", previous.dependencies, state.dependencies),
+                    ("execution_mode", previous.execution_mode, state.execution_mode),
+                    ("comparison_group", previous.comparison_group, state.comparison_group),
                     (
                         "integration_policy",
                         previous.integration_policy,

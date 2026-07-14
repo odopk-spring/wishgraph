@@ -155,6 +155,18 @@ python3 .wishgraph/hooks/memory_sync.py task family 012
 
 它只精确匹配结构化 ID，报告重复声明，不会执行相近编号或文件名前缀匹配。Task ID 遵循 `^\d{3,}[a-z]*$`；重试保留编号并递增 attempt，新 Follow-up Goal 才分配下一个字母后缀。
 
+正式执行使用存放在 `git rev-parse --git-common-dir` 下、不会进入业务提交的仓库级 Runtime Claim：
+
+```bash
+python3 .wishgraph/hooks/memory_sync.py claim acquire 012 --worker-id worker-012
+python3 .wishgraph/hooks/memory_sync.py claim inspect 012
+python3 .wishgraph/hooks/memory_sync.py claim heartbeat CLAIM_ID
+python3 .wishgraph/hooks/memory_sync.py claim release CLAIM_ID
+python3 .wishgraph/hooks/memory_sync.py claim revoke CLAIM_ID
+```
+
+获取 Claim 使用原子文件系统操作，默认同一 Task 只允许一个 active exclusive Claim，并记录 attempt、worker、branch、绝对 worktree、时间、lease 状态、执行模式和可选宿主线程引用。heartbeat 与 release 校验 branch/worktree 绑定；显式 revoke 是接管控制路径。stale 检测保留旧记录。它能协调共享同一本地 Git common directory 的进程与 worktree，但不是只共享远程仓库的多机器分布式锁。
+
 严格使用 `enforce` 模式时，建议给安装器增加 `--git-hook`，从而覆盖 Agent 以外的提交和生命周期 hook 无法拦截的工具路径。安装器不会覆盖已有 Git pre-commit hook，而是提示如何手动串联。
 
 ## 边界

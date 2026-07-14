@@ -147,6 +147,18 @@ python3 .wishgraph/hooks/memory_sync.py task family 012
 
 It matches structured IDs exactly, reports duplicate declarations, and never executes a nearby or filename-prefix match. Task IDs follow `^\d{3,}[a-z]*$`; retries retain the ID and increment the attempt while follow-up goals allocate the next suffix.
 
+Formal execution uses repository-wide runtime Claims stored below `git rev-parse --git-common-dir`, outside business commits:
+
+```bash
+python3 .wishgraph/hooks/memory_sync.py claim acquire 012 --worker-id worker-012
+python3 .wishgraph/hooks/memory_sync.py claim inspect 012
+python3 .wishgraph/hooks/memory_sync.py claim heartbeat CLAIM_ID
+python3 .wishgraph/hooks/memory_sync.py claim release CLAIM_ID
+python3 .wishgraph/hooks/memory_sync.py claim revoke CLAIM_ID
+```
+
+Acquisition uses an atomic filesystem operation, defaults to one exclusive active Claim per Task, and records attempt, worker, branch, absolute worktree, timestamps, lease status, execution mode, and optional host thread reference. Heartbeat and release enforce branch/worktree binding; explicit revoke is the takeover control path. Stale detection preserves old records. This coordinates processes and worktrees sharing one local Git common directory; it is not a distributed lock across machines that only share a remote.
+
 For strict `enforce` mode, add `--git-hook` so commits made outside an agent and tool paths that lifecycle hooks cannot intercept are also checked. The installer refuses to overwrite an existing Git pre-commit hook and prints chaining guidance instead.
 
 ## Boundaries

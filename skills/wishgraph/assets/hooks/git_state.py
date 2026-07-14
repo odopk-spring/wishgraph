@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import os
+import socket
 import subprocess
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -73,6 +77,246 @@ def find_git_root(start: Path) -> Optional[Path]:
     except (OSError, subprocess.CalledProcessError):
         return None
     return Path(result.stdout.decode("utf-8", errors="replace").strip()).resolve()
+
+
+def git_common_dir(root: Path) -> Path:
+    value = run_git(root, "rev-parse", "--git-common-dir").stdout.decode(
+        "utf-8", errors="replace"
+    ).strip()
+    path = Path(value)
+    return (path if path.is_absolute() else root / path).resolve()
+
+
+def current_branch(root: Path) -> str:
+    result = run_git(root, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
+    if result.returncode == 0:
+        return result.stdout.decode("utf-8", errors="replace").strip()
+    return "DETACHED"
+
+
+def worktree_is_clean(root: Path) -> bool:
+    return not run_git(root, "status", "--porcelain", "-z").stdout
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def parse_timestamp(value: Any) -> Optional[datetime]:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def claim_root(root: Path) -> Path:
+    return git_common_dir(root) / "wishgraph" / "claims"
+
+
+def _task_claim_dir(root: Path, task_id: str) -> Path:
+    return claim_root(root) / task_id
+
+
+def _read_claim(path: Path, stale_after_seconds: int = 3600) -> Optional[dict[str, Any]]:
+    try:
+        claim = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(claim, dict):
+        return None
+    updated_at = parse_timestamp(claim.get("updated_at"))
+    stale = updated_at is None or (
+        datetime.now(timezone.utc) - updated_at
+    ).total_seconds() > stale_after_seconds
+    claim["stale"] = stale and claim.get("lease_status") == "active"
+    claim["effective_lease_status"] = "stale" if claim["stale"] else claim.get(
+        "lease_status", "unknown"
+    )
+    return claim
+
+
+def inspect_claims(
+    root: Path, task_id: Optional[str] = None, stale_after_seconds: int = 3600
+) -> list[dict[str, Any]]:
+    base = claim_root(root)
+    patterns = [_task_claim_dir(root, task_id)] if task_id else sorted(base.glob("*"))
+    claims: list[dict[str, Any]] = []
+    for directory in patterns:
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.glob("*.json")):
+            claim = _read_claim(path, stale_after_seconds)
+            if claim is not None:
+                claims.append(claim)
+    return claims
+
+
+def _claim_mutex(task_dir: Path) -> Path:
+    task_dir.mkdir(parents=True, exist_ok=True)
+    mutex = task_dir / ".operation.lock"
+    try:
+        descriptor = os.open(mutex, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError as exc:
+        try:
+            age = datetime.now(timezone.utc).timestamp() - mutex.stat().st_mtime
+        except OSError:
+            age = 0
+        if age > 30:
+            try:
+                mutex.unlink()
+            except OSError:
+                pass
+            descriptor = os.open(mutex, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        else:
+            raise RuntimeError("claim_operation_in_progress") from exc
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(f"{os.getpid()} {utc_now()}\n")
+    return mutex
+
+
+def _atomic_claim_update(path: Path, claim: dict[str, Any]) -> None:
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    temporary.write_text(
+        json.dumps(claim, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    os.replace(temporary, path)
+
+
+def acquire_claim(
+    root: Path,
+    task_id: str,
+    attempt: int,
+    worker_id: str,
+    *,
+    execution_mode: str = "exclusive",
+    branch: Optional[str] = None,
+    worktree: Optional[str] = None,
+    host_thread_ref: Optional[str] = None,
+    stale_after_seconds: int = 3600,
+    require_clean: bool = True,
+) -> dict[str, Any]:
+    """Atomically acquire a repository-wide Worker Claim for one Task attempt."""
+    if execution_mode not in {"exclusive", "competitive"}:
+        return {"ok": False, "error": "invalid_execution_mode"}
+    if attempt < 1:
+        return {"ok": False, "error": "invalid_attempt"}
+    if require_clean and not worktree_is_clean(root):
+        return {"ok": False, "error": "worktree_not_clean"}
+    bound_branch = branch or current_branch(root)
+    bound_worktree = str(Path(worktree).resolve()) if worktree else str(root.resolve())
+    task_dir = _task_claim_dir(root, task_id)
+    try:
+        mutex = _claim_mutex(task_dir)
+    except (OSError, RuntimeError) as exc:
+        return {"ok": False, "error": str(exc)}
+    try:
+        active = [
+            claim
+            for claim in inspect_claims(root, task_id, stale_after_seconds)
+            if claim.get("effective_lease_status") == "active"
+        ]
+        if active and (
+            execution_mode == "exclusive"
+            or any(claim.get("execution_mode") == "exclusive" for claim in active)
+        ):
+            return {
+                "ok": False,
+                "error": "active_claim_exists",
+                "claims": active,
+                "options": [
+                    "observe_existing_worker",
+                    "continue_original_worker",
+                    "stop_and_retry",
+                    "explicit_take_over",
+                    "competitive_execution",
+                ],
+            }
+        for claim in active:
+            if claim.get("worktree") == bound_worktree:
+                return {
+                    "ok": False,
+                    "error": "worktree_already_claimed",
+                    "claims": [claim],
+                }
+
+        claim_id = uuid.uuid4().hex
+        now = utc_now()
+        claim = {
+            "schema_version": 1,
+            "kind": "worker_claim",
+            "claim_id": claim_id,
+            "task_id": task_id,
+            "attempt_id": f"{task_id}-attempt-{attempt}",
+            "attempt": attempt,
+            "worker_id": worker_id,
+            "branch": bound_branch,
+            "worktree": bound_worktree,
+            "started_at": now,
+            "updated_at": now,
+            "lease_status": "active",
+            "execution_mode": execution_mode,
+            "host": socket.gethostname(),
+            "host_thread_ref": host_thread_ref,
+        }
+        path = task_dir / f"{claim_id}.json"
+        descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(claim, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+        claim["stale"] = False
+        claim["effective_lease_status"] = "active"
+        return {"ok": True, "claim": claim}
+    finally:
+        try:
+            mutex.unlink()
+        except OSError:
+            pass
+
+
+def update_claim(
+    root: Path,
+    claim_id: str,
+    action: str,
+    *,
+    branch: Optional[str] = None,
+    worktree: Optional[str] = None,
+) -> dict[str, Any]:
+    """Heartbeat, release, or revoke a Claim while preserving its audit record."""
+    if action not in {"heartbeat", "release", "revoke"}:
+        return {"ok": False, "error": "invalid_claim_action"}
+    matches = list(claim_root(root).glob(f"*/{claim_id}.json"))
+    if len(matches) != 1:
+        return {"ok": False, "error": "claim_not_found"}
+    path = matches[0]
+    try:
+        mutex = _claim_mutex(path.parent)
+    except (OSError, RuntimeError) as exc:
+        return {"ok": False, "error": str(exc)}
+    try:
+        claim = _read_claim(path)
+        if claim is None:
+            return {"ok": False, "error": "invalid_claim_record"}
+        if branch is not None and claim.get("branch") != branch:
+            return {"ok": False, "error": "claim_branch_mismatch", "claim": claim}
+        if worktree is not None and claim.get("worktree") != str(Path(worktree).resolve()):
+            return {"ok": False, "error": "claim_worktree_mismatch", "claim": claim}
+        if action == "heartbeat" and claim.get("lease_status") != "active":
+            return {"ok": False, "error": "claim_not_active", "claim": claim}
+        claim.pop("stale", None)
+        claim.pop("effective_lease_status", None)
+        claim["updated_at"] = utc_now()
+        if action in {"release", "revoke"}:
+            claim["lease_status"] = "released" if action == "release" else "revoked"
+            claim[f"{claim['lease_status']}_at"] = claim["updated_at"]
+        _atomic_claim_update(path, claim)
+        return {"ok": True, "claim": _read_claim(path)}
+    finally:
+        try:
+            mutex.unlink()
+        except OSError:
+            pass
 
 
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

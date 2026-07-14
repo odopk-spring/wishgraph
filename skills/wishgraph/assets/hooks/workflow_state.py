@@ -61,6 +61,8 @@ class TaskState:
     parent_task_id: str = ""
     dependencies: list[str] = field(default_factory=list)
     attempt: int = 1
+    execution_mode: str = "exclusive"
+    comparison_group: str = ""
     errors: list[str] = field(default_factory=list)
     state_source: str = "legacy"
 
@@ -435,6 +437,11 @@ def parse_task_state(task_path: str, content: str) -> TaskState:
         if invalid_dependencies:
             errors.append("dependencies must contain only valid Task IDs")
         attempt = positive_attempt(data.get("attempt", 1), errors)
+        execution_mode = normalized_string(data.get("execution_mode"), "exclusive")
+        raw_comparison_group = data.get("comparison_group")
+        comparison_group = (
+            "" if raw_comparison_group is None else str(raw_comparison_group).strip()
+        )
         status = canonical_task_status(data.get("status"))
         work_type = normalized_string(data.get("work_type"))
         batch_id = normalized_string(data.get("batch_id"), "n/a")
@@ -450,6 +457,8 @@ def parse_task_state(task_path: str, content: str) -> TaskState:
         parent_task_id = ""
         dependencies = []
         attempt = 1
+        execution_mode = "exclusive"
+        comparison_group = ""
         status = canonical_task_status(
             parse_labeled_field(content, "Status", "状态") or "draft"
         )
@@ -478,6 +487,8 @@ def parse_task_state(task_path: str, content: str) -> TaskState:
         parent_task_id=parent_task_id,
         dependencies=dependencies,
         attempt=attempt,
+        execution_mode=execution_mode,
+        comparison_group=comparison_group,
         errors=errors,
         state_source=state_source,
     )

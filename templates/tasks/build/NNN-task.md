@@ -18,6 +18,8 @@ The JSON block is the machine-readable task lifecycle source. Keep `worker_creat
   "work_type": "sequential",
   "batch_id": null,
   "attempt": 1,
+  "execution_mode": "exclusive",
+  "comparison_group": null,
   "run_report": "reports/runs/001-attempt-1.md",
   "worker_creation_authorized": false,
   "integration_policy": "inherited_task_approval"

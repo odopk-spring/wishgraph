@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import concurrent.futures
 import importlib.util
 import json
 import os
@@ -244,6 +245,8 @@ class MemorySyncTests(unittest.TestCase):
         dependencies: Optional[list[str]] = None,
         attempt: int = 1,
         run_report: Optional[str] = None,
+        execution_mode: str = "exclusive",
+        comparison_group: Optional[str] = None,
     ) -> str:
         match = re.match(r"\d{3,}[a-z]*", task_id)
         structured_id = match.group(0) if match else task_id
@@ -257,6 +260,8 @@ class MemorySyncTests(unittest.TestCase):
             "work_type": work_type,
             "batch_id": batch_id,
             "attempt": attempt,
+            "execution_mode": execution_mode,
+            "comparison_group": comparison_group,
             "run_report": run_report or f"reports/runs/{task_id}.md",
             "worker_creation_authorized": worker_authorized,
             "integration_policy": integration_policy,
@@ -268,6 +273,14 @@ class MemorySyncTests(unittest.TestCase):
             + json.dumps(state, ensure_ascii=False, indent=2)
             + "\n```\n<!-- wishgraph:task-state:end -->\n\n"
             "## Intent\n\nImplement the bounded task.\n"
+        )
+
+    def execution_ready_task(self, task_id: str, **kwargs: object) -> str:
+        return self.structured_task(task_id, **kwargs) + (
+            "\n## Change Set\n\n- Change only the assigned implementation.\n"
+            "\n## Do Not Do\n\n- Do not expand scope.\n"
+            "\n## Validation\n\n- Run the focused tests.\n"
+            "\n## Rollback / Recovery\n\n- Revert the atomic commit.\n"
         )
 
     def overview(
@@ -446,6 +459,113 @@ class MemorySyncTests(unittest.TestCase):
         self.assertEqual(state.parent_task_id, "012")
         self.assertEqual(state.dependencies, ["012"])
         self.assertEqual(state.attempt, 2)
+
+    def test_exclusive_worker_claim_acquisition_is_atomic(self) -> None:
+        def acquire(worker: str) -> dict[str, object]:
+            return memory_sync.acquire_claim(
+                self.root, "028", 1, worker, require_clean=True
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(acquire, ("worker-a", "worker-b")))
+        self.assertEqual(sum(bool(result["ok"]) for result in results), 1)
+        loser = next(result for result in results if not result["ok"])
+        self.assertIn(
+            loser["error"], {"active_claim_exists", "claim_operation_in_progress"}
+        )
+        winner = next(result for result in results if result["ok"])
+        released = memory_sync.update_claim(
+            self.root, winner["claim"]["claim_id"], "release"
+        )
+        self.assertTrue(released["ok"], released)
+        retried = memory_sync.acquire_claim(
+            self.root, "028", 2, "worker-retry", require_clean=True
+        )
+        self.assertTrue(retried["ok"], retried)
+
+    def test_claim_stale_detection_uses_heartbeat_timestamp(self) -> None:
+        acquired = memory_sync.acquire_claim(
+            self.root, "028a", 1, "worker-stale", require_clean=True
+        )
+        self.assertTrue(acquired["ok"], acquired)
+        claim_id = acquired["claim"]["claim_id"]
+        path = memory_sync.claim_root(self.root) / "028a" / f"{claim_id}.json"
+        record = json.loads(path.read_text(encoding="utf-8"))
+        record["updated_at"] = "2000-01-01T00:00:00Z"
+        path.write_text(json.dumps(record), encoding="utf-8")
+        claim = memory_sync.inspect_claims(
+            self.root, "028a", stale_after_seconds=1
+        )[0]
+        self.assertTrue(claim["stale"])
+        self.assertEqual(claim["effective_lease_status"], "stale")
+
+    def test_claim_is_shared_across_worktrees_and_enforces_binding(self) -> None:
+        other = self.root.parent / f"{self.root.name}-worker-two"
+        self.git("worktree", "add", "-q", "-b", "worker-two", str(other))
+        try:
+            acquired = memory_sync.acquire_claim(
+                self.root, "029", 1, "worker-main", require_clean=True
+            )
+            self.assertTrue(acquired["ok"], acquired)
+            claim_id = acquired["claim"]["claim_id"]
+            visible = memory_sync.inspect_claims(other, "029")
+            self.assertEqual([claim["claim_id"] for claim in visible], [claim_id])
+            mismatch = memory_sync.update_claim(
+                other,
+                claim_id,
+                "heartbeat",
+                branch="worker-two",
+                worktree=str(other),
+            )
+            self.assertFalse(mismatch["ok"])
+            self.assertIn(mismatch["error"], {"claim_branch_mismatch", "claim_worktree_mismatch"})
+            released = memory_sync.update_claim(
+                self.root,
+                claim_id,
+                "release",
+                branch=acquired["claim"]["branch"],
+                worktree=str(self.root),
+            )
+            self.assertTrue(released["ok"], released)
+        finally:
+            self.git("worktree", "remove", "--force", str(other))
+            self.git("branch", "-D", "worker-two")
+
+    def test_claim_cli_runs_execution_preflight_and_blocks_duplicate_worker(self) -> None:
+        task_path = "tasks/build/030-claim.md"
+        self.write(task_path, self.execution_ready_task("030-claim"))
+        self.git("add", task_path)
+        self.git("commit", "-qm", "claim task fixture")
+        command = [
+            sys.executable,
+            str(HOOK_ASSETS / "memory_sync.py"),
+            "claim",
+            "acquire",
+            "030",
+            "--worker-id",
+            "worker-one",
+        ]
+        first = subprocess.run(
+            command,
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        first_payload = json.loads(first.stdout)
+        self.assertEqual(first_payload["claim"]["task_id"], "030")
+        self.assertEqual(first_payload["claim"]["worktree"], str(self.root.resolve()))
+
+        second = subprocess.run(
+            command[:-1] + ["worker-two"],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(second.returncode, 1)
+        self.assertEqual(json.loads(second.stdout)["error"], "active_claim_exists")
 
     def test_invalid_structured_run_state_blocks_closeout(self) -> None:
         self.write("src/app.py", "print('structured')\n")

@@ -34,6 +34,9 @@
 
 ## 执行规则
 
+- 修改 Task 状态或业务文件前，先执行 preflight 并原子获取该任务的 Worker Claim，核对 Task ID、attempt、branch 和绝对 worktree 绑定。已有其他 exclusive Claim 时禁止执行。
+- 长任务要持续 heartbeat。只在规定的收尾 / 集成边界释放 Claim；接管必须先显式 revoke，再使用新 attempt 和新报告，不能覆盖其他 Worker 报告。
+- 每个 Worker 或竞争候选使用独立 branch/worktree。当前 worktree 混入其他任务修改或与 Claim 不一致时停止。
 - 保持 patch 最小、可回滚。
 - 使用项目已有模式。
 - 保持架构边界。
@@ -47,7 +50,7 @@
 - 正式任务先确认 task-state 为 `approved` 且 `worker_creation_authorized: true`，开始执行时再改为 `running`；缺少这些授权门时停止并返回讨论。
 - 运行任务列出的验证。
 - 收尾时把 task-state 改为与执行报告一致的 `completed`、`blocked` 或 `incomplete`。
-- 从 `reports/RUN_REPORT.md` 创建唯一的新文件 `reports/runs/<work-unit-id>.md`。正式任务使用 task ID；直接修改使用 `ad-hoc/YYYYMMDD-HHMM-short-slug`。
+- 从 `reports/RUN_REPORT.md` 创建唯一的新文件 `reports/runs/<work-unit-id>.md`。正式任务使用 `<task-id>-attempt-N`；直接修改使用 `ad-hoc/YYYYMMDD-HHMM-short-slug`。
 - 在该执行报告中记录验证证据，并对每个共享记忆文件填写 `Integrate` 或 `N/A`。
 - 在执行报告的 `wishgraph:run-state` JSON 块中填写任务工作类型、批次 ID、集成授权、状态、集成就绪状态、范围检查、冲突状态、新决策标记和验证结果。该状态块是机器流程真相源；证据和影响理由继续写在周围 Markdown 中。
 - 验证失败、超出范围、仍有冲突、出现重大新决策或无法安全回滚时，把报告标记为 Blocked 或 Incomplete，不得写 Completed。

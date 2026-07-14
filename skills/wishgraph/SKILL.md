@@ -28,6 +28,14 @@ Recognize natural-language actions such as `执行012号任务`, `继续执行01
 
 Retries after `blocked` or `incomplete` retain the same Task ID, increment `attempt`, and allocate a new immutable path such as `reports/runs/012-attempt-2.md`. Follow-up IDs are for new goals, never attempts. Task IDs are never reused; an approved Task Spec filename is immutable.
 
+## Worker Claims And Worktrees
+
+Before formal execution, run the execution preflight and atomically acquire a Worker Claim. Claims live under the repository's Git common directory so every local worktree sees the same runtime lock; they are not committed as business files. Bind each Claim to one Task attempt, worker, branch, and absolute worktree. Default `execution_mode: exclusive` permits only one active Claim for a Task. `competitive` is allowed only after explicit user choice and still requires a distinct worktree per candidate.
+
+Use the project runtime for `claim acquire`, `inspect`, `heartbeat`, `release`, and explicit `revoke`. A Worker must heartbeat and must not continue after a branch or worktree mismatch. Treat an expired heartbeat as stale evidence, not permission to overwrite it silently: preserve the old attempt, revoke after user authority or proven abandonment, and acquire a new Claim and Run Report. When an active exclusive Claim exists, offer observation, continuing the original Worker, stop-and-retry, explicit takeover, or competitive execution; never silently create a second Worker.
+
+This filesystem Claim is atomic across processes and worktrees sharing one local Git common directory. It does not guarantee mutual exclusion between different machines that only share a remote; document that boundary and use host coordination or another distributed lock when multi-machine execution is required.
+
 ## Natural-Language Installation
 
 When the user asks to install, configure, enable, or set up WishGraph, read `references/installation.md` and translate their words into one of these outcomes:

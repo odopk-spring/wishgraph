@@ -34,6 +34,9 @@ You are the execution AI for this project.
 
 ## Execution Rules
 
+- Before changing Task state or business files, run the execution preflight and atomically acquire the Task's Worker Claim. Verify its Task ID, attempt, branch, and absolute worktree binding. Do not execute if another exclusive Claim is active.
+- Keep the Claim heartbeat current during long work. Release it only at the defined closeout/integration boundary. A takeover requires explicit revocation and a new attempt/report; never overwrite another Worker's report.
+- Use a dedicated branch and worktree for every Worker or competitive candidate. Stop if the current worktree is dirty with another Task or its binding differs from the Claim.
 - Keep the patch minimal and reversible.
 - Use existing project patterns.
 - Preserve architecture boundaries.
@@ -47,7 +50,7 @@ Before final report, for both formal tasks and ad-hoc edits:
 - For a formal task, verify its task-state is `approved` with `worker_creation_authorized: true`, then move it to `running` when execution starts. If those gates are absent, stop and return to discussion.
 - Run the validation listed in the task.
 - At closeout, move the task-state to `completed`, `blocked`, or `incomplete` so it matches the Run Report status.
-- Create exactly one new `reports/runs/<work-unit-id>.md` from `reports/RUN_REPORT.md`. Use the task ID, or `ad-hoc/YYYYMMDD-HHMM-short-slug` for a direct edit.
+- Create exactly one new `reports/runs/<work-unit-id>.md` from `reports/RUN_REPORT.md`. Use `<task-id>-attempt-N`, or `ad-hoc/YYYYMMDD-HHMM-short-slug` for a direct edit.
 - Record validation evidence and `Integrate` or `N/A` proposals for every shared-memory file in that run report.
 - Fill the run report's `wishgraph:run-state` JSON block with the task's work type, batch ID, integration authorization, status, integration readiness, scope check, conflict status, new-decision flag, and validation results. This block is the machine workflow source; keep evidence and impact reasoning in the surrounding Markdown.
 - Mark the report Blocked or Incomplete instead of Completed when validation fails, work exceeds scope, a conflict remains, a new material decision appears, or safe rollback is uncertain.

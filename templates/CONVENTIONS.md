@@ -68,6 +68,8 @@ Responsibilities:
 - Record relationships with `parent_task_id` and `dependencies`. Never infer hierarchy from suffix length.
 - Never reuse an allocated ID. After approval, neither the Task ID nor Task Spec filename may change.
 - Retries keep the Task ID, increment `attempt`, and use a new immutable `reports/runs/<task-id>-attempt-N.md` path.
+- Formal execution atomically acquires a Worker Claim stored under the Git common directory. Bind it to the Task attempt, Worker, branch, and absolute worktree; heartbeat it and verify the binding before continuing.
+- `exclusive` is the default execution mode. A second Worker requires explicit takeover or competitive authority and a separate worktree. Claims coordinate local worktrees sharing one Git common directory, not separate machines.
 - A task must be executable without chat history.
 - Anchor by symbols, modules, routes, APIs, or tests. Do not rely on line numbers.
 - Include a "Do Not Do" section to stop scope drift.

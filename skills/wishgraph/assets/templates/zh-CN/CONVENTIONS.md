@@ -68,6 +68,8 @@
 - 使用 `parent_task_id` 和 `dependencies` 表达关系，不能从后缀长度推断层级。
 - 已分配编号不得复用；批准后 Task ID 和 Task Spec 文件名都不可修改。
 - 重试保留 Task ID，递增 `attempt`，并使用新的不可变 `reports/runs/<task-id>-attempt-N.md`。
+- 正式执行要原子获取存放在 Git common directory 下的 Worker Claim，并绑定 Task attempt、Worker、branch 和绝对 worktree；继续工作前检查绑定，长任务持续 heartbeat。
+- `exclusive` 是默认执行模式。第二个 Worker 必须获得显式接管或竞争授权，并使用独立 worktree。Claim 只协调共享同一本地 Git common directory 的 worktree，不覆盖多机器远程并发。
 - 任务必须不依赖聊天历史即可执行。
 - 用符号、模块、路由、API 或测试锚定，不依赖行号。
 - 必须有 "Do Not Do" 防止范围漂移。
