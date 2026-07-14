@@ -4,6 +4,8 @@ Spec source: 第一个讨论窗口把用户初始想法转换为 `PRD.md`。
 Dependencies: None.
 Language mode: 使用用户选择的项目语言；如果要求双语，中文在前、英文在后。
 
+Task state 只记录 Task Lifecycle。Session Role、Flow Phase 与 `expected_transition` 保存在 Git common dir 的正交运行时状态中。
+
 <!-- wishgraph:task-state:start -->
 ```json
 {

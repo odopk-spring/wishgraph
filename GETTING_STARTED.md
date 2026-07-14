@@ -144,9 +144,9 @@ The hooks check three boundaries: pending state at session start, staged memory 
 
 To switch in one command, re-run the top-level installer with `--setup-project --strict`. Strict mode also requests a Git pre-commit fallback and will not overwrite an existing Git hook.
 
-Hooks do not write PRD, architecture, CODEMAP, Project Status, or handoff prose. Workers record Integrate or N/A in task-scoped Run Reports; one integration agent applies shared updates and records Updated or N/A in `reports/PROJECT_STATUS.md`.
+Hooks do not write PRD, architecture, CODEMAP, Project Status, or handoff prose. Workers record Integrate or N/A in task-scoped Run Reports; the Discussion-local Integration lease holder applies shared updates and records Updated or N/A in `reports/PROJECT_STATUS.md`.
 
-The read-only command `python3 .wishgraph/hooks/memory_sync.py status` joins Task Specs, Run Reports, and Project Status into `work_units`, then reports ready, waiting, and blocked workers, integration kind, confirmation requirement, and reason. Hooks do not start workers or integration agents.
+The read-only command `python3 .wishgraph/hooks/memory_sync.py status` joins Task Specs, Run Reports, and Project Status into `work_units`, then reports ready, waiting, and blocked workers, integration kind, confirmation requirement, and reason. Hooks do not start Workers or create Integration windows.
 
 ## 3. Use The Foreground Discussion Workflow
 
@@ -171,7 +171,7 @@ The discussion AI should not edit business code unless the project explicitly al
 
 Task IDs are exact structured identifiers such as `012`, `012a`, and `012aa`; readable slugs stay in filenames. Compact commands such as `执行012b` are accepted alongside explicit forms such as `执行012b号任务`; you can also say `查看012号任务` or `查看012系列任务`. Exact execution never prefix-matches a follow-up. A retry keeps `012`, increments its attempt, and writes a new report instead of allocating `012a`.
 
-You can also say `停止012号任务`, `重新执行012号任务`, `接管012号任务`, or `让两个 Agent 分别执行012，最后比较谁做得好`. Stop/takeover preserves prior evidence and requires explicit Claim revocation; competitive execution creates isolated candidates and integrates exactly one winner. Tiny ad-hoc work is `micro` only when every recorded risk flag is false; otherwise WishGraph promotes it to a formal Task.
+You can also say `停止012号任务`, `重新执行012号任务`, `接管012号任务`, or `让两个 Agent 分别执行012，最后比较谁做得好`. Stop/takeover preserves prior evidence and requires explicit Claim revocation; competitive execution creates isolated candidates and integrates exactly one winner. Existing `micro` work units remain readable, but they still execute in a separate claimed Worker; Discussion never implements them directly.
 
 WishGraph controls token use by keeping neutral windows role-free, loading only the current dynamic Discussion state, limiting Execution to its prompt/spec/necessary code, and limiting Integration to selected reports plus affected shared state. Refresh does not reload a full stable prompt. Historical detail stays in immutable Run Reports and Git; completion callbacks are used only when the host truly supports them, otherwise progress appears on the next explicit Discussion entry or refresh.
 
@@ -193,20 +193,19 @@ Use it to:
 - Run validation.
 - Create one immutable `reports/runs/<work-unit-id>.md`.
 - Propose shared-memory updates without editing shared files.
-- Perform the same external-memory closeout for explicitly approved ad-hoc edits that have no task file.
 - Make one atomic commit per task unless the user explicitly says not to commit.
 
 The execution AI should not redesign the feature. If the task spec is wrong, it should stop and report the conflict.
 
 Workers do not start silently or as hidden subagents. When a task is ready, discussion AI asks whether to create the execution window. After an explicit human command, the discussion AI creates a user-visible Worker task when the platform supports it, hands off `prompts/EXECUTION_AI.md` and the named task specification automatically, and then the user can observe or control that Worker from the task list. The user does not edit project-memory or integration files.
 
-### Temporary Integration Agent
+### Discussion-Local Integration Phase
 
-Use `prompts/INTEGRATION_AI.md` as a temporary event task after worker branches are ready. It merges without committing, reads approved run reports, resolves or reports conflicts, updates shared memory, rewrites the current Project Status, refreshes the discussion handoff, validates, creates the integration commit, returns the result, and ends.
+After every Worker terminal event, enter `integration_pending` and evaluate the result. For a safe result, Discussion temporarily enters Integration while holding a bound Integration lease. It merges without committing, reads approved run reports, resolves permitted conflicts, updates shared memory, rewrites the current Project Status, refreshes the discussion handoff, validates, creates the integration commit, and returns to result presentation. Integration is not a separate window or permanent role.
 
 For one safe sequential task, approving the task also authorizes normal integration after all validation, scope, conflict, decision, rollback, and target-worktree gates pass. Do not ask twice. A `parallel_independent` batch also integrates silently when every expected Worker is terminal and overlap, dependency, interface, risk, merge, and combined-validation gates are mechanically clear. High-risk, conflicting, blocked, or ambiguous results return to Discussion for a user decision.
 
-If the platform supports an authorized background task or independent thread, discussion AI may launch the temporary integration there and show Waiting, Running, Blocked, or Completed. Otherwise it must explicitly switch the current main agent to integration or give one natural-language launch instruction. It must not claim background execution when unsupported.
+If Discussion is not active when a Worker finishes, persist `integration_pending` and continue automatically when Discussion resumes. Ask the user only for a concrete risk, conflict, compatibility, or product decision; never ask whether to start integration.
 
 After the PRD and first task are ready, discussion AI states the work type, explains the sequential or parallel recommendation, names the approved task files, and asks:
 
@@ -228,7 +227,13 @@ For an approved parallel batch, one explicit batch command can authorize exactly
 
 The discussion Agent then creates one user-visible task per authorized Worker, automatically provides the execution prompt and corresponding task specification, prefers an isolated branch or worktree, and names each task `<task-id> · <short title> · WG Worker` so the useful task identity appears before any sidebar truncation. This is still explicit execution: the Agent cannot create a Worker before the human command, cannot create unlisted Workers, and cannot substitute hidden subagents.
 
-If the current platform cannot create user-visible tasks, or a creation attempt fails, the discussion Agent says so and provides one complete copyable package containing the canonical title, the full `prompts/EXECUTION_AI.md`, and the approved task specification. Manual copy-and-paste is the fallback, not the normal path. Hooks never launch Workers.
+If the current platform cannot create user-visible tasks, or a creation attempt fails, Discussion outputs exactly one line and stops:
+
+```text
+执行 <task-id> 任务
+```
+
+In a neutral window, that exact command enters the Worker role after all Task and Claim gates pass. Hooks never launch Workers.
 
 ## 4. Execution Loop
 
@@ -243,11 +248,11 @@ Human intent
 -> Discussion AI creates and configures user-visible Worker task(s)
 -> Worker AI implements task spec in an isolated branch or worktree
 -> Worker AI validates and creates an immutable run report
--> Discussion AI checks ready / waiting / blocked status and applicable authority
--> Temporary Integration AI merges approved results and updates shared memory
--> Integration AI rewrites PROJECT_STATUS and refreshes the concise discussion handoff
--> Temporary Integration AI ends
--> Discussion AI receives the summary on next start/resume and presents it
+-> Worker terminal event creates integration_pending
+-> Discussion-local Integration evaluates and safely integrates with a lease
+-> Integration rewrites PROJECT_STATUS and refreshes the concise discussion handoff
+-> Risk or conflict becomes one concrete decision_required question
+-> Discussion presents the result
 -> Human reviews the result and decides next direction or correction
 ```
 
@@ -262,7 +267,7 @@ If a single execution result is unsatisfactory, keep the correction in the discu
 
 ## 5. External Memory Must Stay Current
 
-Workers review shared-memory impact but do not edit shared project truth. They record Integrate or N/A in their own run report. The integration agent applies the proposals, updates shared files, and records Updated or N/A in Project Status.
+Workers review shared-memory impact but do not edit shared project truth. They record Integrate or N/A in their own run report. The Discussion-local Integration phase applies the proposals, updates shared files, and records Updated or N/A in Project Status.
 
 Update these files when relevant:
 

@@ -28,3 +28,7 @@ This folder contains public-facing method notes and workflow explanations for Wi
 
 - English: [`memory-sync-hooks.md`](memory-sync-hooks.md)
 - 中文：[`memory-sync-hooks.zh-CN.md`](memory-sync-hooks.zh-CN.md)
+
+## Orchestration State Machine / 编排状态机
+
+- 中文规范：[`orchestration-state-machine.md`](orchestration-state-machine.md)

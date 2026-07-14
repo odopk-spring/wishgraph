@@ -2,7 +2,7 @@
 
 Use this file as the project lookup table. A future agent should be able to locate the right feature, module, files, symbols, tests, and current state without scanning the whole repository.
 
-The integration agent reviews this file after absorbing worker reports and updates it only when integrated feature status, anchors, contracts, probes, or validation surfaces changed.
+The Discussion-local Integration phase reviews this file after absorbing Worker reports and updates it only when integrated feature status, anchors, contracts, probes, or validation surfaces changed.
 
 ## Feature To Code Index
 

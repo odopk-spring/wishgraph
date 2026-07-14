@@ -28,7 +28,11 @@ from workflow_state import (
     SCHEMA_VERSION as WORKFLOW_STATE_SCHEMA_VERSION,
     STATE_BLOCK_RE,
     ReportState,
+    FlowPlan,
+    HostCapability,
+    OrchestrationState,
     TaskState,
+    UserEvent,
     dynamic_state_block,
     integrated_report_paths,
     markdown_section,
@@ -37,9 +41,11 @@ from workflow_state import (
     parse_labeled_field,
     parse_report_state,
     parse_report_status,
+    parse_task_command,
     parse_task_state,
     parse_workflow_block,
     without_workflow_block,
+    is_contextual_approval,
 )
 
 
@@ -125,6 +131,475 @@ TASK_ONLY_TRANSITIONS = {
     ("integrated", "reviewed"),
     ("draft", "cancelled"),
 }
+
+
+def _expected_patch(
+    kind: str,
+    task_id: str,
+    *,
+    report_id: str = "",
+    decision_id: str = "",
+    integration_id: str = "",
+) -> dict[str, str]:
+    return {
+        "kind": kind,
+        "task_id": task_id,
+        "report_id": report_id,
+        "decision_id": decision_id,
+        "integration_id": integration_id,
+    }
+
+
+def _manual_worker_plan(task_id: str, reason: str) -> FlowPlan:
+    return FlowPlan(
+        accepted=True,
+        next_action="show_manual_worker_command",
+        task_id=task_id,
+        host_route="manual_window",
+        user_message=f"执行 {task_id} 任务",
+        stop_after_action=True,
+        denial_reason=reason,
+        state_patch={
+            "session": {
+                "phase": "waiting_for_user_launch",
+                "expected_transition": _expected_patch(
+                    "launch_worker_manually", task_id
+                ),
+            }
+        },
+    )
+
+
+def _role_denial(task_id: str, reason: str) -> FlowPlan:
+    return FlowPlan(
+        accepted=False,
+        next_action="deny_role_violation",
+        task_id=task_id,
+        denial_reason=reason,
+        stop_after_action=True,
+    )
+
+
+def reduce_orchestration(
+    current_state: OrchestrationState,
+    user_event: UserEvent,
+    host_capability: HostCapability,
+) -> FlowPlan:
+    """Purely reduce orchestration state and one event to a unique next action."""
+    session = current_state.session
+    task = current_state.task
+    task_id = task.task_id if task is not None else ""
+    data = user_event.data
+
+    if user_event.kind in {"refresh", "inspect"}:
+        return FlowPlan(accepted=True, next_action="read_status")
+
+    if user_event.kind == "operation_requested":
+        operation = str(data.get("operation") or "")
+        operation_scope = str(data.get("operation_scope") or "")
+        worker_authorized = (
+            session.role == "worker" and bool(current_state.worker_runtime.claim_id)
+        )
+        integration_authorized = (
+            session.role == "discussion"
+            and session.phase == "integrating"
+            and bool(current_state.integration_runtime.lease_id)
+        )
+        allowed = False
+        if operation == "source_read":
+            allowed = session.role in {"discussion", "worker"}
+        elif operation == "governance_write":
+            allowed = (
+                session.role == "discussion"
+                and session.phase
+                in {
+                    "planning",
+                    "awaiting_worker_authorization",
+                    "integrating",
+                    "presenting_result",
+                }
+            ) or (worker_authorized and operation_scope == "own_task_state")
+        elif operation == "business_write":
+            allowed = worker_authorized or (
+                integration_authorized and operation_scope == "merge_resolution"
+            )
+        elif operation == "build_test":
+            allowed = worker_authorized or integration_authorized
+        elif operation == "install_dependency":
+            allowed = worker_authorized and data.get("task_authorized") is True
+        elif operation == "shared_state_write":
+            allowed = integration_authorized or (
+                session.role == "discussion" and session.phase == "planning"
+            )
+        elif operation == "integration_commit":
+            allowed = integration_authorized
+        elif operation == "commit":
+            allowed = worker_authorized or integration_authorized
+        if allowed:
+            return FlowPlan(accepted=True, next_action="allow_operation", task_id=task_id)
+        return _role_denial(
+            task_id,
+            "An active Worker Claim or Discussion-local Integration lease is required.",
+        )
+
+    if user_event.kind == "host_worker_launch_failed":
+        return _manual_worker_plan(task_id, str(data.get("reason") or "launch_failed"))
+
+    if user_event.kind == "host_worker_launch_succeeded":
+        thread_id = str(data.get("thread_id") or "")
+        if not thread_id:
+            return _manual_worker_plan(task_id, "missing_real_worker_thread_id")
+        if data.get("runtime_persisted") is not True:
+            return FlowPlan(
+                accepted=False,
+                next_action="retry_runtime_persistence",
+                task_id=task_id,
+                host_route="automatic_thread",
+                denial_reason="worker_created_but_runtime_not_persisted",
+                state_patch={"worker_runtime": {"host_window_or_thread_id": thread_id}},
+            )
+        return FlowPlan(
+            accepted=True,
+            next_action="wait_for_worker",
+            task_id=task_id,
+            state_patch={
+                "session": {
+                    "phase": "waiting_for_worker",
+                    "expected_transition": _expected_patch("wait_for_worker", task_id),
+                },
+                "worker_runtime": {"host_window_or_thread_id": thread_id},
+            },
+        )
+
+    if user_event.kind == "worker_terminal":
+        terminal = str(data.get("task_status") or "")
+        report_id = str(data.get("report_id") or (task.run_report if task else ""))
+        if terminal not in {"completed", "blocked", "incomplete"}:
+            return FlowPlan(
+                accepted=False,
+                next_action="repair_worker_closeout",
+                task_id=task_id,
+                denial_reason="worker_terminal_status_invalid",
+            )
+        return FlowPlan(
+            accepted=True,
+            next_action="evaluate_integration",
+            task_id=task_id,
+            state_patch={
+                "session": {
+                    "phase": "integration_pending",
+                    "expected_transition": _expected_patch(
+                        "auto_integrate", task_id, report_id=report_id
+                    ),
+                },
+                "task": {"lifecycle": terminal, "run_report": report_id},
+            },
+        )
+
+    if user_event.kind == "integration_evaluated":
+        if session.phase != "integration_pending":
+            return FlowPlan(
+                accepted=False,
+                next_action="no_action",
+                task_id=task_id,
+                denial_reason="integration_evaluation_requires_pending_phase",
+            )
+        outcome = str(data.get("outcome") or "")
+        if outcome == "safe":
+            if task is None or task.lifecycle != "completed":
+                return FlowPlan(
+                    accepted=False,
+                    next_action="repair_worker_closeout",
+                    task_id=task_id,
+                    denial_reason="only_completed_tasks_can_integrate",
+                    state_patch={
+                        "session": {
+                            "phase": "waiting_for_worker",
+                            "expected_transition": _expected_patch(
+                                "repair_worker_closeout", task_id
+                            ),
+                        },
+                        "task": {"lifecycle": "blocked"},
+                    },
+                )
+            return FlowPlan(
+                accepted=True,
+                next_action="enter_discussion_local_integration",
+                task_id=task_id,
+                required_integration_lease=True,
+                host_route="discussion_local",
+                state_patch={
+                    "session": {"phase": "integrating", "expected_transition": None}
+                },
+            )
+        if outcome == "decision_required":
+            decision_id = str(data.get("decision_id") or "material-decision")
+            question = str(data.get("question") or "请确认具体风险处理方案。")
+            return FlowPlan(
+                accepted=True,
+                next_action="ask_material_decision",
+                task_id=task_id,
+                user_message=question,
+                stop_after_action=True,
+                state_patch={
+                    "session": {
+                        "phase": "decision_required",
+                        "expected_transition": _expected_patch(
+                            "resolve_conflict", task_id, decision_id=decision_id
+                        ),
+                    },
+                    "pending_decision": {"decision_id": decision_id},
+                },
+            )
+        if outcome == "blocked":
+            reason = str(data.get("reason") or "integration_evidence_incomplete")
+            return FlowPlan(
+                accepted=False,
+                next_action="repair_worker_closeout",
+                task_id=task_id,
+                denial_reason=reason,
+                state_patch={
+                    "session": {
+                        "phase": "waiting_for_worker",
+                        "expected_transition": _expected_patch(
+                            "repair_worker_closeout", task_id
+                        ),
+                    },
+                    "task": {"lifecycle": "blocked"},
+                },
+            )
+        return FlowPlan(
+            accepted=False,
+            next_action="repair_worker_closeout",
+            task_id=task_id,
+            denial_reason="integration_evaluation_outcome_invalid",
+        )
+
+    if user_event.kind == "decision_resolved":
+        decision_id = str(data.get("decision_id") or "")
+        if (
+            session.phase != "decision_required"
+            or not decision_id
+            or decision_id != current_state.pending_decision.decision_id
+        ):
+            return FlowPlan(
+                accepted=False,
+                next_action="no_action",
+                task_id=task_id,
+                denial_reason="decision_resolution_does_not_match_pending_decision",
+            )
+        return FlowPlan(
+            accepted=True,
+            next_action="evaluate_integration",
+            task_id=task_id,
+            state_patch={
+                "session": {
+                    "phase": "integration_pending",
+                    "expected_transition": _expected_patch(
+                        "auto_integrate",
+                        task_id,
+                        report_id=task.run_report if task is not None else "",
+                    ),
+                },
+                "pending_decision": {
+                    "decision_id": "",
+                    "kind": "",
+                    "options": [],
+                    "recommended_option": "",
+                },
+            },
+        )
+
+    if user_event.kind == "integration_completed":
+        integration_id = str(
+            data.get("integration_id")
+            or current_state.integration_runtime.integration_id
+        )
+        if (
+            session.role != "discussion"
+            or session.phase != "integrating"
+            or not current_state.integration_runtime.lease_id
+            or not integration_id
+            or task is None
+            or task.lifecycle != "completed"
+        ):
+            return FlowPlan(
+                accepted=False,
+                next_action="deny_role_violation",
+                task_id=task_id,
+                denial_reason="integration_completion_requires_bound_active_integration",
+            )
+        return FlowPlan(
+            accepted=True,
+            next_action="present_result",
+            task_id=task_id,
+            required_integration_lease=True,
+            state_patch={
+                "session": {
+                    "phase": "presenting_result",
+                    "expected_transition": _expected_patch(
+                        "accept_result", task_id, integration_id=integration_id
+                    ),
+                },
+                "task": {"lifecycle": "integrated"},
+                "integration_runtime": {
+                    "lease_id": "",
+                    "integration_id": integration_id,
+                },
+            },
+        )
+
+    if user_event.kind != "user_message":
+        return FlowPlan(
+            accepted=False,
+            next_action="no_action",
+            task_id=task_id,
+            denial_reason="unrecognized_orchestration_event",
+        )
+
+    text = str(data.get("text") or "").strip()
+    if text.rstrip("。.!！") == "就在当前窗口直接修改":
+        return FlowPlan(
+            accepted=False,
+            next_action="ask_for_worker_authorization",
+            task_id=task_id,
+            denial_reason="Discussion cannot perform Worker implementation; route an independent Worker.",
+            stop_after_action=True,
+        )
+
+    command = parse_task_command(text)
+    if command is not None and command.get("action") in {
+        "inspect",
+        "observe",
+        "family",
+    }:
+        return FlowPlan(accepted=True, next_action="read_status", task_id=command["task_id"])
+    if command is not None and command.get("authorizes_execution"):
+        requested = str(command.get("task_id") or "")
+        if task is None or task.task_id != requested:
+            return FlowPlan(
+                accepted=False,
+                next_action="ask_task_choice",
+                task_id=requested,
+                denial_reason="exact_task_not_loaded",
+            )
+        if session.role == "neutral":
+            if task.lifecycle != "approved" or not task.worker_authorized:
+                return FlowPlan(
+                    accepted=False,
+                    next_action="deny_execution_preflight",
+                    task_id=task_id,
+                    denial_reason="Task must be approved and Worker-authorized.",
+                )
+            return FlowPlan(
+                accepted=True,
+                next_action="enter_worker",
+                task_id=task_id,
+                required_claim=True,
+                host_route="current_neutral_window",
+                state_patch={
+                    "session": {
+                        "role": "worker",
+                        "phase": "waiting_for_worker",
+                        "expected_transition": _expected_patch(
+                            "wait_for_worker", task_id
+                        ),
+                    },
+                    "task": {"lifecycle": "running"},
+                },
+            )
+        if session.role == "discussion":
+            return FlowPlan(
+                accepted=True,
+                next_action="launch_worker",
+                task_id=task_id,
+                host_route=(
+                    "automatic_thread"
+                    if host_capability.can_create_visible_worker
+                    else "manual_window"
+                ),
+                state_patch={
+                    "session": {
+                        "phase": "routing_worker",
+                        "expected_transition": None,
+                    },
+                    "task": {"lifecycle": "approved", "worker_authorized": True},
+                },
+            )
+
+    if is_contextual_approval(text):
+        if len(current_state.candidate_task_ids) > 1:
+            choices = " 和 ".join(current_state.candidate_task_ids)
+            return FlowPlan(
+                accepted=False,
+                next_action="ask_task_choice",
+                user_message=f"当前有 {choices} 两个任务等待启动，你希望执行哪一个？",
+                denial_reason="contextual_transition_is_ambiguous",
+            )
+        expected = session.expected_transition
+        if expected is None:
+            return FlowPlan(
+                accepted=False,
+                next_action="ask_task_choice",
+                denial_reason="no_unique_expected_transition",
+            )
+        if expected.kind == "approve_worker_launch":
+            if task is None or task.task_id != expected.task_id:
+                return FlowPlan(
+                    accepted=False,
+                    next_action="ask_task_choice",
+                    task_id=expected.task_id,
+                    denial_reason="expected_worker_task_is_not_current",
+                )
+            return FlowPlan(
+                accepted=True,
+                next_action="launch_worker",
+                task_id=expected.task_id,
+                host_route=(
+                    "automatic_thread"
+                    if host_capability.can_create_visible_worker
+                    else "manual_window"
+                ),
+                state_patch={
+                    "session": {"phase": "routing_worker", "expected_transition": None},
+                    "task": {"lifecycle": "approved", "worker_authorized": True},
+                },
+            )
+        if expected.kind == "accept_result":
+            if (
+                task is None
+                or task.task_id != expected.task_id
+                or task.lifecycle != "integrated"
+                or not expected.integration_id
+            ):
+                return FlowPlan(
+                    accepted=False,
+                    next_action="no_action",
+                    task_id=expected.task_id,
+                    denial_reason="result_acceptance_transition_is_stale",
+                )
+            return FlowPlan(
+                accepted=True,
+                next_action="accept_result",
+                task_id=expected.task_id,
+                state_patch={
+                    "session": {"phase": "planning", "expected_transition": None},
+                    "task": {"lifecycle": "reviewed"},
+                },
+            )
+        return FlowPlan(
+            accepted=False,
+            next_action="no_action",
+            task_id=expected.task_id,
+            denial_reason=f"contextual approval cannot consume {expected.kind}",
+        )
+
+    return FlowPlan(
+        accepted=False,
+        next_action="no_action",
+        task_id=task_id,
+        denial_reason="message_does_not_match_current_expected_transition",
+    )
 
 
 @dataclass

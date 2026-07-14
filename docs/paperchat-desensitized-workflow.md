@@ -117,7 +117,7 @@ Human idea
 -> Discussion AI presents the integrated result for human review
 ```
 
-Discussion controls direction and recommends serial or parallel work. After an explicit human creation command, it creates and configures user-visible Workers when the host supports that capability. It never creates them silently or uses hidden subagents; manual copying is the fallback. Safe sequential and mechanically proven independent parallel results integrate silently; risk or ambiguity returns to Discussion.
+Discussion controls direction and recommends serial or parallel work. After explicit authorization, Codex creates a visible Worker; Claude Code and failed or unsupported creation output only `执行 <task-id> 任务`. It never creates Workers silently or uses hidden subagents. Every Worker terminal event enters integration evaluation; safe results integrate in a Discussion-local phase, while risk or ambiguity asks only the concrete decision.
 
 ## Example First Implementation Task
 

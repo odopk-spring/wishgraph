@@ -85,9 +85,9 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
 
 The installer creates the common runtime under `.wishgraph/` and safely merges project-level Codex or Claude Code JSON configuration. It does not replace unrelated existing hooks.
 
-`memory_sync.py` is a stable entrypoint over four explicit boundaries: `git_state.py` reads Git and repository state, `workflow_state.py` parses versioned lifecycle blocks and legacy Markdown fields, `policy.py` evaluates lifecycle and closeout rules, and `host_adapter.py` handles CLI and host Hook input/output. Semantic project truth remains in Markdown and Git. Task, Run Report, and Integration blocks cover only machine workflow facts.
+`memory_sync.py` is a stable entrypoint over four explicit boundaries: `workflow_state.py` defines Session Role, Task Lifecycle, Flow Phase, Expected Transition, events, and plans; `policy.py` implements the pure `reduce(current_state, user_event, host_capability)` transition function; `host_adapter.py` maps one authorized next action to Codex, Claude Code, CLI, and Hook behavior; `git_state.py` persists Git facts, session runtime, Worker Claims, and the Discussion-local Integration lease. Semantic project truth remains in Markdown and Git.
 
-Start with `warn`. After one successful formal-task and ad-hoc closeout, change `.wishgraph/config.json` to `enforce`.
+Start with `warn`. After one successful Task-backed Worker closeout and one Discussion-local integration, change `.wishgraph/config.json` to `enforce`.
 
 Codex users must trust the repository and review new hook definitions with `/hooks`. Project hooks do not run in an untrusted repository.
 
@@ -101,6 +101,8 @@ reports/runs/<work-unit-id>.md
 
 New Task Specs contain `wishgraph:task-state`, Run Reports contain `wishgraph:run-state`, and Project Status snapshots contain `wishgraph:integration-state`. Hooks check `draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`, including explicit Worker-creation authority and integration policy. Drafts remain editable until approval; execution identity is then fixed except for a new retry report path. Authorization, retry, and review transitions may omit a Worker report only when surrounding task prose is unchanged; `running` is not a valid closeout. Legacy label-based files remain readable; a present but invalid block is an error.
 
+Task Lifecycle is only one state dimension. Session Role (`neutral|discussion|worker`), Flow Phase, and one structured `expected_transition` are stored separately under the Git common directory. A short reply such as `可以` or `执行吧` is actionable only when that transition is unique.
+
 Worker reports use `Integrate` or `N/A` and do not edit shared project memory:
 
 ```markdown
@@ -111,21 +113,21 @@ Worker reports use `Integrate` or `N/A` and do not edit shared project memory:
 | `prompts/DISCUSSION_AI.md` | Integrate | Present the completed result after merge |
 ```
 
-The integration agent merges Worker commits with `--no-commit`, reads all new Run Reports, updates affected shared memory, rewrites `reports/PROJECT_STATUS.md` as the current snapshot, and then refreshes the concise dynamic handoff in `prompts/DISCUSSION_AI.md`. Project Status lists only reports absorbed by this integration and uses Updated or N/A rows.
+The Discussion-local Integration phase holds a bound lease, merges Worker commits with `--no-commit`, reads all new Run Reports, updates affected shared memory, rewrites `reports/PROJECT_STATUS.md` as the current snapshot, and then refreshes the concise dynamic handoff in `prompts/DISCUSSION_AI.md`. Project Status lists only reports absorbed by this integration and uses Updated or N/A rows.
 
 Default size controls keep the snapshot usable: Project Status is limited to 160 lines and 12,000 characters, the discussion dynamic block to 30 lines, and optional compatibility-mode SessionStart context to 2,000 characters. If either Project Status limit is exceeded, `warn` reports the need to compress without blocking, while `enforce` blocks integration completion and commit. Move historical detail to Run Reports and Git history; never remove unresolved risks, conflicts, or pending decisions just to meet the limit.
 
 Existing `paths.dev_report` settings migrate to `paths.project_status` while preserving custom path values. An old-only `reports/DEV_REPORT.md` remains readable with a migration warning. If old and new standard files both exist, WishGraph reports an ambiguous truth source and strict mode blocks integration until the project keeps one authoritative `reports/PROJECT_STATUS.md`.
 
-Task and run-report metadata distinguish `sequential`, `parallel_batch`, and `high_risk`, while execution mode distinguishes `exclusive`, `parallel_independent`, and `competitive`. Safe sequential results and mechanically proven independent parallel batches are eligible for silent integration under existing Worker authority. High-risk, conflicting, blocked, competitive, or mechanically ambiguous results return to Discussion. Hooks calculate and enforce recorded gates but do not grant authority or launch an Integrator.
+Task and run-report metadata distinguish `sequential`, `parallel_batch`, and `high_risk`, while execution mode distinguishes `exclusive`, `parallel_independent`, and `competitive`. Every Worker terminal event first enters `integration_pending`. Safe sequential results and mechanically proven independent parallel batches enter Discussion-local Integration automatically under existing Worker authority. High-risk, conflicting, blocked, competitive, or mechanically ambiguous results enter a concrete `decision_required` or `blocked` state. Hooks calculate and enforce recorded gates but do not grant authority or launch Agents.
 
-Worker creation always requires an explicit human command. The discussion Agent may then create user-visible Worker tasks through a supported host capability; Hooks never do so. Hidden subagents are not Worker windows, and manual copying is the fallback when visible task creation is unavailable. Integration is an invisible temporary control role: use a real background task when available, fall back to an isolated phase in the active Agent, or leave derived work pending until the next Discussion entry/refresh. Never require a user-visible Integration window or claim unsupported background execution.
+Worker creation always requires an explicit human command. Codex may then create a user-visible Worker task. Claude Code, unsupported creation, and failed creation output exactly `执行 <task-id> 任务` and stop. Hidden subagents are not Worker windows. Integration is an automatically triggered, Discussion-local, safe-when-silent phase: it never creates a user-visible window. If Discussion is inactive, persist `integration_pending` until the next Discussion entry or refresh.
 
 New sessions are neutral. With the default `session_start_context_mode: safety_only`, hooks emit context only when they find safety or synchronization issues; they do not load the discussion prompt or activate a role. Say `Start discussion` to load Discussion state in the current visible window, or `Refresh WishGraph project state and present the latest integrated results` to refresh an active discussion. Existing installations that explicitly retain `discussion_summary` compatibility mode can still receive the old concise injection.
 
 In a continuously running discussion window, say: `Refresh WishGraph project state and present the latest integrated results.`
 
-An ad-hoc edit may omit `tasks/build/*.md`; it still needs validation, a unique run-report ID, and the normal commit boundary. Existing `.tasks/build/*.md` projects remain supported.
+Existing legacy ad-hoc reports remain readable, but new business-code work runs in a claimed Worker. Existing `.tasks/build/*.md` projects remain supported.
 
 ## Direct checks
 
@@ -139,6 +141,8 @@ The status command emits machine-readable pending integration, integration kind,
 
 It also emits `auto_integration_eligible` and one of `nothing_to_integrate`, `wait_for_worker`, `auto_integrate`, `await_user_confirmation`, `discuss_blocker`, or `compare_candidates` as `next_action`. These are internal routing fields; normal users should see only Discussion and Execution.
 
+The host adapter can evaluate the pure reducer through `flow-plan`, which reads `{"state": {...}, "event": {...}}` from standard input. Persist the returned `host_action.state_patch` with `session apply SESSION_ID`, also via JSON standard input. `session get` and `session set` support inspection and initial role setup. A host must not persist `waiting_for_worker` until a real visible Worker ID exists and runtime persistence succeeds.
+
 Hosts can select a truthful silent fallback without launching anything from a Hook:
 
 ```bash
@@ -147,7 +151,7 @@ python3 .wishgraph/hooks/memory_sync.py integration-plan --host-capability activ
 python3 .wishgraph/hooks/memory_sync.py integration-plan --host-capability inactive
 ```
 
-The returned action is respectively: launch a temporary background Integrator through a real host capability, enter an isolated Integration phase in the active Agent, or keep derived pending state until the next explicit Discussion entry/refresh. The command is read-only; Hooks never call `subprocess.Popen`, merge branches, or write semantic state.
+Both `background` and `active_agent` return `enter_discussion_local_integration`; `inactive` returns `persist_integration_pending_until_discussion_resume`. No result creates an Integration window. The command is read-only; Hooks never call `subprocess.Popen`, merge branches, or write semantic state.
 
 The read-only task router is also available to host adapters:
 
@@ -162,14 +166,26 @@ It matches structured IDs exactly, reports duplicate declarations, and never exe
 Formal execution uses repository-wide runtime Claims stored below `git rev-parse --git-common-dir`, outside business commits:
 
 ```bash
-python3 .wishgraph/hooks/memory_sync.py claim acquire 012 --worker-id worker-012
+python3 .wishgraph/hooks/memory_sync.py claim acquire 012 --worker-id worker-012 --session-id worker-012 --host codex
 python3 .wishgraph/hooks/memory_sync.py claim inspect 012
 python3 .wishgraph/hooks/memory_sync.py claim heartbeat CLAIM_ID
 python3 .wishgraph/hooks/memory_sync.py claim release CLAIM_ID
 python3 .wishgraph/hooks/memory_sync.py claim revoke CLAIM_ID
 ```
 
-Acquisition uses an atomic filesystem operation, defaults to one exclusive active Claim per Task, and records attempt, worker, branch, absolute worktree, timestamps, lease status, execution mode, and optional host thread reference. Heartbeat and release enforce branch/worktree binding; explicit revoke is the takeover control path. Stale detection preserves old records. This coordinates processes and worktrees sharing one local Git common directory; it is not a distributed lock across machines that only share a remote.
+Acquisition uses an atomic filesystem operation, defaults to one exclusive active Claim per Task, and records attempt, worker, branch, absolute worktree, timestamps, lease status, execution mode, and optional host thread reference. With `--session-id`, Claim acquisition also persists the Worker runtime; persistence failure revokes the new Claim. Heartbeat and release enforce branch/worktree binding; explicit revoke is the takeover control path. Stale detection preserves old records. This coordinates processes and worktrees sharing one local Git common directory; it is not a distributed lock across machines that only share a remote.
+
+Discussion-local Integration first persists `phase: integrating`, then acquires a lease bound to the session, integration ID, Task IDs, reports, branch, and worktree:
+
+```bash
+python3 .wishgraph/hooks/memory_sync.py integration-lease acquire \
+  --session-id discussion-1 \
+  --integration-id integration-012 \
+  --task-id 012 \
+  --report reports/runs/012-attempt-1.md
+```
+
+Business writes and implementation build/test commands require a live matching Worker Claim. Merge, combined validation, shared-state writes, and the integration commit require the Discussion-local Integration lease. This is the required `write/build gate`. Complete read interception depends on host hooks, so source reads remain `host capability dependent` rather than a claimed universal hard gate.
 
 `claim revoke` returns `explicit_user_authorization_required` unless the host passes `--authorized-by-user`. Stopping or rejecting unintegrated work preserves its branch/report, then a retry keeps the Task ID and increments the attempt. Integrated history is replaced only through a new rollback or follow-up Task.
 
@@ -181,7 +197,7 @@ python3 .wishgraph/hooks/memory_sync.py competitive-plan 012 --candidates 2
 
 It proposes `012a`, `012b`, shared `comparison_group: 012`, separate Claims/worktrees/reports, and exactly one winner. Status publishes only the unique objective winner in `selected_reports`; a tie or `selection_requires_judgment` routes to `compare_candidates`. Losing candidates remain unmerged and become `rejected` or `superseded`.
 
-A `micro` Run Report is an independent ad-hoc unit, never a shortcut inside a formal Task. It must list changed paths and explicit false API/schema/security/dependency flags, plus the normal validation, immutable report, commit, rollback, and Integrate/N/A evidence. Any risk promotes the request to a formal Task and makes the micro report ineligible.
+Legacy `micro` Run Reports remain readable for compatibility. They never authorize Discussion to edit business code; any continued micro execution still belongs in a separately claimed Worker and retains validation, immutable report, commit, rollback, and Integrate/N/A evidence. New work should use a formal Task.
 
 For strict `enforce` mode, add `--git-hook` so commits made outside an agent and tool paths that lifecycle hooks cannot intercept are also checked. The installer refuses to overwrite an existing Git pre-commit hook and prints chaining guidance instead.
 
@@ -190,6 +206,6 @@ For strict `enforce` mode, add `--git-hook` so commits made outside an agent and
 - Hooks do not generate PRD, architecture, CODEMAP, or handoff prose.
 - Hooks do not stage, commit, or amend files.
 - Hooks ignore their own generated runtime and host configuration.
-- Hooks do not choose parallelism, start workers or integration agents, merge code, or replace human review.
+- Hooks do not choose parallelism, start Workers, create Integration windows, merge code, or replace human review.
 - A blocked or incomplete worker can stop after creating a unique Blocked or Incomplete run report with validation and impact proposals.
 - Set mode to `warn` while adapting rules for a repository; do not satisfy the hook with false Updated claims.

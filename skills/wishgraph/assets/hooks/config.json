@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "mode": "enforce",
   "paths": {
     "prd": "PRD.md",
@@ -43,5 +43,7 @@
   "project_status_max_lines": 160,
   "project_status_max_chars": 12000,
   "discussion_dynamic_max_lines": 30,
-  "session_summary_max_chars": 2000
+  "session_summary_max_chars": 2000,
+  "orchestration_gate_enabled": true,
+  "read_gate_mode": "host_dependent"
 }

@@ -80,7 +80,7 @@ Briefly describe what changed and why.
 
 ## Shared Memory Impact Proposal
 
-Worker agents do not edit shared project memory. Use exactly `Integrate` when the integration agent should update the file, or `N/A` with a concrete reason.
+Workers do not edit shared project memory. Use exactly `Integrate` when the Discussion-local Integration phase should update the file, or `N/A` with a concrete reason.
 
 | File | Result | Reason |
 |---|---|---|
@@ -88,7 +88,7 @@ Worker agents do not edit shared project memory. Use exactly `Integrate` when th
 | `ARCHITECTURE.md` | Integrate / N/A | Dependency, ownership, data-flow impact, or why none |
 | `CODEMAP.md` | Integrate / N/A | File, symbol, contract, status, probe impact, or why none |
 | `CONVENTIONS.md` | Integrate / N/A | Workflow-rule impact, or why none |
-| `prompts/DISCUSSION_AI.md` | Integrate / N/A | Result the integration agent should expose to discussion AI, or why none |
+| `prompts/DISCUSSION_AI.md` | Integrate / N/A | Result Discussion-local Integration should expose to Discussion, or why none |
 | `prompts/EXECUTION_AI.md` | Integrate / N/A | Stable execution-rule impact, or why none |
 | `prompts/INTEGRATION_AI.md` | Integrate / N/A | Stable integration-rule impact, or why none |
 
@@ -96,5 +96,5 @@ Worker agents do not edit shared project memory. Use exactly `Integrate` when th
 
 - Merge dependency:
 - Conflict warning:
-- Facts the integration agent must preserve:
+- Facts the Discussion-local Integration phase must preserve:
 - Reason integration is safe, blocked, or needs a user decision:

@@ -3,6 +3,8 @@
 Spec source: `PRD.md` "Now" roadmap 要求 dashboard first paint 不能等待 auth refresh。
 Dependencies: None.
 
+Task state 只记录 Task Lifecycle。Session Role、Flow Phase 与 `expected_transition` 保存在 Git common dir 的正交运行时状态中。
+
 <!-- wishgraph:task-state:start -->
 ```json
 {

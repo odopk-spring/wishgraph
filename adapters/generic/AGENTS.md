@@ -48,17 +48,16 @@ Create or update:
 - `reports/runs/*.md`: immutable worker execution evidence.
 - `reports/PROJECT_STATUS.md`: current integrated Project Status and next recommendation.
 
-## Planning Agent
+## Discussion Role
 
 - Clarify intent.
 - Update PRD and architecture before implementation.
 - Write self-contained task specs.
 - Classify work as discussion, sequential, parallel_batch, or high_risk. Explain the sequential or parallel recommendation; the user confirms it.
-- Ask whether to create the approved execution window or windows. Only after an explicit human command, use the host's user-visible task or thread capability to create one Worker per authorized spec, hand off the execution prompt and task file, and name it `<task-id> · <short title> · WG Worker`. Never create Workers silently or use hidden subagents; manual copying is the fallback when the host cannot create visible tasks.
-- Route exact natural commands such as `执行012号任务`, stop, retry, takeover, and explicit competitive comparison through structured Task IDs and repository-wide Claims. Micro work still needs an ad-hoc report; risky work becomes a formal Task.
+- Ask whether to create the approved execution window or windows. Only after an explicit human command, use the host's user-visible task or thread capability to create one Worker per authorized spec and name it `<task-id> · <short title> · WG Worker`. Never create Workers silently or use hidden subagents. If creation is unsupported or fails, output only `执行 <task-id> 任务` and stop.
+- Route exact natural commands such as `执行012号任务`, stop, retry, takeover, and explicit competitive comparison through structured Task IDs and repository-wide Claims. Resolve contextual approvals only when there is one unique `expected_transition`.
 - Before creation, record `draft -> approved` and `worker_creation_authorized: true` in each authorized task-state block.
-- Do not change business code unless the user explicitly approves a tiny direct edit.
-- A tiny direct edit may omit a task file, but it still requires validation, a unique run report, and the normal commit boundary.
+- Do not change business code or run implementation builds/tests. All implementation is Task-backed Worker work with a bound Claim.
 - If the user asks to migrate discussion, update `prompts/DISCUSSION_AI.md` and output the full prompt for copying.
 
 ## Execution Agent
@@ -72,15 +71,15 @@ Create or update:
 - If `.wishgraph/hooks/memory_sync.py` exists, run its worktree check before completion.
 - Create one atomic commit unless the user explicitly says not to.
 
-## Integration Agent
+## Discussion-Local Integration Phase
 
 - Merge workers from separate branches or worktrees with `--no-commit`.
 - Read all new run reports and update affected shared project memory.
 - Rewrite `reports/PROJECT_STATUS.md` as the current snapshot, then refresh the concise dynamic handoff in `prompts/DISCUSSION_AI.md`.
 - Move absorbed structured tasks to `integrated`; discussion moves them to `reviewed` only after human acceptance.
 - New windows are neutral. Default SessionStart is safety-only; load Discussion state only after an explicit “Start discussion”, and use explicit refresh in a running window.
-- Treat integration as an invisible temporary control transaction. Safe sequential and mechanically proven `parallel_independent` results integrate silently; risk, conflict, blocking, competition, or ambiguity returns to Discussion. Use a real background host capability, an internal active-Agent phase, or pending-until-refresh fallback.
-- Use an authorized background task only when the platform supports it. Otherwise switch the main agent explicitly or give one launch command; never claim unsupported background execution.
+- Every Worker terminal event enters `integration_pending`. Safe sequential and mechanically proven `parallel_independent` results integrate automatically while Discussion holds a bound Integration lease; risk, conflict, blocking, competition, or ambiguity becomes one concrete decision or blocked state.
+- Never create a separate Integration window. If Discussion is inactive, persist `integration_pending` until it resumes.
 - Hooks expose ready, waiting, and blocked reports but do not choose parallelism, start agents, merge code, write semantic memory, or replace human review.
 
 ## Good Task Spec

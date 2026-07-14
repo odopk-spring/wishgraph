@@ -109,9 +109,9 @@ This safely merges `SessionStart`, `PreToolUse`, `Stop`, and `TaskCompleted` gro
    reports/PROJECT_STATUS.md
    ```
 
-3. Let discussion AI explain whether the task is sequential or parallel and ask whether to create the execution session. After an explicit human command, it should create and configure one user-visible Worker per authorized spec when the host supports that capability, including the execution prompt, approved task file, and canonical `<task-id> · <short title> · WG Worker` name. It must not create Workers silently or use hidden subagents. Manual copying is the fallback when visible session creation is unavailable.
+3. Let Discussion explain whether the task is sequential or parallel and ask for Worker authorization. After authorization in Claude Code, it outputs only `执行 <task-id> 任务`; run that line in a neutral execution window. The Worker acquires a bound Claim before implementation.
 
-   An explicitly approved `micro` ad-hoc edit may omit the task file only when every risk flag is false; it still creates a unique immutable run report. Safe sequential and mechanically proven independent parallel results integrate silently. The host uses real background capability, an internal active-Agent phase, or pending-until-refresh fallback.
+   Every Worker terminal event enters `integration_pending`. Safe sequential and mechanically proven independent parallel results enter Discussion-local Integration automatically with a lease. Risk or conflict asks only the concrete decision; Integration never creates another window.
 
 4. If the discussion session must move, ask:
 

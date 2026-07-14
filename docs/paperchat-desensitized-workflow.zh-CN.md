@@ -117,7 +117,7 @@ Human idea
 -> Discussion AI presents the integrated result for human review
 ```
 
-讨论窗口控制方向并推荐串行或并行；人类明确发出创建命令后，宿主支持时由讨论 Agent 创建并配置用户可见 Worker。不得静默创建或使用隐藏 subagent，手动复制只作降级。安全串行和机械检查证明独立的并行结果静默集成；出现风险或无法判断时返回讨论窗口。
+Discussion 控制方向并推荐串行或并行；人类明确授权后，Codex 创建用户可见 Worker，Claude Code、宿主不支持或创建失败时只输出 `执行 <task-id> 任务`。不得静默创建或使用隐藏 subagent。每个 Worker terminal 事件都进入集成评估；安全结果在 Discussion-local 阶段集成，风险或歧义只询问具体决定。
 
 ## 示例首个实现任务
 

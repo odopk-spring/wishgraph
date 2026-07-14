@@ -62,6 +62,400 @@ class RuntimeBoundaryTests(unittest.TestCase):
                         imports.add(node.module.split(".", 1)[0])
                 self.assertEqual(imports & local_modules, expected_imports)
 
+    def test_host_hook_configs_install_write_and_build_gate_matchers(self) -> None:
+        codex = json.loads((HOOK_ASSETS / "codex-hooks.json").read_text())
+        claude = json.loads((HOOK_ASSETS / "claude-settings.json").read_text())
+        for name, config in (("codex", codex), ("claude", claude)):
+            with self.subTest(host=name):
+                matcher = config["hooks"]["PreToolUse"][0]["matcher"]
+                self.assertIn("Bash", matcher)
+                self.assertIn("Write", matcher)
+                self.assertIn("Edit", matcher)
+
+
+class OrchestrationStateMachineTests(unittest.TestCase):
+    def state(
+        self,
+        *,
+        role: str = "discussion",
+        phase: str = "awaiting_worker_authorization",
+        task_id: str = "002",
+        lifecycle: str = "draft",
+        worker_authorized: bool = False,
+        expected_kind: Optional[str] = "approve_worker_launch",
+        candidates: tuple[str, ...] = (),
+        worker_claim_id: str = "",
+        integration_lease_id: str = "",
+        integration_id: str = "",
+        expected_task_id: str = "",
+        expected_integration_id: str = "",
+        pending_decision_id: str = "",
+    ):
+        expected = (
+            memory_sync.ExpectedTransition(
+                kind=expected_kind,
+                task_id=expected_task_id or task_id,
+                integration_id=expected_integration_id,
+            )
+            if expected_kind
+            else None
+        )
+        return memory_sync.OrchestrationState(
+            session=memory_sync.SessionFlowState(
+                session_id="session-1",
+                role=role,
+                host="codex",
+                phase=phase,
+                expected_transition=expected,
+            ),
+            task=memory_sync.TaskFlowState(
+                task_id=task_id,
+                lifecycle=lifecycle,
+                worker_authorized=worker_authorized,
+                run_report=f"reports/runs/{task_id}-attempt-1.md",
+            ),
+            worker_runtime=memory_sync.WorkerRuntimeState(claim_id=worker_claim_id),
+            integration_runtime=memory_sync.IntegrationRuntimeState(
+                lease_id=integration_lease_id,
+                integration_id=integration_id,
+            ),
+            pending_decision=memory_sync.PendingDecisionState(
+                decision_id=pending_decision_id
+            ),
+            candidate_task_ids=candidates,
+        )
+
+    def event(self, kind: str, **data: object):
+        return memory_sync.UserEvent(kind=kind, data=data)
+
+    def capability(self, host: str = "codex", create_worker: bool = True):
+        return memory_sync.HostCapability(
+            host=host,
+            can_create_visible_worker=create_worker,
+            can_gate_writes=True,
+            can_gate_builds=True,
+            can_gate_reads=False,
+        )
+
+    def test_osm_01_contextual_approval_routes_worker_without_discussion_execution(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(),
+            self.event("user_message", text="执行吧"),
+            self.capability(),
+        )
+        self.assertTrue(plan.accepted)
+        self.assertEqual(plan.next_action, "launch_worker")
+        self.assertEqual(plan.state_patch["session"]["phase"], "routing_worker")
+        self.assertEqual(plan.state_patch["task"]["lifecycle"], "approved")
+        self.assertTrue(plan.state_patch["task"]["worker_authorized"])
+        self.assertNotEqual(plan.next_action, "discussion_window_implements_business_code")
+
+    def test_osm_02_neutral_explicit_execute_enters_worker_with_claim_requirement(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(
+                role="neutral",
+                phase="planning",
+                lifecycle="approved",
+                worker_authorized=True,
+                expected_kind=None,
+            ),
+            self.event("user_message", text="执行 002 任务"),
+            self.capability(),
+        )
+        self.assertEqual(plan.next_action, "enter_worker")
+        self.assertTrue(plan.required_claim)
+        self.assertEqual(plan.state_patch["session"]["role"], "worker")
+        self.assertEqual(plan.state_patch["task"]["lifecycle"], "running")
+
+    def test_osm_03_claude_launch_outputs_one_line_and_stops(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(),
+            self.event("user_message", text="可以"),
+            self.capability(host="claude", create_worker=False),
+        )
+        action = memory_sync.map_flow_plan_to_host(
+            plan, self.capability(host="claude", create_worker=False)
+        )
+        self.assertEqual(action.action, "show_manual_worker_command")
+        self.assertEqual(action.user_message, "执行 002 任务")
+        self.assertTrue(action.stop_after_action)
+        self.assertEqual(action.state_patch["session"]["phase"], "waiting_for_user_launch")
+
+    def test_osm_04_codex_launch_failure_uses_same_one_line_fallback(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(phase="routing_worker", lifecycle="approved", worker_authorized=True),
+            self.event("host_worker_launch_failed", reason="creation_failed"),
+            self.capability(),
+        )
+        self.assertEqual(plan.next_action, "show_manual_worker_command")
+        self.assertEqual(plan.user_message, "执行 002 任务")
+        self.assertTrue(plan.stop_after_action)
+        self.assertEqual(plan.state_patch["session"]["phase"], "waiting_for_user_launch")
+
+    def test_osm_05_safe_worker_terminal_auto_enters_local_integration(self) -> None:
+        pending = memory_sync.reduce_orchestration(
+            self.state(
+                phase="waiting_for_worker",
+                lifecycle="running",
+                worker_authorized=True,
+                expected_kind="wait_for_worker",
+                worker_claim_id="claim-1",
+            ),
+            self.event(
+                "worker_terminal",
+                task_status="completed",
+                report_id="reports/runs/002-attempt-1.md",
+            ),
+            self.capability(),
+        )
+        self.assertEqual(pending.next_action, "evaluate_integration")
+        self.assertEqual(pending.state_patch["session"]["phase"], "integration_pending")
+        integrating = memory_sync.reduce_orchestration(
+            self.state(
+                phase="integration_pending",
+                lifecycle="completed",
+                worker_authorized=True,
+                expected_kind="auto_integrate",
+            ),
+            self.event("integration_evaluated", outcome="safe"),
+            self.capability(),
+        )
+        self.assertEqual(integrating.next_action, "enter_discussion_local_integration")
+        self.assertTrue(integrating.required_integration_lease)
+        self.assertEqual(integrating.state_patch["session"]["phase"], "integrating")
+        self.assertFalse(integrating.user_message)
+
+    def test_osm_06_integration_host_action_stays_in_discussion_window(self) -> None:
+        plan = memory_sync.FlowPlan(
+            accepted=True,
+            next_action="enter_discussion_local_integration",
+            required_integration_lease=True,
+        )
+        action = memory_sync.map_flow_plan_to_host(plan, self.capability())
+        self.assertEqual(action.action, "enter_discussion_local_integration")
+        self.assertFalse(action.creates_visible_window)
+
+    def test_osm_07_high_risk_asks_material_decision_not_integration_permission(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(
+                phase="integration_pending",
+                lifecycle="completed",
+                worker_authorized=True,
+                expected_kind="auto_integrate",
+            ),
+            self.event(
+                "integration_evaluated",
+                outcome="decision_required",
+                decision_id="public-api-compat",
+                question="002 修改了公共 API，是否采用兼容方案 A？",
+            ),
+            self.capability(),
+        )
+        self.assertEqual(plan.next_action, "ask_material_decision")
+        self.assertEqual(plan.state_patch["session"]["phase"], "decision_required")
+        self.assertIn("公共 API", plan.user_message)
+        self.assertNotIn("是否集成", plan.user_message)
+
+    def test_osm_08_discussion_business_write_and_build_are_denied(self) -> None:
+        for operation in ("business_write", "build_test"):
+            with self.subTest(operation=operation):
+                plan = memory_sync.reduce_orchestration(
+                    self.state(
+                        phase="planning",
+                        lifecycle="approved",
+                        worker_authorized=True,
+                        expected_kind=None,
+                    ),
+                    self.event("operation_requested", operation=operation),
+                    self.capability(),
+                )
+                self.assertEqual(plan.next_action, "deny_role_violation")
+                self.assertFalse(plan.accepted)
+                self.assertIn("Claim", plan.denial_reason)
+
+    def test_osm_09_contextual_approval_cannot_choose_between_two_tasks(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(expected_kind=None, candidates=("002", "003")),
+            self.event("user_message", text="可以"),
+            self.capability(),
+        )
+        self.assertEqual(plan.next_action, "ask_task_choice")
+        self.assertIn("002", plan.user_message)
+        self.assertIn("003", plan.user_message)
+
+    def test_osm_10_task_ids_are_always_exact(self) -> None:
+        for text, expected in (
+            ("执行 002 任务", "002"),
+            ("执行 002b 任务", "002b"),
+            ("执行 002ba 任务", "002ba"),
+        ):
+            with self.subTest(text=text):
+                command = memory_sync.parse_task_command(text)
+                assert command is not None
+                self.assertEqual(command["task_id"], expected)
+
+    def test_osm_11_launch_success_is_not_committed_before_runtime_persists(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(phase="routing_worker", lifecycle="approved", worker_authorized=True),
+            self.event(
+                "host_worker_launch_succeeded",
+                thread_id="real-thread-1",
+                runtime_persisted=False,
+            ),
+            self.capability(),
+        )
+        self.assertEqual(plan.next_action, "retry_runtime_persistence")
+        self.assertNotEqual(
+            plan.state_patch.get("session", {}).get("phase"), "waiting_for_worker"
+        )
+
+    def test_osm_12_integration_lease_is_exclusive(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            first = memory_sync.acquire_integration_lease(
+                root,
+                session_id="discussion-1",
+                integration_id="integration-1",
+                task_ids=["002"],
+                reports=["reports/runs/002-attempt-1.md"],
+                require_clean=False,
+            )
+            second = memory_sync.acquire_integration_lease(
+                root,
+                session_id="discussion-2",
+                integration_id="integration-2",
+                task_ids=["003"],
+                reports=["reports/runs/003-attempt-1.md"],
+                require_clean=False,
+            )
+            self.assertTrue(first["ok"])
+            self.assertFalse(second["ok"])
+            self.assertEqual(second["error"], "active_integration_lease_exists")
+
+    def test_osm_13_invalid_completed_report_is_normalized_to_blocked(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(
+                phase="integration_pending",
+                lifecycle="completed",
+                worker_authorized=True,
+                expected_kind="auto_integrate",
+            ),
+            self.event("integration_evaluated", outcome="blocked", reason="validation_failed"),
+            self.capability(),
+        )
+        self.assertEqual(plan.next_action, "repair_worker_closeout")
+        self.assertEqual(plan.state_patch["task"]["lifecycle"], "blocked")
+        self.assertEqual(plan.state_patch["session"]["phase"], "waiting_for_worker")
+
+    def test_osm_14_refresh_does_not_consume_expected_transition(self) -> None:
+        current = self.state()
+        plan = memory_sync.reduce_orchestration(
+            current, self.event("refresh"), self.capability()
+        )
+        self.assertEqual(plan.next_action, "read_status")
+        self.assertEqual(plan.state_patch, {})
+        self.assertEqual(current.session.expected_transition.kind, "approve_worker_launch")
+
+    def test_osm_15_direct_edit_request_never_authorizes_discussion_implementation(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(),
+            self.event("user_message", text="就在当前窗口直接修改"),
+            self.capability(),
+        )
+        self.assertEqual(plan.next_action, "ask_for_worker_authorization")
+        self.assertNotEqual(plan.next_action, "discussion_window_implements_business_code")
+        self.assertIn("Worker", plan.denial_reason)
+
+    def test_integration_completion_presents_then_accepts_result(self) -> None:
+        completed = memory_sync.reduce_orchestration(
+            self.state(
+                phase="integrating",
+                lifecycle="completed",
+                expected_kind=None,
+                integration_lease_id="lease-1",
+                integration_id="integration-002",
+            ),
+            self.event("integration_completed", integration_id="integration-002"),
+            self.capability(),
+        )
+        self.assertEqual(completed.next_action, "present_result")
+        self.assertEqual(completed.state_patch["task"]["lifecycle"], "integrated")
+        self.assertEqual(
+            completed.state_patch["session"]["phase"], "presenting_result"
+        )
+        accepted = memory_sync.reduce_orchestration(
+            self.state(
+                phase="presenting_result",
+                lifecycle="integrated",
+                expected_kind="accept_result",
+                expected_integration_id="integration-002",
+            ),
+            self.event("user_message", text="可以"),
+            self.capability(),
+        )
+        self.assertEqual(accepted.next_action, "accept_result")
+        self.assertEqual(accepted.state_patch["task"]["lifecycle"], "reviewed")
+
+    def test_decision_resolution_must_match_pending_decision(self) -> None:
+        stale = memory_sync.reduce_orchestration(
+            self.state(
+                phase="decision_required",
+                lifecycle="completed",
+                expected_kind="resolve_conflict",
+                pending_decision_id="decision-a",
+            ),
+            self.event("decision_resolved", decision_id="decision-b", option="A"),
+            self.capability(),
+        )
+        self.assertFalse(stale.accepted)
+        resolved = memory_sync.reduce_orchestration(
+            self.state(
+                phase="decision_required",
+                lifecycle="completed",
+                expected_kind="resolve_conflict",
+                pending_decision_id="decision-a",
+            ),
+            self.event("decision_resolved", decision_id="decision-a", option="A"),
+            self.capability(),
+        )
+        self.assertEqual(resolved.next_action, "evaluate_integration")
+        self.assertEqual(resolved.state_patch["session"]["phase"], "integration_pending")
+
+    def test_stale_contextual_transition_cannot_launch_or_review_another_task(self) -> None:
+        launch = memory_sync.reduce_orchestration(
+            self.state(expected_task_id="003"),
+            self.event("user_message", text="执行吧"),
+            self.capability(),
+        )
+        self.assertFalse(launch.accepted)
+        self.assertEqual(launch.next_action, "ask_task_choice")
+        review = memory_sync.reduce_orchestration(
+            self.state(
+                phase="presenting_result",
+                lifecycle="draft",
+                expected_kind="accept_result",
+                expected_integration_id="integration-002",
+            ),
+            self.event("user_message", text="可以"),
+            self.capability(),
+        )
+        self.assertFalse(review.accepted)
+        self.assertEqual(review.denial_reason, "result_acceptance_transition_is_stale")
+
+    def test_safe_integration_cannot_absorb_non_completed_task(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(
+                phase="integration_pending",
+                lifecycle="blocked",
+                expected_kind="auto_integrate",
+            ),
+            self.event("integration_evaluated", outcome="safe"),
+            self.capability(),
+        )
+        self.assertFalse(plan.accepted)
+        self.assertEqual(plan.next_action, "repair_worker_closeout")
+
 
 class UnbornRepositoryTests(unittest.TestCase):
     def test_session_start_accepts_repository_without_first_commit(self) -> None:
@@ -690,6 +1084,10 @@ class MemorySyncTests(unittest.TestCase):
             "030",
             "--worker-id",
             "worker-one",
+            "--session-id",
+            "worker-session-030",
+            "--host",
+            "codex",
         ]
         first = subprocess.run(
             command,
@@ -702,9 +1100,17 @@ class MemorySyncTests(unittest.TestCase):
         first_payload = json.loads(first.stdout)
         self.assertEqual(first_payload["claim"]["task_id"], "030")
         self.assertEqual(first_payload["claim"]["worktree"], str(self.root.resolve()))
+        runtime = memory_sync.read_session_runtime(self.root, "worker-session-030")
+        assert runtime is not None
+        self.assertEqual(runtime["session"]["role"], "worker")
+        self.assertEqual(
+            runtime["worker_runtime"]["claim_id"], first_payload["claim"]["claim_id"]
+        )
 
+        second_command = list(command)
+        second_command[second_command.index("worker-one")] = "worker-two"
         second = subprocess.run(
-            command[:-1] + ["worker-two"],
+            second_command,
             cwd=self.root,
             text=True,
             stdout=subprocess.PIPE,
@@ -1185,6 +1591,453 @@ class MemorySyncTests(unittest.TestCase):
         self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertIn("stage implicitly", payload["hookSpecificOutput"]["permissionDecisionReason"])
 
+    def test_session_runtime_round_trip_stays_outside_worktree(self) -> None:
+        result = memory_sync.write_session_runtime(
+            self.root,
+            "discussion-1",
+            {
+                "session": {
+                    "session_id": "discussion-1",
+                    "role": "discussion",
+                    "host": "codex",
+                    "phase": "planning",
+                    "expected_transition": None,
+                }
+            },
+        )
+        self.assertTrue(result["ok"])
+        runtime = memory_sync.read_session_runtime(self.root, "discussion-1")
+        assert runtime is not None
+        self.assertEqual(runtime["session"]["role"], "discussion")
+        self.assertEqual(self.git("status", "--porcelain").stdout, "")
+
+    def test_session_runtime_apply_deep_merges_reducer_patch(self) -> None:
+        memory_sync.write_session_runtime(
+            self.root,
+            "discussion-apply",
+            {
+                "session": {
+                    "session_id": "discussion-apply",
+                    "role": "discussion",
+                    "host": "codex",
+                    "phase": "awaiting_worker_authorization",
+                    "expected_transition": {
+                        "kind": "approve_worker_launch",
+                        "task_id": "002",
+                    },
+                },
+                "task": {
+                    "task_id": "002",
+                    "lifecycle": "draft",
+                    "worker_authorized": False,
+                },
+            },
+        )
+        process = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "session",
+                "apply",
+                "discussion-apply",
+            ],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "session": {
+                        "phase": "routing_worker",
+                        "expected_transition": None,
+                    },
+                    "task": {
+                        "lifecycle": "approved",
+                        "worker_authorized": True,
+                    },
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        payload = json.loads(process.stdout)
+        self.assertTrue(payload["ok"])
+        runtime = payload["runtime"]
+        self.assertEqual(runtime["session"]["role"], "discussion")
+        self.assertEqual(runtime["session"]["phase"], "routing_worker")
+        self.assertIsNone(runtime["session"]["expected_transition"])
+        self.assertEqual(runtime["task"]["task_id"], "002")
+        self.assertEqual(runtime["task"]["lifecycle"], "approved")
+
+    def test_pre_tool_use_denies_discussion_build_without_claim(self) -> None:
+        memory_sync.write_session_runtime(
+            self.root,
+            "discussion-1",
+            {
+                "session": {
+                    "session_id": "discussion-1",
+                    "role": "discussion",
+                    "host": "codex",
+                    "phase": "planning",
+                    "expected_transition": None,
+                }
+            },
+        )
+        process = subprocess.run(
+            [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "pre-tool-use"],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": "discussion-1",
+                    "tool_name": "Bash",
+                    "tool_input": {"command": "python3 -m unittest"},
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        payload = json.loads(process.stdout)
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("Claim", payload["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_pre_tool_use_denies_discussion_business_file_write(self) -> None:
+        memory_sync.write_session_runtime(
+            self.root,
+            "discussion-1",
+            {
+                "session": {
+                    "session_id": "discussion-1",
+                    "role": "discussion",
+                    "host": "codex",
+                    "phase": "planning",
+                    "expected_transition": None,
+                }
+            },
+        )
+        process = subprocess.run(
+            [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "pre-tool-use"],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": "discussion-1",
+                    "tool_name": "Write",
+                    "tool_input": {"file_path": str(self.root / "src" / "app.py")},
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        payload = json.loads(process.stdout)
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_pre_tool_use_allows_bound_worker_build(self) -> None:
+        acquired = memory_sync.acquire_claim(
+            self.root,
+            "002",
+            1,
+            "worker-session-1",
+            branch=self.git("branch", "--show-current").stdout.strip(),
+            worktree=str(self.root),
+        )
+        self.assertTrue(acquired["ok"])
+        memory_sync.write_session_runtime(
+            self.root,
+            "worker-session-1",
+            {
+                "session": {
+                    "session_id": "worker-session-1",
+                    "role": "worker",
+                    "host": "codex",
+                    "phase": "waiting_for_worker",
+                    "expected_transition": None,
+                },
+                "task": {
+                    "task_id": "002",
+                    "lifecycle": "running",
+                    "worker_authorized": True,
+                },
+            },
+        )
+        process = subprocess.run(
+            [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "pre-tool-use"],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": "worker-session-1",
+                    "tool_name": "Bash",
+                    "tool_input": {"command": "python3 -m unittest"},
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        self.assertEqual(json.loads(process.stdout), {})
+
+    def test_pre_tool_use_rejects_forged_worker_runtime_without_live_claim(self) -> None:
+        memory_sync.write_session_runtime(
+            self.root,
+            "worker-forged",
+            {
+                "session": {
+                    "session_id": "worker-forged",
+                    "role": "worker",
+                    "host": "codex",
+                    "phase": "waiting_for_worker",
+                    "expected_transition": None,
+                },
+                "task": {
+                    "task_id": "002",
+                    "lifecycle": "running",
+                    "worker_authorized": True,
+                },
+                "worker_runtime": {
+                    "claim_id": "forged-claim",
+                    "branch": self.git("branch", "--show-current").stdout.strip(),
+                    "worktree": str(self.root),
+                },
+            },
+        )
+        process = subprocess.run(
+            [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "pre-tool-use"],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": "worker-forged",
+                    "tool_name": "Bash",
+                    "tool_input": {"command": "python3 -m unittest"},
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        payload = json.loads(process.stdout)
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_pre_tool_use_worker_may_update_only_its_own_task_state(self) -> None:
+        own_task = "tasks/build/033-worker-state.md"
+        other_task = "tasks/build/034-other-state.md"
+        self.write(own_task, self.execution_ready_task("033-worker-state"))
+        self.write(other_task, self.execution_ready_task("034-other-state"))
+        self.git("add", own_task, other_task)
+        self.git("commit", "-qm", "worker task state fixture")
+        acquired = memory_sync.acquire_claim(
+            self.root,
+            "033",
+            1,
+            "worker-state-session",
+            branch=self.git("branch", "--show-current").stdout.strip(),
+            worktree=str(self.root),
+        )
+        self.assertTrue(acquired["ok"])
+        memory_sync.write_session_runtime(
+            self.root,
+            "worker-state-session",
+            {
+                "session": {
+                    "session_id": "worker-state-session",
+                    "role": "worker",
+                    "host": "codex",
+                    "phase": "waiting_for_worker",
+                    "expected_transition": None,
+                },
+                "task": {
+                    "task_id": "033",
+                    "lifecycle": "running",
+                    "worker_authorized": True,
+                },
+            },
+        )
+
+        def invoke(path: str) -> dict[str, object]:
+            process = subprocess.run(
+                [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "pre-tool-use"],
+                cwd=self.root,
+                input=json.dumps(
+                    {
+                        "cwd": str(self.root),
+                        "session_id": "worker-state-session",
+                        "tool_name": "Edit",
+                        "tool_input": {"file_path": str(self.root / path)},
+                    }
+                ),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+            return json.loads(process.stdout)
+
+        self.assertEqual(invoke(own_task), {})
+        denied = invoke(other_task)
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_integration_lease_cli_requires_discussion_integrating_runtime(self) -> None:
+        memory_sync.write_session_runtime(
+            self.root,
+            "discussion-cli",
+            {
+                "session": {
+                    "session_id": "discussion-cli",
+                    "role": "discussion",
+                    "host": "codex",
+                    "phase": "integrating",
+                    "expected_transition": {
+                        "kind": "auto_integrate",
+                        "task_id": "002",
+                    },
+                },
+                "task": {
+                    "task_id": "002",
+                    "lifecycle": "completed",
+                    "worker_authorized": True,
+                },
+            },
+        )
+        process = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "integration-lease",
+                "acquire",
+                "--session-id",
+                "discussion-cli",
+                "--integration-id",
+                "integration-cli",
+                "--task-id",
+                "002",
+                "--report",
+                "reports/runs/002-attempt-1.md",
+            ],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        payload = json.loads(process.stdout)
+        runtime = memory_sync.read_session_runtime(self.root, "discussion-cli")
+        assert runtime is not None
+        self.assertTrue(payload["ok"])
+        self.assertEqual(
+            runtime["integration_runtime"]["lease_id"], payload["lease"]["lease_id"]
+        )
+
+    def test_pre_tool_use_allows_discussion_local_integration_merge_with_lease(self) -> None:
+        acquired = memory_sync.acquire_integration_lease(
+            self.root,
+            session_id="discussion-1",
+            integration_id="integration-1",
+            task_ids=["002"],
+            reports=["reports/runs/002-attempt-1.md"],
+            require_clean=False,
+        )
+        self.assertTrue(acquired["ok"])
+        memory_sync.write_session_runtime(
+            self.root,
+            "discussion-1",
+            {
+                "session": {
+                    "session_id": "discussion-1",
+                    "role": "discussion",
+                    "host": "codex",
+                    "phase": "integrating",
+                    "expected_transition": None,
+                },
+                "task": {
+                    "task_id": "002",
+                    "lifecycle": "completed",
+                    "worker_authorized": True,
+                },
+            },
+        )
+        process = subprocess.run(
+            [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "pre-tool-use"],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": "discussion-1",
+                    "tool_name": "Bash",
+                    "tool_input": {"command": "git merge --no-commit worker-002"},
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        self.assertEqual(json.loads(process.stdout), {})
+
+    def test_integration_lease_allows_closeout_but_not_new_business_implementation(self) -> None:
+        acquired = memory_sync.acquire_integration_lease(
+            self.root,
+            session_id="discussion-closeout",
+            integration_id="integration-closeout",
+            task_ids=["002"],
+            reports=["reports/runs/002-attempt-1.md"],
+            require_clean=False,
+        )
+        self.assertTrue(acquired["ok"])
+        memory_sync.write_session_runtime(
+            self.root,
+            "discussion-closeout",
+            {
+                "session": {
+                    "session_id": "discussion-closeout",
+                    "role": "discussion",
+                    "host": "codex",
+                    "phase": "integrating",
+                    "expected_transition": None,
+                },
+                "task": {
+                    "task_id": "002",
+                    "lifecycle": "completed",
+                    "worker_authorized": True,
+                },
+            },
+        )
+
+        def invoke(tool_name: str, tool_input: dict[str, str]) -> dict[str, object]:
+            process = subprocess.run(
+                [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "pre-tool-use"],
+                cwd=self.root,
+                input=json.dumps(
+                    {
+                        "cwd": str(self.root),
+                        "session_id": "discussion-closeout",
+                        "tool_name": tool_name,
+                        "tool_input": tool_input,
+                    }
+                ),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+            return json.loads(process.stdout)
+
+        self.assertEqual(
+            invoke("Edit", {"file_path": str(self.root / "CODEMAP.md")}), {}
+        )
+        self.assertEqual(
+            invoke("Bash", {"command": "python3 -m unittest"}), {}
+        )
+        denied = invoke(
+            "Edit", {"file_path": str(self.root / "src" / "new_feature.py")}
+        )
+        self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
+
     def test_stop_hook_continues_agent_until_closeout(self) -> None:
         self.write("src/app.py", "print('changed')\n")
         process = subprocess.run(
@@ -1529,9 +2382,9 @@ class MemorySyncTests(unittest.TestCase):
     def test_host_integration_plan_has_silent_fallback_levels(self) -> None:
         self.write("reports/runs/006a-sequential.md", self.run_report("006a-sequential"))
         expected = {
-            "background": "launch_temporary_background_integrator",
-            "active_agent": "enter_internal_integration_phase",
-            "inactive": "keep_pending_until_discussion_or_refresh",
+            "background": "enter_discussion_local_integration",
+            "active_agent": "enter_discussion_local_integration",
+            "inactive": "persist_integration_pending_until_discussion_resume",
         }
         for capability, action in expected.items():
             with self.subTest(capability=capability):
@@ -1552,6 +2405,7 @@ class MemorySyncTests(unittest.TestCase):
                 payload = json.loads(process.stdout)
                 self.assertEqual(payload["visibility"], "silent_unless_blocked")
                 self.assertEqual(payload["host_action"], action)
+                self.assertFalse(payload["creates_visible_integration_window"])
 
     def test_failed_sequential_result_blocks_integration(self) -> None:
         report_path = "reports/runs/007-failed.md"
@@ -2067,7 +2921,7 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(json.loads(status.stdout)["kind"], "integration_status")
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
-            self.assertEqual(config["version"], 8)
+            self.assertEqual(config["version"], 9)
             self.assertEqual(config["session_start_context_mode"], "safety_only")
             self.assertEqual(config["paths"]["run_report_glob"], "reports/runs/*.md")
             self.assertEqual(
@@ -2082,6 +2936,8 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(config["project_status_max_lines"], 160)
             self.assertEqual(config["project_status_max_chars"], 12000)
             self.assertEqual(config["discussion_dynamic_max_lines"], 30)
+            self.assertTrue(config["orchestration_gate_enabled"])
+            self.assertEqual(config["read_gate_mode"], "host_dependent")
             self.assertIn("prompts/INTEGRATION_AI.md", config["required_impact_rows"])
 
             second = subprocess.run(
@@ -2144,7 +3000,7 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertEqual(process.returncode, 0, process.stderr)
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
-            self.assertEqual(config["version"], 8)
+            self.assertEqual(config["version"], 9)
             self.assertEqual(config["session_start_context_mode"], "safety_only")
             self.assertEqual(config["session_summary_max_chars"], 1234)
             self.assertTrue(config["scan_worker_refs_for_status"])
@@ -2385,12 +3241,13 @@ class OneCommandInstallerTests(unittest.TestCase):
             "sequential",
             "parallel_batch",
             "high_risk",
-            "The task is ready. Create the execution window?",
-            "explicit human command",
-            "user-visible, user-owned Worker tasks",
+            "expected_transition",
+            "awaiting_worker_authorization",
+            "routing_worker",
+            "执行 <task-id> 任务",
+            "Discussion-local Integration",
             "<task-id> · <short title> · WG Worker",
-            "Do not use hidden subagents",
-            "manual fallback",
+            "Never implement Worker work",
             "worker_creation_authorized",
             "integrated` to `reviewed",
         ):
@@ -2409,39 +3266,45 @@ class OneCommandInstallerTests(unittest.TestCase):
             ROOT / "templates" / "zh-CN" / "prompts" / "DISCUSSION_AI.md"
         ).read_text(encoding="utf-8")
         for expected in (
-            "创建执行窗口",
-            "为这三个任务分别创建执行窗口",
+            "Window / Role / Phase / Host Action",
+            "approve_worker_launch",
+            "automatic_thread",
+            "waiting_for_user_launch",
+            "执行 <task-id> 任务",
             "visible, user-owned, inspectable, and controllable",
             "<task-id> · <short title> · WG Worker",
-            "Do not create extra Workers",
-            "Manual copying is the fallback, not the default",
-            "Do not use a hidden subagent as the Worker",
+            "No Discussion-executes fallback",
+            "Integration is a Discussion-local phase",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, reference)
         for expected in (
-            "任务已准备好，是否创建执行窗口？",
-            "创建执行窗口",
-            "为这三个任务分别创建执行窗口",
-            "不得用隐藏 subagent 代替 Worker",
-            "手动复制仅作为降级方案",
+            "expected_transition",
+            "awaiting_worker_authorization",
+            "routing_worker",
+            "执行 <task-id> 任务",
+            "Discussion-local Integration",
+            "不得在 Discussion 中实现 Worker 工作",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, chinese_prompt)
 
-    def test_integration_prompt_is_temporary_and_has_truthful_fallback(self) -> None:
+    def test_integration_prompt_is_discussion_local_and_lease_bound(self) -> None:
         discussion = (
             ROOT / "templates" / "prompts" / "DISCUSSION_AI.md"
         ).read_text(encoding="utf-8")
         integration = (
             ROOT / "templates" / "prompts" / "INTEGRATION_AI.md"
         ).read_text(encoding="utf-8")
-        self.assertIn("silently launch a temporary Integrator", discussion)
-        self.assertIn("no background thread exists", discussion)
-        self.assertIn("Never require a user-visible Integration window", discussion)
-        self.assertIn("end this temporary agent", integration)
+        self.assertIn("Discussion-local Integration", discussion)
+        self.assertIn("integration_pending", discussion)
+        self.assertIn("decision_required", discussion)
+        self.assertIn("Integration lease", integration)
+        self.assertIn("Do not create a new Integration window", integration)
         self.assertIn("task-state", integration)
         self.assertIn("`completed` to `integrated`", integration)
+        self.assertNotIn("silently launch a temporary Integrator", discussion)
+        self.assertNotIn("end this temporary agent", integration)
 
     def test_hooks_are_not_semantic_reviewers_or_agent_launchers(self) -> None:
         runtime = (HOOK_ASSETS / "memory_sync.py").read_text(encoding="utf-8")
@@ -2468,6 +3331,10 @@ class TemplateMirrorTests(unittest.TestCase):
                 self.assertIn("wishgraph:task-state:start", content)
                 self.assertIn('"schema_version": 1', content)
                 self.assertIn('"worker_creation_authorized": false', content)
+                self.assertTrue(
+                    "Task state records only Task Lifecycle" in content
+                    or "Task state 只记录 Task Lifecycle" in content
+                )
 
     def test_distributable_template_mirrors_stay_identical(self) -> None:
         pairs = [

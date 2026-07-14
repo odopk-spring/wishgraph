@@ -6,11 +6,11 @@ This folder provides manually copyable WishGraph project-memory templates.
 
 Project-level memory-sync hooks are bundled with the installable skill rather than duplicated here. Use `skills/wishgraph/scripts/install_project_hooks.py` to merge them safely into a target project. Hooks 项目级记忆同步配置由可安装 skill 提供，请使用安装器安全合并，不要手工覆盖已有配置。
 
-Discussion AI classifies work as `discussion`, `sequential`, `parallel_batch`, or `high_risk`. After an explicit human command, it creates and configures user-visible Worker tasks when the host supports that capability; manual copying is the fallback. Safe sequential and mechanically proven `parallel_independent` results integrate silently; high-risk, conflicting, blocked, competitive, or ambiguous results return to Discussion. Integration is temporary and uses a truthful host fallback.
+Discussion AI classifies work as `discussion`, `sequential`, `parallel_batch`, or `high_risk`. After an explicit human command, Codex creates a user-visible Worker; Claude Code and unsupported or failed creation output only `执行 <task-id> 任务`. Safe sequential and mechanically proven `parallel_independent` results enter Discussion-local Integration automatically; high-risk, conflicting, blocked, competitive, or ambiguous results ask only the concrete decision. Integration never creates a separate window.
 
 Task templates start with a versioned `wishgraph:task-state` block. The checked lifecycle is `draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`; only an explicit human command changes Worker authorization to true.
 
-讨论 AI 先判断工作类型；人类明确命令后，宿主支持时由讨论 Agent 创建并配置用户可见 Worker，手动复制仅作降级。安全串行和机械检查证明独立的 `parallel_independent` 结果静默集成；高风险、冲突、阻塞、竞争或不明确结果返回 Discussion。集成 Agent 是临时角色，并按宿主能力如实降级。
+Discussion 先判断工作类型；人类明确命令后，Codex 创建用户可见 Worker；Claude Code、宿主不支持或创建失败时只输出 `执行 <task-id> 任务`。安全串行和机械检查证明独立的 `parallel_independent` 结果自动进入 Discussion-local Integration；高风险、冲突、阻塞、竞争或歧义只询问具体决定。Integration 不创建独立窗口。
 
 任务模板使用版本化 `wishgraph:task-state` 状态块，受检生命周期为 `draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`；只有人类明确命令才能把 Worker 创建授权改为 true。
 

@@ -27,25 +27,25 @@
 
 ## 协作规则
 
-- 规划 session 写 PRD、架构说明、代码地图、提示词和任务规格。
-- 规划 session 把工作判断为 discussion、sequential、parallel_batch 或 high_risk，推荐执行形态并由用户确认。
+- Discussion session 写 PRD、架构说明、代码地图、提示词和任务规格，不写业务代码，也不运行实现构建或测试。
+- Discussion session 把工作判断为 discussion、sequential、parallel_batch 或 high_risk，推荐执行形态并由用户确认。
 - 执行 session 只实现已批准任务规格。
 - 任务规格必须自包含；不要依赖聊天历史。
 - Worker session 使用独立 branch 或 worktree，创建一个不可变的 `reports/runs/<work-unit-id>.md`，填写 Integrate 或 N/A 建议，不修改共享记忆。
-- 集成 session 使用 `--no-commit` 合并，把 `reports/PROJECT_STATUS.md` 重写为当前快照，更新受影响共享记忆，再刷新 `prompts/DISCUSSION_AI.md` 的精简动态交接。
-- 创建 Worker 必须有人类明确命令。宿主支持创建用户可见任务或 session 时，由规划 Agent 为每个已授权规格创建可见 Worker，自动交接执行提示词和任务文件，并命名为 `<task-id> · <short title> · WG Worker`。不得静默创建或使用隐藏 subagent；宿主不支持时才降级为手动复制。
-- 精确的执行、停止、重试、接管和明确 competitive 命令通过结构化 Task ID 与 Git common dir Claim 路由。micro 仍需 ad-hoc 报告，任一风险标记出现就升级为正式 Task。
+- Discussion-local Integration 持有绑定 lease，使用 `--no-commit` 合并，把 `reports/PROJECT_STATUS.md` 重写为当前快照，更新受影响共享记忆，再刷新 `prompts/DISCUSSION_AI.md` 的精简动态交接。
+- 创建 Worker 必须有人类明确命令。Claude Code 不自动创建 Worker 窗口：授权后只输出 `执行 <task-id> 任务` 并停止，由用户在中立执行窗口运行这一行。
+- 精确的执行、停止、重试、接管和明确 competitive 命令通过结构化 Task ID 与 Git common dir Claim 路由。只有存在唯一 `expected_transition` 时，简短上下文批准才有效。
 - 创建前把命令写入 task-state：`draft -> approved` 并设置 `worker_creation_authorized: true`。Worker 记录执行状态，Integration 记录 `integrated`，用户接受后讨论窗口记录 `reviewed`。
-- 集成是用户不可见的临时控制事务。安全串行和机械检查证明独立的 `parallel_independent` 结果静默集成；风险、冲突、阻塞、竞争或不明确结果返回 Discussion。宿主依次降级为真实后台能力、当前 Agent 内部阶段或 pending 到下次刷新。
+- 每个 Worker terminal 事件都进入 `integration_pending`。安全串行和机械检查证明独立的 `parallel_independent` 结果自动进入 Discussion-local Integration；风险、冲突、阻塞、竞争或歧义进入具体的 `decision_required` 或 `blocked`。不得创建独立 Integration 窗口。
 - Hooks 只输出状态并执行门禁，不决定是否并行，不启动 Agent，不合并代码，不编写语义记忆，也不代替 Review。
 - 新窗口默认中立。默认 SessionStart 只做安全检查，不激活 Discussion；明确开始讨论或刷新时再加载当前状态。
-- 每个完成的执行单元优先对应一个原子 commit。极小且已批准的 ad-hoc 修改可以没有 task 文件，但不能省略收尾。
+- 每个完成的 Task-backed 执行单元优先对应一个原子 commit。
 - 存在 `.wishgraph/hooks/memory_sync.py` 时，宣称完成前运行 worktree 检查。
 
 ## 交接
 
 - 用户要求迁移讨论时，更新 `prompts/DISCUSSION_AI.md`，并打印完整内容供复制。
-- PRD 和首个任务准备好后，询问是否创建执行 session。用户明确授权后，在宿主支持时创建并配置用户可见 Worker；否则提供完整提示词和已批准任务文件作为手动降级方案。
+- PRD 和首个任务准备好后，设置唯一 `expected_transition` 并询问 Worker 授权；授权后只输出 `执行 <task-id> 任务`。
 
 ## 调试
 

@@ -80,7 +80,7 @@
 
 ## Shared Memory Impact Proposal
 
-Worker 不直接修改共享项目记忆。需要集成 Agent 更新时使用 `Integrate`；无需更新时使用 `N/A` 并给出具体理由。
+Worker 不直接修改共享项目记忆。需要 Discussion-local Integration 更新时使用 `Integrate`；无需更新时使用 `N/A` 并给出具体理由。
 
 | File | Result | Reason |
 |---|---|---|
@@ -96,5 +96,5 @@ Worker 不直接修改共享项目记忆。需要集成 Agent 更新时使用 `I
 
 - 合并依赖：
 - 冲突提醒：
-- 集成 Agent 必须保留的事实：
+- Discussion-local Integration 必须保留的事实：
 - 可以安全集成、阻塞或需要用户决定的理由：

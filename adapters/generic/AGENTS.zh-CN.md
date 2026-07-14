@@ -48,17 +48,16 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - `reports/runs/*.md`：不可变 Worker 执行证据。
 - `reports/PROJECT_STATUS.md`：当前已集成的项目状态概览和下一步建议。
 
-## 规划 Agent
+## Discussion 角色
 
 - 澄清意图。
 - 实现前更新 PRD 和架构。
 - 编写自包含任务规格。
 - 把工作判断为 discussion、sequential、parallel_batch 或 high_risk，解释串行或并行建议，由用户确认。
-- 询问是否创建已批准的执行窗口。只有人类明确命令后，才使用宿主的用户可见任务或线程能力，为每个已授权规格创建 Worker，自动交接执行提示词和任务文件，并命名为 `<task-id> · <short title> · WG Worker`。不得静默创建 Worker 或使用隐藏 subagent；宿主不能创建可见任务时才降级为手动复制。
-- “执行012号任务”、停止、重试、接管和明确竞争比较都通过精确结构化 Task ID 与仓库级 Claim 路由。micro 仍需 ad-hoc 报告；有风险就升级为正式 Task。
+- 询问是否创建已批准的执行窗口。只有人类明确命令后，才使用宿主的用户可见任务或线程能力，为每个已授权规格创建 Worker，并命名为 `<task-id> · <short title> · WG Worker`。不得静默创建 Worker 或使用隐藏 subagent；创建不受支持或失败时，只输出 `执行 <task-id> 任务` 并停止。
+- “执行012号任务”、停止、重试、接管和明确竞争比较都通过精确结构化 Task ID 与仓库级 Claim 路由。只有存在唯一 `expected_transition` 时，简短上下文批准才有效。
 - 创建前，在每个已授权任务的 task-state 中记录 `draft -> approved` 和 `worker_creation_authorized: true`。
-- 除非用户明确批准低风险直接编辑，否则不改业务代码。
-- 极小直接修改可以没有 task 文件，但仍必须验证、创建唯一执行报告，并遵守正常 commit 边界。
+- 不改业务代码，也不运行实现构建或测试。所有实现都必须是持有绑定 Claim 的 Task-backed Worker 工作。
 - 用户要求迁移讨论时，更新 `prompts/DISCUSSION_AI.md` 并输出完整提示词供复制。
 
 ## 执行 Agent
@@ -72,15 +71,15 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - 存在 `.wishgraph/hooks/memory_sync.py` 时，完成前运行 worktree 检查。
 - 除非用户明确说不提交，否则创建一个原子 commit。
 
-## 集成 Agent
+## Discussion-local Integration 阶段
 
 - 从独立 branch 或 worktree 使用 `--no-commit` 合并 Worker。
 - 读取全部新增执行报告并更新受影响共享项目记忆。
 - 把 `reports/PROJECT_STATUS.md` 重写为当前快照，再刷新 `prompts/DISCUSSION_AI.md` 的精简动态交接。
 - 把已吸收的结构化任务改为 `integrated`；只有用户接受结果后，讨论窗口才改为 `reviewed`。
 - 新窗口默认中立。默认 SessionStart 只做安全检查；用户明确说“开始讨论”后才加载讨论状态，持续运行窗口使用显式刷新。
-- 集成是用户不可见的临时控制事务。安全串行和机械检查证明独立的 `parallel_independent` 结果静默集成；风险、冲突、阻塞、竞争或不明确结果返回 Discussion。宿主依次降级为真实后台能力、当前 Agent 内部阶段或 pending 到下次刷新。
-- 只有平台支持时才使用已授权后台任务；否则明确切换主 Agent 或给出一条启动指令，不得虚构后台执行。
+- 每个 Worker terminal 事件都进入 `integration_pending`。安全串行和机械检查证明独立的 `parallel_independent` 结果由持有绑定 Integration lease 的 Discussion 自动集成；风险、冲突、阻塞、竞争或歧义只形成具体决策或阻塞状态。
+- 不得创建独立 Integration 窗口。Discussion 不活跃时，持久化 `integration_pending`，等它恢复后继续。
 - Hooks 只提供准备、等待和阻塞报告，不决定是否并行，不启动 Agent，不合并代码，不编写语义记忆，也不代替人类 Review。
 
 ## 好的任务规格

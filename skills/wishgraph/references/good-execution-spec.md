@@ -13,7 +13,7 @@ It should answer:
 - Which files, symbols, APIs, routes, tests, or commands are in scope?
 - What must not be changed?
 - How will the result be verified?
-- Which shared-memory files should the integration agent update?
+- Which shared-memory files should the Discussion-local Integration phase update?
 - What is the rollback boundary?
 - Which language mode should human-facing explanations and reports use?
 - Is the work sequential, parallel, or high-risk, and what integration authority applies?

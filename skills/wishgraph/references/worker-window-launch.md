@@ -1,79 +1,80 @@
-# User-Visible Worker Launch
+# Worker Routing And Discussion-Local Integration
 
-Use this protocol when a discussion agent has finished one or more approved task specs and the user wants Worker execution to begin.
+Use this protocol after Discussion has produced a bounded Task and the workflow must decide what happens next.
 
-## Authority Boundary
+## Window / Role / Phase / Host Action
 
-The discussion agent may offer:
+- A **Window** is a user-visible host session.
+- A **Role** is `neutral`, `discussion`, or `worker`.
+- A **Phase** is a temporary flow step such as `routing_worker` or `integrating`.
+- A **Host Action** is how Codex, Claude Code, or another host realizes an authorized `FlowPlan`.
 
-```text
-The task is ready. Create the execution window?
-```
+Discussion is the long-lived planning and review role. Worker is an independent execution-window role. Integration is a Discussion-local phase, not a separate role or window. Review is the `presenting_result` phase in Discussion.
 
-That offer is not authority to create anything. Create Worker tasks only after an explicit human command, such as:
+## Authority And Expected Transition
 
-```text
-创建执行窗口
-```
-
-or:
+Discussion moves a ready Task to `awaiting_worker_authorization` and records one structured transition:
 
 ```text
-为这三个任务分别创建执行窗口
+approve_worker_launch(<task-id>)
 ```
 
-Equivalent wording in the user's language is valid when it clearly authorizes creation. A single-task command authorizes only the current approved task. A batch command authorizes exactly the approved tasks named or unambiguously referenced by the user. Do not create extra Workers.
+When that transition is unique, short replies such as `可以`, `开始吧`, `执行吧`, `继续`, `按这个做`, and `创建吧` authorize the named Worker launch. They never authorize Discussion to implement the Task. If two Tasks are waiting, ask for the exact ID.
 
-This remains an explicit Worker workflow because the human authorizes creation and each resulting task is visible, user-owned, inspectable, and controllable. Never substitute a hidden subagent or silently create a background Worker.
+Explicit commands such as `执行 002 任务` take priority, but still require an exact structured ID and all Task, dependency, Claim, branch, and worktree checks. `002`, `002b`, and `002ba` never prefix-match one another. Inspect, Observe, and Refresh are read-only and do not consume `expected_transition`.
 
-Worker-creation authority is not integration authority. Apply the separate sequential, parallel-batch, and high-risk integration rules after execution.
+Persist authorization by moving the exact Task from `draft` to `approved` and setting `worker_creation_authorized: true`. Then move the flow from `awaiting_worker_authorization` to `routing_worker`.
 
-Persist the authority before creation: change only the authorized task's `wishgraph:task-state` block from `draft` to `approved` and set `worker_creation_authorized` to true. Task drafting, requirement approval, or a general request to continue is not a substitute for this explicit Worker-creation record.
+## Worker Payload
 
-## Before Creation
-
-Verify all of the following:
-
-- The task is approved, has `worker_creation_authorized: true`, and has a self-contained `tasks/build/*.md` specification. Accept `.tasks/build/*.md` only as a legacy project path.
-- The discussion agent has classified the work and explained the serial or parallel recommendation.
-- `prompts/EXECUTION_AI.md` is present and current.
-- Each Worker can use an isolated branch or worktree when the platform supports it.
-- The Worker will receive the actual approved prompt and task specification, not merely paths that may be absent from its starting snapshot.
-
-Prefer a committed planning state so a new worktree can read the files directly. If the approved prompt or task spec is not present in the Worker's starting snapshot, include its full content in the initial message or use a platform-supported working-tree snapshot only when that is safe and authorized. Do not create an empty Worker that cannot see its instructions.
-
-## Creation Payload
-
-Give each Worker:
-
-1. Its canonical display name as the first line.
-2. The instruction to act only as the Worker for the assigned task.
-3. The authoritative content or accessible location of `prompts/EXECUTION_AI.md`.
-4. The authoritative content or accessible location of the assigned `tasks/build/*.md` file.
-5. The project, target branch, isolated-worktree expectation, and required immutable run-report path.
-6. A reminder that it must not edit shared project memory or start other agents.
-
-Use this naming format:
+A real Worker must remain visible, user-owned, inspectable, and controllable. Use the title:
 
 ```text
 <task-id> · <short title> · WG Worker
 ```
 
-Examples:
+Give it the repository, exact Task ID and spec, `prompts/EXECUTION_AI.md`, isolated branch/worktree requirement, authorization, Claim protocol, validation, immutable Run Report path, shared-state restrictions, and atomic-commit requirement.
+
+No Discussion-executes fallback exists. Do not use a hidden subagent as the Worker and do not create unapproved Workers.
+
+## Host Routing
+
+### Codex
+
+When visible task/thread creation is available, use `automatic_thread` and create the Worker. Record only the real returned thread ID. After success, move to `waiting_for_worker` and stop Discussion execution actions.
+
+If creation fails, move to `waiting_for_user_launch` and output exactly:
 
 ```text
-012 · Auth Refresh · WG Worker
-013 · Settings UI · WG Worker
+执行 <task-id> 任务
 ```
 
-If the platform supports explicit task titles, set the title. If it only supports automatic naming, put the canonical name on the first line of the initial message.
+### Claude Code
 
-## Platform Routing
+Use `/task` when it creates a genuinely separate session; otherwise require a new user-opened window. Move to `waiting_for_user_launch` and output only:
 
-Use the current host's user-visible task or thread creation capability when it exists.
+```text
+执行 <task-id> 任务
+```
 
-- In Codex, create a user-owned visible task in the current project, prefer an isolated worktree environment, pass the execution prompt and task specification in the initial message, and set the canonical title when title control is available. Do not use a hidden subagent as the Worker.
-- On another host, use the equivalent user-visible session, task, or thread capability with the same authority and payload rules.
-- If the platform cannot create user-visible tasks, or creation fails, say so truthfully and provide one complete copyable launch package containing the canonical name, `prompts/EXECUTION_AI.md`, and the approved task specification. Manual copying is the fallback, not the default.
+Do not print the full execution prompt or Task Spec. The new Worker reads them from the repository. Do not claim the Worker is running until a real session exists and has acquired its Claim.
 
-After creation, report which visible Worker tasks were created and where the user can find them. If only some tasks in a batch were created, identify the successful and failed items separately; do not imply the whole batch started.
+### Unknown Hosts
+
+Use the same one-line `manual_window` fallback. Host limitations never authorize Discussion implementation.
+
+## Neutral Worker Entry
+
+A neutral window receiving `执行 <task-id> 任务` reads `CONVENTIONS.md`, `prompts/EXECUTION_AI.md`, and the exact Task. It verifies approval, authorization, dependencies, attempt, branch/worktree, and existing Claims; atomically acquires the Worker Claim; changes its role to `worker`; moves the Task to `running`; then implements, validates, reports, and commits.
+
+## Completion And Integration
+
+Every Worker terminal event enters `integration_pending` and triggers integration evaluation. Discussion does not ask whether to start integration.
+
+- Safe evidence enters automatic, Discussion-local, safe-when-silent Integration.
+- A material API, schema, security, migration, conflict, or product/architecture choice enters `decision_required` and asks only the concrete decision.
+- Missing evidence or failed validation becomes `blocked` or `incomplete` and returns to Worker repair.
+
+Before `integrating`, Discussion atomically acquires an Integration lease bound to its session, base branch, worktree, selected Task IDs, and Run Reports. Integration may merge, resolve bounded merge conflicts, run combined validation, update shared state, and create the integration commit. It may not implement new product work.
+
+Integration is a Discussion-local phase. Never create a user-visible Integration window. When Discussion is inactive, persist `integration_pending`; resume automatic evaluation when Discussion next starts or refreshes.

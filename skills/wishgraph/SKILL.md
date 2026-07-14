@@ -16,7 +16,9 @@ WishGraph is not autonomous magic. It is a governance layer that makes AI collab
 Treat every newly opened window as neutral until the user names its role. `SessionStart` performs safety checks only by default and must not silently activate Discussion AI or inject the full discussion prompt.
 
 - When the user says "开始讨论", "开启讨论", "继续讨论", "start discussion", or an equivalent phrase, enter Discussion mode in that same visible window. Read `prompts/DISCUSSION_AI.md`, `reports/PROJECT_STATUS.md`, and the read-only WishGraph status before responding with the current focus and recommended next action.
+- When a neutral window receives an exact `执行 <task-id>` command, it may enter the Worker role only after the Task, dependency, branch, worktree, and Worker Claim checks succeed. Worker must run in a separate visible execution window.
 - When the user says "刷新项目状态", "刷新 WishGraph 项目状态", "refresh project state", or equivalent, refresh those sources without requiring a new window.
+- Integration is a Discussion-local temporary Flow Phase, never a permanent role or a separate user-visible window. Review is the result-presentation state in Discussion, not a fourth Agent.
 - Do not treat unrelated natural-language conversation as permission to activate a role.
 - Hosts that cannot route these phrases automatically should execute the same read sequence in the current visible window. Hooks only check and expose state; they never start hidden agents.
 
@@ -25,6 +27,8 @@ Treat every newly opened window as neutral until the user names its role. `Sessi
 Use a structured Task ID matching `^\d{3,}[a-z]*$`. Root tasks are at least three digits (`012`, `1000`). Follow-ups use an unbounded lower-case Excel-style suffix (`012a` through `012z`, then `012aa`); the suffix is a sequence, not hierarchy. Record hierarchy in `parent_task_id` and ordering in `dependencies`. Keep the readable slug only in the filename, for example `tasks/build/012a-refresh-cache.md`; resolve commands against the JSON `task_id` exactly.
 
 Recognize compact or explicit natural-language actions such as `执行012b`, `执行012b号任务`, `继续执行012号任务`, `查看012号任务`, `观察012号任务`, `停止012号任务`, `重新执行012号任务`, `接管012号任务`, and `查看012系列任务`. Inspect and observe are read-only. Execute is explicit Worker authority, but it must still pass Task completeness, dependency, status, Claim, and worktree checks. Never let `012` select `012a`, or `012b` select `012ba`, and report duplicate IDs or a missing exact match instead of guessing from a filename.
+
+Resolve short contextual approvals such as `可以`, `开始吧`, `执行吧`, or `按这个做` only when the current session has exactly one structured `expected_transition`. If more than one Task or action is eligible, ask which exact transition the user means. No authorization result may permit Discussion to implement business code.
 
 Retries after `blocked` or `incomplete` retain the same Task ID, increment `attempt`, and allocate a new immutable path such as `reports/runs/012-attempt-2.md`. Follow-up IDs are for new goals, never attempts. Task IDs are never reused; an approved Task Spec filename is immutable.
 
@@ -36,9 +40,9 @@ Use the project runtime for `claim acquire`, `inspect`, `heartbeat`, `release`, 
 
 This filesystem Claim is atomic across processes and worktrees sharing one local Git common directory. It does not guarantee mutual exclusion between different machines that only share a remote; document that boundary and use host coordination or another distributed lock when multi-machine execution is required.
 
-## Micro Changes, Stop, And Competitive Execution
+## Stop And Competitive Execution
 
-Allow `change_class: micro` without a Task Spec only when the goal and scope are explicit, validation exists, one atomic commit can fully roll it back, and all API, schema, persistence, security, permission, billing, deletion, migration, dependency, and cross-module-contract flags are false. It still needs a unique ad-hoc ID, `changed_paths`, one immutable Run Report, Integrate/N/A decisions, and normal integration. Any risk flag promotes the request to a formal Task. A micro change unrelated to the active Task is a separate work unit and commit, never a side edit hidden in the formal report.
+Every business-code write, build, test, or dependency installation is Task-backed Worker work. Discussion has no direct-edit exception: it may update governance state and route a Worker, but it cannot implement even a one-line business change. The Worker still needs a bound Claim, immutable Run Report, validation, and normal integration.
 
 On stop, preserve the branch, worktree, Claim, and report evidence long enough to close safely. Before integration, a rejected or abandoned attempt can be released/revoked and retried under the same Task ID with an incremented attempt and new report. After integration, never erase history; create a replacement or rollback follow-up Task. `revoke` requires explicit user authority.
 
@@ -87,7 +91,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - `reports/RUN_REPORT.md`
 7. Use the bundled templates under `assets/templates/` as structure, then adapt them to the repository. For Chinese-first projects, use `assets/templates/zh-CN/` as the source template set. For bilingual projects, start from the user's primary language template and add bilingual user-facing explanations only where useful.
 8. For Skill or hook installation, follow **Natural-Language Installation** and `references/installation.md`. Adapt the required governance files before enabling strict mode, preserve unrelated hook configuration, and tell Codex users to review `/hooks`.
-9. When the PRD and first task are ready, classify the work, explain the sequential or parallel recommendation, name the approved tasks, and ask whether the user wants the execution window or windows created. Only after an explicit command, create one user-visible Worker task per authorized spec, inject `prompts/EXECUTION_AI.md` plus the named `tasks/build/*.md`, and apply the naming and fallback rules in `references/worker-window-launch.md`. Tell the user to return to discussion after workers finish; do not require them to copy prompts by default or edit memory files.
+9. When the PRD and first task are ready, set `Flow Phase: awaiting_worker_authorization` and one exact `expected_transition`, then ask for Worker authorization. On approval, Codex creates one visible Worker task per authorized spec. Claude Code and failed/unsupported automatic creation output only `执行 <task-id> 任务` and stop. Apply the naming and routing rules in `references/worker-window-launch.md`.
 10. Finish with a short review summary listing files created or updated, assumptions, hook mode when installed, and next recommended task.
 
 ## Workflow
@@ -112,7 +116,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
      - `ARCHITECTURE.md` for dependency boundaries and ownership.
      - `prompts/DISCUSSION_AI.md` as the mutable launch prompt for planning or discussion agents.
      - `prompts/EXECUTION_AI.md` as the stable launch prompt for execution agents.
-     - `prompts/INTEGRATION_AI.md` as the stable launch prompt for the shared-state integration agent.
+     - `prompts/INTEGRATION_AI.md` as the stable prompt for the Discussion-local Integration phase.
      - `tasks/build/NNN-short-slug.md` for visible, self-contained execution specs.
      - `reports/PROJECT_STATUS.md` for the current integrated project snapshot.
      - `reports/RUN_REPORT.md` as the template for immutable worker reports under `reports/runs/`.
@@ -124,27 +128,28 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - Follow the project's language mode for human-facing explanations. Do not translate file paths, commands, code identifiers, symbols, routes, package names, or environment variables.
    - Prefer small atomic tasks. Split any task whose validation, risk, or rollback boundary is unclear.
    - Fill the versioned `wishgraph:task-state` block with task ID, `draft` status, work type, batch ID, unique Run Report path, `worker_creation_authorized: false`, and the integration policy. Use `requires_explicit_user_confirmation` for parallel or high-risk integration.
+   - Keep Task Lifecycle separate from Session Role, Flow Phase, and `expected_transition`; persist the latter three in Git-common-dir runtime state.
 
 5. **Classify work and obtain the right authority**
    - Use `discussion` while requirements or architecture remain unclear; start no worker or integration.
    - Use `sequential` for one task or ordered dependencies. The user explicitly authorizes Worker creation; task approval also authorizes a later safe integration when every gate passes.
    - Use `parallel_batch` only for two or more independently testable and revertible tasks. Show the batch first; the user explicitly authorizes exactly which visible Worker tasks to create. Mark mechanically independent work `parallel_independent`; it may integrate silently only after all expected Workers are terminal and overlap, dependency, interface, risk, merge, and combined-validation gates pass.
    - Use `high_risk` for product or architecture decisions, data migration, conflict, failed validation, unsafe rollback, or scope drift. Return to the user; do not auto-integrate.
-   - Check dependencies, shared files or core modules, validation and rollback independence, cross-task contamination, and unresolved decisions. Discussion AI recommends; the user decides. Hooks and integration agents do not choose parallelism.
+   - Check dependencies, shared files or core modules, validation and rollback independence, cross-task contamination, and unresolved decisions. Discussion recommends; the user decides. Hooks and the Integration phase do not choose parallelism.
    - After an explicit Worker-creation command, change only the authorized task-state blocks from `draft` to `approved` and set `worker_creation_authorized: true` before launching Workers.
 
-6. **Separate planning, worker, and integration roles**
-   - Planning agents grill the intent and write specs.
-   - Worker execution agents use separate branches or worktrees, verify task-state authorization, move `approved -> running -> completed|blocked|incomplete`, implement only the approved spec or bounded ad-hoc instruction, and create one immutable `reports/runs/<work-unit-id>.md`.
+6. **Separate Discussion, Worker, and Integration phase boundaries**
+   - Discussion grills intent, writes specs, routes Workers, and presents results. It does not write business code or run implementation builds/tests.
+   - Worker execution agents use separate branches or worktrees, verify task-state authorization, move `approved -> running -> completed|blocked|incomplete`, implement only the approved spec, and create one immutable `reports/runs/<work-unit-id>.md`.
    - Workers record `Integrate` or `N/A` proposals and never edit shared project memory.
-   - The integration agent merges workers with `--no-commit`, reads every new run report, resolves conflicts, updates affected shared memory, rewrites `reports/PROJECT_STATUS.md`, and then refreshes the concise dynamic state in `prompts/DISCUSSION_AI.md`.
+   - After every Worker terminal event, Discussion enters `integration_pending`, evaluates the result, and either auto-enters its local Integration phase, asks one concrete risk decision, or marks the flow blocked.
+   - Discussion-local Integration requires a bound Integration lease. It merges workers with `--no-commit`, reads every new run report, resolves permitted conflicts, updates affected shared memory, rewrites `reports/PROJECT_STATUS.md`, and then refreshes the concise dynamic state in `prompts/DISCUSSION_AI.md`.
    - Keep `prompts/EXECUTION_AI.md` stable; put task-specific instructions in `tasks/build/*.md`.
-   - For trivial one-line changes, allow direct execution only if the repo conventions explicitly permit it.
-   - Never start Workers without an explicit human creation command. When the platform supports user-visible task or thread creation, the discussion agent creates and configures those visible tasks; it must not use hidden subagents. Manual prompt copying is only the truthful fallback when visible task creation is unavailable or fails.
+   - Never start Workers without an explicit human creation command. When the platform supports user-visible task or thread creation, Discussion creates and configures those visible tasks; it must not use hidden subagents. The only manual fallback is the single line `执行 <task-id> 任务`.
 
 7. **Close every execution unit**
-   - Formal tasks and approved ad-hoc edits use the same validation and external-memory closeout. Only the task file is optional for ad-hoc work.
-   - Create one new immutable run report for every worker execution. Use the task ID or a unique timestamped ad-hoc ID.
+   - Every execution is Task-backed and uses the same validation and external-memory closeout.
+   - Create one new immutable run report for every Worker execution. Use the exact Task ID and attempt.
    - In new Run Reports, fill the versioned `wishgraph:run-state` JSON block as the lifecycle source for status, work type, authorization, readiness, safety gates, and validation results. Keep summaries, evidence, risks, and shared-memory impact in normal Markdown. Preserve label-based legacy reports when adapting an existing project; do not add a malformed structured block.
    - Record Integrate or N/A with a concrete reason for each managed shared-memory file.
    - When project hooks are installed, run `.wishgraph/hooks/memory_sync.py check` before claiming completion. Hooks inspect and block; they do not invent semantic memory content.
@@ -160,7 +165,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - Run `.wishgraph/hooks/memory_sync.py status` when available and show ready, waiting, and blocked reports plus pending integration and the next action.
    - For one safe sequential result, use the authority inherited from task approval without asking twice. Require Completed and ready metadata, passing prescribed validation, bounded scope, no conflict or new product/architecture/data decision, and a safe target worktree.
    - For high-risk, conflicting, blocked, competitive, or mechanically ambiguous results, return to Discussion and request the required decision. Do not ask again for safe sequential or proven `parallel_independent` integration.
-   - Treat integration as a temporary event task. If the platform exposes an authorized background-task or independent-thread tool, launch a temporary integration agent with `prompts/INTEGRATION_AI.md`, report Waiting/Running/Blocked/Completed, return the result, and end it. Otherwise explicitly switch the current main agent or give one natural-language launch instruction; never pretend background execution exists.
+   - Treat Integration as an automatically triggered, Discussion-local, safe-when-silent phase. Never create a separate Integration window. If no Discussion session is active, persist `integration_pending` and enter the phase automatically when Discussion resumes.
    - Do not describe this as real-time push. An already-running discussion window receives results only after a supported resume/start event or an explicit refresh.
 
 9. **Handle discussion-window migration**
@@ -232,8 +237,8 @@ Chinese mirror:
 - Do not include the creator's personal content, social media drafts, or private case-study language when adapting a user's project.
 - Treat project files as external memory. Update them when the state changes.
 - Do not force meaningless memory-file edits. Require an explicit N/A reason when a managed file did not need a change.
-- Do not let an ad-hoc edit bypass validation, a unique run report, or memory-impact review merely because it has no task file.
-- Do not let worker agents update shared memory. Integrate their reports through a single integration writer.
+- Do not let business-code work bypass a Task, Worker Claim, validation, immutable Run Report, or memory-impact review.
+- Do not let worker agents update shared memory. Integrate their reports through the Discussion-local lease holder.
 - Do not let hooks choose parallelism, launch agents, merge code, write semantic project memory, or replace human review.
 - Do not integrate parallel results unless existing Worker authority and every `parallel_independent` mechanical gate are proven; otherwise return to Discussion.
 - For a brand-new project, do not start implementation until the PRD is concrete enough to write a bounded first task.

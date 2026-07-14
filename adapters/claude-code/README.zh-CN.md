@@ -109,9 +109,9 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
    reports/PROJECT_STATUS.md
    ```
 
-3. 先让讨论 AI 解释任务应串行还是并行，并询问是否创建执行 session。只有人类明确命令后，宿主支持时才由讨论 Agent 为每个已授权规格创建并配置用户可见 Worker，自动交接执行提示词、已批准任务文件，并使用 `<task-id> · <short title> · WG Worker` 命名。不得静默创建或使用隐藏 subagent；不能创建可见 session 时才降级为手动复制。
+3. 先让 Discussion 解释任务应串行还是并行，并询问 Worker 授权。Claude Code 收到授权后只输出 `执行 <task-id> 任务`；在中立执行窗口运行这一行。Worker 实现前先获取绑定 Claim。
 
-   明确批准的 `micro` ad-hoc 修改只有在全部风险标记为 false 时才能省略 task 文件，但仍要创建唯一不可变执行报告。安全串行和机械检查证明独立的并行结果静默集成；宿主依次使用真实后台能力、当前 Agent 内部阶段或 pending 到下次刷新。
+   每个 Worker terminal 事件都进入 `integration_pending`。安全串行和机械检查证明独立的并行结果由持有 lease 的 Discussion-local Integration 自动集成；风险或冲突只询问具体决定，Integration 不创建额外窗口。
 
 4. 如果讨论 session 需要迁移，提问：
 

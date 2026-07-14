@@ -4,6 +4,8 @@ Spec source: First discussion window converted the user's initial idea into `PRD
 Dependencies: None.
 Language mode: Follow the user's selected project language; use bilingual Chinese first, English second when requested.
 
+Task state records only Task Lifecycle. Session Role, Flow Phase, and `expected_transition` remain orthogonal Git-common-dir runtime state.
+
 <!-- wishgraph:task-state:start -->
 ```json
 {

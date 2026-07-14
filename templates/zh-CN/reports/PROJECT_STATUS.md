@@ -25,6 +25,16 @@
 ```
 <!-- wishgraph:integration-state:end -->
 
+## 编排状态快照
+
+这些字段只用于只读呈现。实时真相源是 Git common dir 中的 session runtime、Worker Claim 与 Integration lease；不要把它们写入上面的 Task Lifecycle JSON。
+
+- Session Role：
+- Flow Phase：
+- Expected transition：
+- 活跃 Worker Claim：
+- 活跃 Integration lease：
+
 ## 本次吸收的执行报告
 
 - `reports/runs/NNN-short-slug.md`

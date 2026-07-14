@@ -6,6 +6,8 @@ Language mode: Follow `prompts/DISCUSSION_AI.md` unless this task explicitly ove
 
 The JSON block is the machine-readable task lifecycle source. Keep `worker_creation_authorized` false until the user explicitly authorizes this visible Worker. Safe `parallel_independent` work may use inherited Worker authority; `high_risk` uses `requires_explicit_user_confirmation`.
 
+Task state records only Task Lifecycle. Session Role, Flow Phase, and `expected_transition` remain orthogonal Git-common-dir runtime state.
+
 <!-- wishgraph:task-state:start -->
 ```json
 {

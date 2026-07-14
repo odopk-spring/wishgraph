@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import os
+import re
 import socket
 import subprocess
 import uuid
@@ -14,7 +15,7 @@ from typing import Any, Optional
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "version": 8,
+    "version": 9,
     "mode": "enforce",
     "paths": {
         "prd": "PRD.md",
@@ -56,6 +57,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "project_status_max_chars": 12000,
     "discussion_dynamic_max_lines": 30,
     "session_summary_max_chars": 2000,
+    "orchestration_gate_enabled": True,
+    "read_gate_mode": "host_dependent",
 }
 
 LEGACY_PROJECT_STATUS_PATH = "reports/DEV_REPORT.md"
@@ -335,6 +338,219 @@ def update_claim(
             claim[f"{claim['lease_status']}_at"] = claim["updated_at"]
         _atomic_claim_update(path, claim)
         return {"ok": True, "claim": _read_claim(path)}
+    finally:
+        try:
+            mutex.unlink()
+        except OSError:
+            pass
+
+
+RUNTIME_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def session_runtime_root(root: Path) -> Path:
+    return git_common_dir(root) / "wishgraph" / "sessions"
+
+
+def _session_runtime_path(root: Path, session_id: str) -> Path:
+    if not RUNTIME_ID_RE.fullmatch(session_id):
+        raise ValueError("invalid_session_id")
+    return session_runtime_root(root) / f"{session_id}.json"
+
+
+def write_session_runtime(
+    root: Path, session_id: str, runtime: dict[str, Any]
+) -> dict[str, Any]:
+    """Atomically persist host/session orchestration state outside the worktree."""
+    try:
+        path = _session_runtime_path(root, session_id)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = dict(runtime)
+    record.update(
+        {
+            "schema_version": 1,
+            "kind": "session_runtime",
+            "session_id": session_id,
+            "updated_at": utc_now(),
+        }
+    )
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(record, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    except OSError as exc:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        return {"ok": False, "error": "session_runtime_write_failed", "detail": str(exc)}
+    return {"ok": True, "runtime": record}
+
+
+def read_session_runtime(root: Path, session_id: str) -> Optional[dict[str, Any]]:
+    try:
+        path = _session_runtime_path(root, session_id)
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def apply_session_runtime_patch(
+    root: Path, session_id: str, patch: dict[str, Any]
+) -> dict[str, Any]:
+    """Deep-merge one reducer state patch into the current session runtime."""
+    if not isinstance(patch, dict):
+        return {"ok": False, "error": "session_runtime_patch_must_be_object"}
+    try:
+        runtime_path = _session_runtime_path(root, session_id)
+        mutex = _claim_mutex(runtime_path.parent)
+    except (ValueError, OSError, RuntimeError) as exc:
+        return {"ok": False, "error": str(exc)}
+    try:
+        current = read_session_runtime(root, session_id) or {}
+        return write_session_runtime(root, session_id, deep_merge(current, patch))
+    finally:
+        try:
+            mutex.unlink()
+        except OSError:
+            pass
+
+
+def integration_runtime_root(root: Path) -> Path:
+    return git_common_dir(root) / "wishgraph" / "integration"
+
+
+def _integration_lease_path(root: Path) -> Path:
+    return integration_runtime_root(root) / "lease.json"
+
+
+def inspect_integration_lease(
+    root: Path, stale_after_seconds: int = 3600
+) -> Optional[dict[str, Any]]:
+    path = _integration_lease_path(root)
+    try:
+        lease = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(lease, dict):
+        return None
+    updated_at = parse_timestamp(lease.get("updated_at"))
+    stale = updated_at is None or (
+        datetime.now(timezone.utc) - updated_at
+    ).total_seconds() > stale_after_seconds
+    lease["stale"] = stale and lease.get("lease_status") == "active"
+    lease["effective_lease_status"] = (
+        "stale" if lease["stale"] else lease.get("lease_status", "unknown")
+    )
+    return lease
+
+
+def acquire_integration_lease(
+    root: Path,
+    *,
+    session_id: str,
+    integration_id: str,
+    task_ids: list[str],
+    reports: list[str],
+    branch: Optional[str] = None,
+    worktree: Optional[str] = None,
+    stale_after_seconds: int = 3600,
+    require_clean: bool = True,
+) -> dict[str, Any]:
+    """Atomically acquire the one Discussion-local Integration lease."""
+    if not RUNTIME_ID_RE.fullmatch(session_id):
+        return {"ok": False, "error": "invalid_session_id"}
+    if not integration_id or not task_ids or not reports:
+        return {"ok": False, "error": "integration_binding_incomplete"}
+    if require_clean and not worktree_is_clean(root):
+        return {"ok": False, "error": "worktree_not_clean"}
+    runtime_root = integration_runtime_root(root)
+    try:
+        mutex = _claim_mutex(runtime_root)
+    except (OSError, RuntimeError) as exc:
+        return {"ok": False, "error": str(exc)}
+    try:
+        existing = inspect_integration_lease(root, stale_after_seconds)
+        if existing and existing.get("effective_lease_status") == "stale":
+            return {
+                "ok": False,
+                "error": "stale_integration_lease_requires_explicit_revoke",
+                "lease": existing,
+            }
+        if existing and existing.get("effective_lease_status") == "active":
+            return {
+                "ok": False,
+                "error": "active_integration_lease_exists",
+                "lease": existing,
+            }
+        now = utc_now()
+        lease = {
+            "schema_version": 1,
+            "kind": "integration_lease",
+            "lease_id": uuid.uuid4().hex,
+            "session_id": session_id,
+            "integration_id": integration_id,
+            "base_branch": branch or current_branch(root),
+            "worktree": str(Path(worktree).resolve()) if worktree else str(root.resolve()),
+            "selected_task_ids": list(task_ids),
+            "selected_reports": list(reports),
+            "started_at": now,
+            "updated_at": now,
+            "lease_status": "active",
+            "host": socket.gethostname(),
+        }
+        _atomic_claim_update(_integration_lease_path(root), lease)
+        lease["stale"] = False
+        lease["effective_lease_status"] = "active"
+        return {"ok": True, "lease": lease}
+    finally:
+        try:
+            mutex.unlink()
+        except OSError:
+            pass
+
+
+def update_integration_lease(
+    root: Path,
+    action: str,
+    *,
+    session_id: str,
+    branch: Optional[str] = None,
+    worktree: Optional[str] = None,
+) -> dict[str, Any]:
+    if action not in {"heartbeat", "release", "revoke"}:
+        return {"ok": False, "error": "invalid_integration_lease_action"}
+    runtime_root = integration_runtime_root(root)
+    try:
+        mutex = _claim_mutex(runtime_root)
+    except (OSError, RuntimeError) as exc:
+        return {"ok": False, "error": str(exc)}
+    try:
+        lease = inspect_integration_lease(root)
+        if lease is None:
+            return {"ok": False, "error": "integration_lease_not_found"}
+        if lease.get("session_id") != session_id:
+            return {"ok": False, "error": "integration_session_mismatch", "lease": lease}
+        if branch is not None and lease.get("base_branch") != branch:
+            return {"ok": False, "error": "integration_branch_mismatch", "lease": lease}
+        if worktree is not None and lease.get("worktree") != str(Path(worktree).resolve()):
+            return {"ok": False, "error": "integration_worktree_mismatch", "lease": lease}
+        if action == "heartbeat" and lease.get("lease_status") != "active":
+            return {"ok": False, "error": "integration_lease_not_active", "lease": lease}
+        lease.pop("stale", None)
+        lease.pop("effective_lease_status", None)
+        lease["updated_at"] = utc_now()
+        if action in {"release", "revoke"}:
+            lease["lease_status"] = "released" if action == "release" else "revoked"
+            lease[f"{lease['lease_status']}_at"] = lease["updated_at"]
+        _atomic_claim_update(_integration_lease_path(root), lease)
+        return {"ok": True, "lease": inspect_integration_lease(root)}
     finally:
         try:
             mutex.unlink()

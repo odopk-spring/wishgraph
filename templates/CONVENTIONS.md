@@ -4,7 +4,7 @@ This file defines how humans and AI agents collaborate in this repository.
 
 ## Roles
 
-### Planning Agent
+### Discussion Role
 
 The planning agent turns human intent into durable task specs.
 
@@ -18,11 +18,11 @@ Responsibilities:
 - Write self-contained task specs in the visible `tasks/build/` directory. Preserve `.tasks/build/` only for an existing project that already uses it.
 - Classify work as discussion, sequential, parallel_batch, or high_risk before creating workers. Recommend the execution shape; the project owner confirms it.
 - Check task dependencies, file and core-module overlap, independent validation and rollback, cross-task contamination, and unresolved product or architecture decisions before recommending parallel work.
-- Do not change business code unless the project owner explicitly approves a trivial direct-edit exception.
-- A direct-edit exception may omit a task file, but not validation, a unique run report, or the normal commit boundary.
+- Never change business code, install dependencies, run builds or implementation tests, or validate a Task in Discussion. Those operations require an independent Worker with a bound Claim.
+- A request to edit directly in the current window does not override this role boundary.
 - Read `reports/PROJECT_STATUS.md` before presenting integrated execution results.
 - Maintain the concise dynamic handoff in `prompts/DISCUSSION_AI.md` during discussion and after human review; do not copy the full Project Status into it.
-- After showing the approved task and work classification, ask whether to create the execution window. Only an explicit human command authorizes creation. Then create and configure one user-visible Worker task per authorized spec with `prompts/EXECUTION_AI.md` and the task file already handed off. Use `<task-id> · <short title> · WG Worker` so task identity appears first. Manual copying is only the fallback when the platform cannot create visible tasks. Do not require users to edit memory or integration files.
+- Move a ready Task to `awaiting_worker_authorization` with one `approve_worker_launch(<task-id>)` expected transition. A short affirmative reply is valid only when this transition is unique. Then enter `routing_worker`: Codex creates a visible Worker when supported; Claude Code, unknown hosts, and failed creation enter `waiting_for_user_launch` and output only `执行 <task-id> 任务`.
 
 ### Execution Agent
 
@@ -31,7 +31,7 @@ The execution agent implements approved task specs.
 Responsibilities:
 
 - Start from `prompts/EXECUTION_AI.md` and the specific task file.
-- Treat the task file as the only formal requirement source. For an explicitly approved direct edit, treat the bounded user instruction as the requirement source.
+- Treat the Task file as the only formal requirement source.
 - Keep the patch minimal and scoped.
 - Run the validation commands listed in the task.
 - Update task status when present and create exactly one new immutable `reports/runs/<work-unit-id>.md`.
@@ -41,11 +41,9 @@ Responsibilities:
 - Create one atomic commit per completed task unless the project owner explicitly says not to commit.
 - Never start workers in the background by default.
 
-### Integration Agent
+### Discussion-Local Integration Phase
 
-The integration agent is the single writer for shared project state.
-
-It is an event-triggered temporary role, not a permanent window.
+Integration is an event-triggered temporary phase inside the active Discussion window. It is not a separate role or user-visible window. It is the single writer for shared project state.
 
 Responsibilities:
 
@@ -58,8 +56,10 @@ Responsibilities:
 - Run integration validation and create the integration commit.
 - For a safe sequential result, use the integration authority inherited when the task was approved; do not ask twice.
 - Auto-integrate safe sequential and mechanically proven `parallel_independent` results under existing Worker authority. Return high-risk, conflicting, blocked, competitive, or ambiguous results to Discussion.
-- Use a real background capability when available; otherwise enter an isolated Integration phase in the active Agent or keep work pending until the next Discussion entry/refresh. Never require a user-visible Integration window or claim fictitious background execution.
-- Return integration status and results to discussion AI, then end the temporary role.
+- Before merging, acquire an exclusive Integration lease bound to the Discussion session, base branch, worktree, selected Task IDs, and Run Reports.
+- Every Worker terminal event enters `integration_pending`. Safe evidence enters `integrating` automatically; material risk enters `decision_required`; missing evidence becomes blocked or incomplete.
+- Never ask whether to start integration. Ask only a concrete material decision when one is required.
+- After the integration commit, release the lease and enter `presenting_result` in the same Discussion window.
 
 ## Task File Rules
 
@@ -70,7 +70,6 @@ Responsibilities:
 - Retries keep the Task ID, increment `attempt`, and use a new immutable `reports/runs/<task-id>-attempt-N.md` path.
 - Formal execution atomically acquires a Worker Claim stored under the Git common directory. Bind it to the Task attempt, Worker, branch, and absolute worktree; heartbeat it and verify the binding before continuing.
 - `exclusive` is the default execution mode. A second Worker requires explicit takeover or competitive authority and a separate worktree. Claims coordinate local worktrees sharing one Git common directory, not separate machines.
-- A `micro` ad-hoc unit is allowed only when API, schema, persistence, security, permission, billing, deletion, migration, dependency, and cross-module-contract risk is absent. It still needs one report, validation, commit, and rollback boundary; otherwise promote it to a formal Task.
 - Competitive candidates use child IDs, one comparison group, separate Claims/worktrees/reports, and exactly one integrated winner. Preserve and mark losing evidence `rejected` or `superseded`.
 - A task must be executable without chat history.
 - Anchor by symbols, modules, routes, APIs, or tests. Do not rely on line numbers.
@@ -84,6 +83,14 @@ Responsibilities:
 - Users should be able to paste either prompt into any agent interface and get a coherent continuation without relying on previous chat context.
 - Keep project memory in the language chosen by the user. If bilingual output is requested, write key user-facing explanations in Chinese first, then English. Do not translate file paths, commands, code identifiers, symbols, routes, package names, or environment variables.
 - If the user asks to migrate or continue the discussion in another window, update `prompts/DISCUSSION_AI.md` and output its full content for copying.
+
+## Orchestration State
+
+- Session Role: `neutral`, `discussion`, or `worker`. Integration is not a role.
+- Task Lifecycle: `draft`, `approved`, `running`, `completed`, `blocked`, `incomplete`, `integrated`, `reviewed`.
+- Flow Phase: `planning`, `awaiting_worker_authorization`, `routing_worker`, `waiting_for_user_launch`, `waiting_for_worker`, `integration_pending`, `integrating`, `decision_required`, `presenting_result`.
+- `expected_transition` is absent or one structured transition. Contextual approvals cannot act when it is missing or ambiguous.
+- `reduce(current_state, user_event, host_capability)` produces the unique `FlowPlan`; prompts and Host Adapters cannot override it.
 
 ## External Memory Update Rule
 
@@ -104,7 +111,7 @@ Worker agents propose shared-memory impact in their own immutable run report. In
 - Hooks inspect and block; they do not invent semantic PRD, architecture, CODEMAP, or handoff content.
 - Before completion or commit, run `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` when hooks are installed.
 - Worker run reports use `Integrate` or `N/A`. Project Status snapshots use `Updated` or `N/A`.
-- Ad-hoc work does not require a task file, but it needs a unique run-report ID.
+- Runtime session state, Worker Claims, and Integration leases live under the Git common directory rather than in business files.
 - New windows are neutral. By default SessionStart performs safety checks only; enter Discussion only after the user explicitly says "Start discussion" or equivalent. Refresh is explicit in an already-running window.
 - Hooks may expose pending integration, integration kind, ready, waiting, and blocked reports, confirmation requirement, and a reason. They do not choose parallelism, start agents, merge code, write semantic memory, or replace human review.
 
@@ -123,7 +130,7 @@ Every execution task must state:
 - One completed execution task should produce one atomic commit unless the project owner explicitly says not to commit.
 - Parallel workers must use separate branches or worktrees and unique work-unit IDs.
 - Discussion AI recommends sequential or parallel work; the project owner makes the final choice.
-- Only the integration agent updates shared memory. Do not resolve this rule by letting workers race on the same files.
+- Only the Discussion-local Integration lease holder updates shared memory. Do not resolve this rule by letting Workers race on the same files.
 - Do not stage unrelated user changes.
 - Do not rewrite history unless the project owner explicitly asks.
 - Keep commit messages understandable to a future reviewer.
@@ -133,7 +140,7 @@ Every execution task must state:
 - Do not start coding from a vague idea.
 - First turn the idea into `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, and a bounded first task.
 - Ask one question at a time and include a recommended default with each question.
-- After the first task is approved, ask whether to create the execution window. On explicit authorization, create the user-visible Worker and hand off `prompts/EXECUTION_AI.md` plus the task file; never create it silently or replace it with a hidden subagent.
+- After the first Task is ready, establish its unique expected transition. On authorization, route the independent Worker; never replace it with Discussion implementation or a hidden subagent.
 
 ## Debugging Discipline
 
@@ -145,12 +152,6 @@ Error -> State -> Code -> Spec
 
 Do not guess files from memory. Use `CODEMAP.md`, logs, tests, and the task history to find the earliest polluted assumption or state transition.
 
-## Direct-Edit Exception
+## No Discussion Direct-Edit Path
 
-A planning agent may directly edit only when all are true:
-
-- The change is tiny.
-- The risk is low.
-- The project owner explicitly accepts direct edit.
-- The change does not alter public interfaces, persistent schema, security behavior, billing, data deletion, or architecture boundaries.
-- The agent performs the normal validation and external-memory closeout before finishing.
+Discussion never performs Worker implementation. Business-file writes and implementation validation require a Worker Claim. Merge/conflict-resolution writes, combined validation, shared-state updates, and integration commits require a Discussion-local Integration lease. Write/build gating is required; read gating remains host-capability dependent and must not be overstated.

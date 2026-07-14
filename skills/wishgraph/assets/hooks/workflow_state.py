@@ -9,13 +9,46 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
 
 SCHEMA_VERSION = 1
 SUPPORTED_KINDS = {"task", "run", "integration"}
+SESSION_ROLES = {"neutral", "discussion", "worker"}
+FLOW_PHASES = {
+    "planning",
+    "awaiting_worker_authorization",
+    "routing_worker",
+    "waiting_for_user_launch",
+    "waiting_for_worker",
+    "integration_pending",
+    "integrating",
+    "decision_required",
+    "presenting_result",
+}
+EXPECTED_TRANSITIONS = {
+    "approve_worker_launch",
+    "launch_worker_manually",
+    "wait_for_worker",
+    "auto_integrate",
+    "resolve_conflict",
+    "repair_worker_closeout",
+    "accept_result",
+}
+CONTEXTUAL_APPROVALS = {
+    "可以",
+    "开始吧",
+    "执行吧",
+    "继续",
+    "按这个做",
+    "创建吧",
+    "go ahead",
+    "start",
+    "proceed",
+    "continue",
+}
 TASK_STATUS_ALIASES = {"pending": "draft", "done": "completed"}
 TASK_ID_RE = re.compile(r"^(?P<number>\d{3,})(?P<suffix>[a-z]*)$")
 STATE_BLOCK_RE = re.compile(
@@ -72,6 +105,193 @@ class TaskState:
     comparison_group: str = ""
     errors: list[str] = field(default_factory=list)
     state_source: str = "legacy"
+
+
+@dataclass(frozen=True)
+class ExpectedTransition:
+    """The one contextual transition that a short user reply may consume."""
+
+    kind: str
+    task_id: str = ""
+    report_id: str = ""
+    decision_id: str = ""
+    integration_id: str = ""
+
+
+@dataclass(frozen=True)
+class SessionFlowState:
+    session_id: str
+    role: str = "neutral"
+    host: str = "unknown"
+    phase: str = "planning"
+    expected_transition: Optional[ExpectedTransition] = None
+
+
+@dataclass(frozen=True)
+class TaskFlowState:
+    task_id: str
+    lifecycle: str = "draft"
+    attempt: int = 1
+    worker_authorized: bool = False
+    run_report: str = ""
+
+
+@dataclass(frozen=True)
+class WorkerRuntimeState:
+    claim_id: str = ""
+    branch: str = ""
+    worktree: str = ""
+    host_window_or_thread_id: str = ""
+
+
+@dataclass(frozen=True)
+class IntegrationRuntimeState:
+    lease_id: str = ""
+    integration_id: str = ""
+    base_branch: str = ""
+    worktree: str = ""
+    selected_task_ids: tuple[str, ...] = ()
+    selected_reports: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PendingDecisionState:
+    decision_id: str = ""
+    kind: str = ""
+    options: tuple[str, ...] = ()
+    recommended_option: str = ""
+
+
+@dataclass(frozen=True)
+class OrchestrationState:
+    session: SessionFlowState
+    task: Optional[TaskFlowState] = None
+    worker_runtime: WorkerRuntimeState = field(default_factory=WorkerRuntimeState)
+    integration_runtime: IntegrationRuntimeState = field(
+        default_factory=IntegrationRuntimeState
+    )
+    pending_decision: PendingDecisionState = field(
+        default_factory=PendingDecisionState
+    )
+    candidate_task_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class UserEvent:
+    kind: str
+    data: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class HostCapability:
+    host: str = "unknown"
+    can_create_visible_worker: bool = False
+    can_gate_writes: bool = False
+    can_gate_builds: bool = False
+    can_gate_reads: bool = False
+
+
+@dataclass(frozen=True)
+class FlowPlan:
+    accepted: bool
+    next_action: str
+    state_patch: dict[str, Any] = field(default_factory=dict)
+    task_id: str = ""
+    required_claim: bool = False
+    required_integration_lease: bool = False
+    host_route: str = ""
+    user_message: str = ""
+    stop_after_action: bool = False
+    denial_reason: str = ""
+
+
+def is_contextual_approval(text: str) -> bool:
+    """Return true for a short approval; meaning comes from expected_transition."""
+    return text.strip().lower().rstrip("。.!！") in CONTEXTUAL_APPROVALS
+
+
+def orchestration_state_from_dict(value: dict[str, Any]) -> OrchestrationState:
+    """Parse the JSON shape persisted in session runtime into typed pure state."""
+    session_value = value.get("session") if isinstance(value.get("session"), dict) else {}
+    expected_value = session_value.get("expected_transition")
+    expected = (
+        ExpectedTransition(
+            kind=str(expected_value.get("kind") or ""),
+            task_id=str(expected_value.get("task_id") or ""),
+            report_id=str(expected_value.get("report_id") or ""),
+            decision_id=str(expected_value.get("decision_id") or ""),
+            integration_id=str(expected_value.get("integration_id") or ""),
+        )
+        if isinstance(expected_value, dict) and expected_value.get("kind")
+        else None
+    )
+    task_value = value.get("task") if isinstance(value.get("task"), dict) else None
+    worker_value = (
+        value.get("worker_runtime")
+        if isinstance(value.get("worker_runtime"), dict)
+        else {}
+    )
+    integration_value = (
+        value.get("integration_runtime")
+        if isinstance(value.get("integration_runtime"), dict)
+        else {}
+    )
+    decision_value = (
+        value.get("pending_decision")
+        if isinstance(value.get("pending_decision"), dict)
+        else {}
+    )
+    return OrchestrationState(
+        session=SessionFlowState(
+            session_id=str(session_value.get("session_id") or value.get("session_id") or ""),
+            role=str(session_value.get("role") or "neutral"),
+            host=str(session_value.get("host") or "unknown"),
+            phase=str(session_value.get("phase") or "planning"),
+            expected_transition=expected,
+        ),
+        task=(
+            TaskFlowState(
+                task_id=str(task_value.get("task_id") or ""),
+                lifecycle=str(task_value.get("lifecycle") or "draft"),
+                attempt=int(task_value.get("attempt") or 1),
+                worker_authorized=task_value.get("worker_authorized") is True,
+                run_report=str(task_value.get("run_report") or ""),
+            )
+            if task_value is not None
+            else None
+        ),
+        worker_runtime=WorkerRuntimeState(
+            claim_id=str(worker_value.get("claim_id") or ""),
+            branch=str(worker_value.get("branch") or ""),
+            worktree=str(worker_value.get("worktree") or ""),
+            host_window_or_thread_id=str(
+                worker_value.get("host_window_or_thread_id") or ""
+            ),
+        ),
+        integration_runtime=IntegrationRuntimeState(
+            lease_id=str(integration_value.get("lease_id") or ""),
+            integration_id=str(integration_value.get("integration_id") or ""),
+            base_branch=str(integration_value.get("base_branch") or ""),
+            worktree=str(integration_value.get("worktree") or ""),
+            selected_task_ids=tuple(string_list(integration_value.get("selected_task_ids"))),
+            selected_reports=tuple(string_list(integration_value.get("selected_reports"))),
+        ),
+        pending_decision=PendingDecisionState(
+            decision_id=str(decision_value.get("decision_id") or ""),
+            kind=str(decision_value.get("kind") or ""),
+            options=tuple(string_list(decision_value.get("options"))),
+            recommended_option=str(decision_value.get("recommended_option") or ""),
+        ),
+        candidate_task_ids=tuple(string_list(value.get("candidate_task_ids"))),
+    )
+
+
+def orchestration_state_to_dict(state: OrchestrationState) -> dict[str, Any]:
+    return asdict(state)
+
+
+def flow_plan_to_dict(plan: FlowPlan) -> dict[str, Any]:
+    return asdict(plan)
 
 
 def _block_pattern(kind: str) -> re.Pattern[str]:

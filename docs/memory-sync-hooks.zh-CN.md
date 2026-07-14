@@ -93,9 +93,9 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
 
 安装器会把公共运行时放进 `.wishgraph/`，并安全合并 Codex 或 Claude Code 的项目级 JSON 配置，不会替换无关的现有 hooks。
 
-`memory_sync.py` 现在只是稳定入口，内部拆成四个明确边界：`git_state.py` 读取 Git 与仓库状态，`workflow_state.py` 解析版本化生命周期块和旧 Markdown 字段，`policy.py` 判断生命周期与收尾规则，`host_adapter.py` 处理 CLI 和宿主 Hook 输入输出。项目语义真相仍保存在 Markdown 和 Git 中；Task、执行报告和集成状态块只保存机器流程事实。
+`memory_sync.py` 现在只是稳定入口，内部拆成四个明确边界：`workflow_state.py` 定义 Session Role、Task Lifecycle、Flow Phase、Expected Transition、事件和计划；`policy.py` 实现纯函数 `reduce(current_state, user_event, host_capability)`；`host_adapter.py` 把唯一下一动作映射为 Codex、Claude Code、CLI 与 Hook 行为；`git_state.py` 保存 Git 事实、session runtime、Worker Claim 和 Discussion-local Integration lease。项目语义真相仍保存在 Markdown 和 Git 中。
 
-建议先用 `warn`。完成一次正式任务和一次 ad-hoc 修改的正确收尾后，再把 `.wishgraph/config.json` 改成 `enforce`。
+建议先用 `warn`。完成一次 Task-backed Worker 收尾和一次 Discussion-local Integration 后，再把 `.wishgraph/config.json` 改成 `enforce`。
 
 Codex 用户还需要信任目标仓库，并通过 `/hooks` 审阅新 hook；未信任项目不会运行项目级 hooks。
 
@@ -109,6 +109,8 @@ reports/runs/<work-unit-id>.md
 
 新任务规格包含 `wishgraph:task-state`，执行报告包含 `wishgraph:run-state`，项目状态快照包含 `wishgraph:integration-state`。Hooks 检查 `draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`，包括显式 Worker 创建授权和集成策略。Draft 在批准前可以继续修改；批准后执行身份固定，只有阻塞／未完成重试必须换用新的执行报告路径。授权、重试和评审转换只有在周围任务正文不变时才可不创建 Worker 报告；`running` 不是有效收尾。旧标签文件继续兼容；已存在但无效的结构化块会明确报错。
 
+Task Lifecycle 只是一个状态维度。Session Role（`neutral|discussion|worker`）、Flow Phase 和唯一结构化 `expected_transition` 分别保存在 Git common dir。`可以`、`执行吧` 之类简短回复只有在 transition 唯一时才可执行。
+
 Worker 使用 `Integrate` 或 `N/A`，不直接修改共享项目记忆：
 
 ```markdown
@@ -119,21 +121,21 @@ Worker 使用 `Integrate` 或 `N/A`，不直接修改共享项目记忆：
 | `prompts/DISCUSSION_AI.md` | Integrate | 合并后向讨论 AI 呈现完成结果 |
 ```
 
-集成 Agent 使用 `--no-commit` 合并 Worker commit，读取全部新增单次执行报告，更新受影响共享记忆，把 `reports/PROJECT_STATUS.md` 重写为当前项目状态概览，再刷新 `prompts/DISCUSSION_AI.md` 的精简动态交接。项目状态概览只列本次吸收的报告，并使用 Updated 或 N/A。
+Discussion-local Integration 阶段持有绑定 lease，使用 `--no-commit` 合并 Worker commit，读取全部新增单次执行报告，更新受影响共享记忆，把 `reports/PROJECT_STATUS.md` 重写为当前项目状态概览，再刷新 `prompts/DISCUSSION_AI.md` 的精简动态交接。项目状态概览只列本次吸收的报告，并使用 Updated 或 N/A。
 
 默认长度限制用于保持快照可用：项目状态概览最多 160 行、12000 字符，讨论动态区最多 30 行，兼容模式下的 SessionStart 上下文最多 2000 字符。项目状态概览任一限制超出时，`warn` 会提醒压缩但不阻止，`enforce` 会阻止集成结束和提交。历史细节应移动到单次执行报告和 Git 历史；不能为了满足限制而删除仍未解决的风险、冲突或待决定事项。
 
 旧配置中的 `paths.dev_report` 会迁移为 `paths.project_status`，并保留原有自定义路径。只有旧 `reports/DEV_REPORT.md` 时仍可读取，但会收到迁移提醒；新旧标准文件同时存在时，WishGraph 会报告事实来源冲突，严格模式在只保留一个权威 `reports/PROJECT_STATUS.md` 前阻止集成。
 
-任务和执行报告元数据使用 `sequential`、`parallel_batch` 和 `high_risk` 区分工作，执行模式使用 `exclusive`、`parallel_independent` 和 `competitive`。安全串行结果和机械检查证明独立的并行批次可以沿用已有 Worker 授权静默集成；高风险、冲突、阻塞、竞争或无法机械判断的结果返回 Discussion。Hooks 只计算和检查已记录门禁，不授予权限，也不启动 Integrator。
+任务和执行报告元数据使用 `sequential`、`parallel_batch` 和 `high_risk` 区分工作，执行模式使用 `exclusive`、`parallel_independent` 和 `competitive`。每个 Worker terminal 事件都先进入 `integration_pending`。安全串行结果和机械检查证明独立的并行批次沿用已有 Worker 授权，自动进入 Discussion-local Integration；高风险、冲突、阻塞、竞争或无法机械判断的结果进入具体 `decision_required` 或 `blocked`。Hooks 只计算和检查已记录门禁，不授予权限，也不启动 Agent。
 
-创建 Worker 始终需要人类明确命令；随后宿主支持时可以由讨论 Agent 创建用户可见 Worker，Hooks 绝不创建。隐藏 subagent 不等于 Worker 窗口，平台不能创建可见任务时才降级为手动复制。集成是临时事件角色：平台支持且授权允许时使用后台任务或独立线程，否则明确切换当前主 Agent，或给出一条用户启动指令；不得虚构后台执行。
+创建 Worker 始终需要人类明确命令；Codex 随后可以创建用户可见 Worker。Claude Code、宿主不支持或创建失败时只输出 `执行 <task-id> 任务` 并停止。隐藏 subagent 不等于 Worker 窗口。Integration 是自动触发、Discussion-local、safe-when-silent 的阶段，不创建用户可见窗口；Discussion 不活跃时持久化 `integration_pending`，等下次进入或刷新后继续。
 
 新 session 默认中立。使用默认 `session_start_context_mode: safety_only` 时，Hook 只在发现安全或同步问题时输出上下文，不加载讨论提示词，也不激活窗口角色。用户说“开始讨论”后，当前可见窗口才读取讨论状态；持续运行窗口说“刷新项目状态”即可刷新。明确保留 `discussion_summary` 兼容模式的旧安装仍可收到旧式精简注入。
 
 持续运行的讨论窗口中可以直接说：`刷新 WishGraph 项目状态并呈现最新集成结果。`
 
-Ad-hoc 修改可以省略 `tasks/build/*.md`，但不能省略验证、唯一执行报告 ID 或正常 commit 边界；旧项目的 `.tasks/build/*.md` 仍受支持。
+已有 legacy ad-hoc 报告继续可读，但新的业务代码工作必须在持有 Claim 的 Worker 中执行；旧项目的 `.tasks/build/*.md` 仍受支持。
 
 ## 直接运行检查
 
@@ -147,6 +149,8 @@ python3 .wishgraph/hooks/memory_sync.py status
 
 它还输出 `auto_integration_eligible`，以及 `nothing_to_integrate`、`wait_for_worker`、`auto_integrate`、`await_user_confirmation`、`discuss_blocker`、`compare_candidates` 之一作为 `next_action`。这些是内部路由字段，普通用户只看到 Discussion 和 Execution。
 
+宿主适配器可以通过 `flow-plan` 计算纯 reducer；标准输入为 `{"state": {...}, "event": {...}}`。把返回的 `host_action.state_patch` 作为 JSON 标准输入交给 `session apply SESSION_ID` 原子持久化；`session get` 和 `session set` 用于检查与初始角色设置。真实可见 Worker ID 和 runtime 写入成功之前，不得持久化 `waiting_for_worker`。
+
 宿主可以只读选择真实可用的静默降级路径，而不是让 Hook 启动任何东西：
 
 ```bash
@@ -155,7 +159,7 @@ python3 .wishgraph/hooks/memory_sync.py integration-plan --host-capability activ
 python3 .wishgraph/hooks/memory_sync.py integration-plan --host-capability inactive
 ```
 
-返回动作依次为：通过真实宿主能力启动临时后台 Integrator、在当前活跃 Agent 内进入隔离 Integration 阶段，或保留派生 pending 状态等待下次明确“开始讨论”/“刷新项目状态”。该命令只读；Hooks 绝不调用 `subprocess.Popen`、合并分支或写入语义状态。
+`background` 和 `active_agent` 都返回 `enter_discussion_local_integration`；`inactive` 返回 `persist_integration_pending_until_discussion_resume`。任何结果都不创建 Integration 窗口。该命令只读；Hooks 绝不调用 `subprocess.Popen`、合并分支或写入语义状态。
 
 宿主适配器还可以调用只读任务路由：
 
@@ -170,14 +174,26 @@ python3 .wishgraph/hooks/memory_sync.py task family 012
 正式执行使用存放在 `git rev-parse --git-common-dir` 下、不会进入业务提交的仓库级 Runtime Claim：
 
 ```bash
-python3 .wishgraph/hooks/memory_sync.py claim acquire 012 --worker-id worker-012
+python3 .wishgraph/hooks/memory_sync.py claim acquire 012 --worker-id worker-012 --session-id worker-012 --host codex
 python3 .wishgraph/hooks/memory_sync.py claim inspect 012
 python3 .wishgraph/hooks/memory_sync.py claim heartbeat CLAIM_ID
 python3 .wishgraph/hooks/memory_sync.py claim release CLAIM_ID
 python3 .wishgraph/hooks/memory_sync.py claim revoke CLAIM_ID
 ```
 
-获取 Claim 使用原子文件系统操作，默认同一 Task 只允许一个 active exclusive Claim，并记录 attempt、worker、branch、绝对 worktree、时间、lease 状态、执行模式和可选宿主线程引用。heartbeat 与 release 校验 branch/worktree 绑定；显式 revoke 是接管控制路径。stale 检测保留旧记录。它能协调共享同一本地 Git common directory 的进程与 worktree，但不是只共享远程仓库的多机器分布式锁。
+获取 Claim 使用原子文件系统操作，默认同一 Task 只允许一个 active exclusive Claim，并记录 attempt、worker、branch、绝对 worktree、时间、lease 状态、执行模式和可选宿主线程引用。传入 `--session-id` 时同时持久化 Worker runtime；持久化失败会撤销新 Claim。heartbeat 与 release 校验 branch/worktree 绑定；显式 revoke 是接管控制路径。stale 检测保留旧记录。它能协调共享同一本地 Git common directory 的进程与 worktree，但不是只共享远程仓库的多机器分布式锁。
+
+Discussion-local Integration 先持久化 `phase: integrating`，再获取绑定 session、integration ID、Task、报告、branch 与 worktree 的 lease：
+
+```bash
+python3 .wishgraph/hooks/memory_sync.py integration-lease acquire \
+  --session-id discussion-1 \
+  --integration-id integration-012 \
+  --task-id 012 \
+  --report reports/runs/012-attempt-1.md
+```
+
+业务文件写入和实现构建／测试必须匹配活跃 Worker Claim；合并、组合验证、共享状态写入和集成提交必须持有 Discussion-local Integration lease。这是强制的 `write/build gate`。完整读取拦截取决于宿主 Hook 能力，因此源码读取只能声明为 `host capability dependent`，不能包装成通用硬门禁。
 
 宿主未传 `--authorized-by-user` 时，`claim revoke` 返回 `explicit_user_authorization_required`。停止或拒绝尚未集成的工作会保留 branch/report；重试保留 Task ID 并递增 attempt。已集成历史只能通过新的回滚或 Follow-up Task 替换。
 
@@ -189,7 +205,7 @@ python3 .wishgraph/hooks/memory_sync.py competitive-plan 012 --candidates 2
 
 它提出 `012a`、`012b`、共同的 `comparison_group: 012`、独立 Claim/worktree/report，并规定只选一个胜者。status 只把客观唯一胜者放入 `selected_reports`；平分或 `selection_requires_judgment` 路由到 `compare_candidates`。失败候选不合并，标记为 `rejected` 或 `superseded`。
 
-`micro` Run Report 是独立 ad-hoc 单元，不能作为正式 Task 中的捷径。它必须列出 changed paths，明确 API/schema/security/dependency 标记为 false，并保留正常验证、不可变报告、提交、回滚和 Integrate/N/A 证据。任何风险都会把需求升级为正式 Task，并让 micro 报告失去资格。
+Legacy `micro` Run Report 继续兼容读取，但绝不授权 Discussion 修改业务代码；继续执行 micro 时也必须放在单独持有 Claim 的 Worker 中，并保留验证、不可变报告、提交、回滚和 Integrate/N/A 证据。新工作应使用正式 Task。
 
 严格使用 `enforce` 模式时，建议给安装器增加 `--git-hook`，从而覆盖 Agent 以外的提交和生命周期 hook 无法拦截的工具路径。安装器不会覆盖已有 Git pre-commit hook，而是提示如何手动串联。
 
@@ -198,6 +214,6 @@ python3 .wishgraph/hooks/memory_sync.py competitive-plan 012 --candidates 2
 - Hooks 不生成 PRD、架构、CODEMAP 或交接语义。
 - Hooks 不会自动 stage、commit 或 amend。
 - Hooks 会忽略自己的运行时和宿主配置文件。
-- Hooks 不决定是否并行，不启动 Worker 或集成 Agent，不合并代码，也不代替人类 Review。
+- Hooks 不决定是否并行，不启动 Worker，不创建 Integration 窗口，不合并代码，也不代替人类 Review。
 - Worker 被阻塞或未完成时，只要创建唯一的 Blocked 或 Incomplete 执行报告并记录验证、影响建议，就可以正常停下。
 - 为仓库适配规则期间使用 `warn`，不要用虚假的 Updated 记录绕过检查。

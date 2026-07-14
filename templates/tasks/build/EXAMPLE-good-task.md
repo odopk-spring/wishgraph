@@ -3,6 +3,8 @@
 Spec source: `PRD.md` "Now" roadmap says dashboard first paint must not wait on auth refresh.
 Dependencies: None.
 
+Task state records only Task Lifecycle. Session Role, Flow Phase, and `expected_transition` remain orthogonal Git-common-dir runtime state.
+
 <!-- wishgraph:task-state:start -->
 ```json
 {

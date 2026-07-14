@@ -25,6 +25,16 @@ The JSON block below is the machine-readable source for this integration lifecyc
 ```
 <!-- wishgraph:integration-state:end -->
 
+## Orchestration Snapshot
+
+These values are a read-only review snapshot. Their live source is the Git-common-dir session runtime, Worker Claim, and Integration lease; do not add them to the Task Lifecycle JSON above.
+
+- Session Role:
+- Flow Phase:
+- Expected transition:
+- Active Worker Claim:
+- Active Integration lease:
+
 ## Run Reports Absorbed This Integration
 
 - `reports/runs/NNN-short-slug.md`

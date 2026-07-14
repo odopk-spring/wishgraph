@@ -102,13 +102,13 @@ If the user requests mechanical memory enforcement, install project-local hooks 
 When the PRD and first task are ready, tell the user:
 
 ```text
-首个任务已经准备好。建议先说明为什么采用串行或并行，然后询问：“任务已准备好，是否创建执行窗口？”用户明确回复“创建执行窗口”后，由讨论 Agent 创建用户可见 Worker，自动交接 `prompts/EXECUTION_AI.md` 和 `tasks/build/<task>.md`。平台不支持创建可见任务时，才提供完整内容让用户手动复制。
+首个任务已经准备好。先说明为什么采用串行或并行，再设置唯一 `expected_transition` 并询问：“任务已准备好，是否授权启动 Worker？”用户明确授权后，Codex 创建用户可见 Worker；Claude Code、宿主不支持或创建失败时只输出 `执行 <task-id> 任务` 并停止。
 ```
 
 English:
 
 ```text
-First classify the task and explain why it is sequential or parallel. Then ask whether to create the execution window. Only after an explicit human command, create a user-visible Worker task and automatically hand off `prompts/EXECUTION_AI.md` plus `tasks/build/<task>.md`. Explain that the Worker is explicit and visible, the user returns to discussion after completion, and they do not edit memory or integration files. Use manual copying only when visible task creation is unavailable or fails. State that safe sequential and mechanically proven `parallel_independent` results integrate silently, while risk or ambiguity returns to Discussion.
+First classify the task and explain why it is sequential or parallel. Then set one unique `expected_transition` and ask for Worker-launch authorization. Only after an explicit human command, Codex creates a visible Worker. Claude Code, unsupported creation, and failed creation output only `执行 <task-id> 任务` and stop. Every Worker terminal event enters `integration_pending`; safe results integrate in Discussion with a lease, while risk or ambiguity asks only the concrete decision.
 ```
 
 If the user wants to continue discussing instead, continue in the discussion window and keep `prompts/DISCUSSION_AI.md` current.

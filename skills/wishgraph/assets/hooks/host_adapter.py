@@ -4,41 +4,112 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import fnmatch
 import json
 import os
 import re
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
 from git_state import (
     LEGACY_PROJECT_STATUS_PATH,
+    apply_session_runtime_patch,
     acquire_claim,
+    acquire_integration_lease,
     configured_task_globs,
     current_branch,
     find_git_root,
     load_config,
     inspect_claims,
+    inspect_integration_lease,
     read_version,
+    read_session_runtime,
     resolve_project_status_path,
     standard_project_status_conflict,
     update_claim,
+    update_integration_lease,
+    write_session_runtime,
 )
 from policy import (
     CheckResult,
     check_sync,
     execution_preflight as evaluate_execution_preflight,
     integration_state,
+    reduce_orchestration,
 )
 from workflow_state import (
+    EXPECTED_TRANSITIONS,
+    FLOW_PHASES,
+    SESSION_ROLES,
+    FlowPlan,
+    HostCapability,
+    UserEvent,
     canonical_task_id,
     competitive_candidate_ids,
     dynamic_state_block,
     markdown_section,
     parse_task_command,
     parse_task_state,
+    flow_plan_to_dict,
+    orchestration_state_from_dict,
     task_id_parts,
 )
+
+
+@dataclass(frozen=True)
+class HostAction:
+    action: str
+    state_patch: dict[str, Any] = field(default_factory=dict)
+    user_message: str = ""
+    stop_after_action: bool = False
+    creates_visible_window: bool = False
+
+
+def map_flow_plan_to_host(
+    plan: FlowPlan, capability: HostCapability
+) -> HostAction:
+    """Map one authorized semantic plan to a host action without changing authority."""
+    if plan.next_action == "launch_worker":
+        if capability.can_create_visible_worker:
+            return HostAction(
+                action="create_visible_worker_task",
+                state_patch=plan.state_patch,
+                stop_after_action=True,
+                creates_visible_window=True,
+            )
+        task_id = plan.task_id
+        return HostAction(
+            action="show_manual_worker_command",
+            state_patch={
+                **plan.state_patch,
+                "session": {
+                    "phase": "waiting_for_user_launch",
+                    "expected_transition": {
+                        "kind": "launch_worker_manually",
+                        "task_id": task_id,
+                    },
+                },
+            },
+            user_message=f"执行 {task_id} 任务",
+            stop_after_action=True,
+            creates_visible_window=False,
+        )
+    if plan.next_action == "enter_discussion_local_integration":
+        return HostAction(
+            action="enter_discussion_local_integration",
+            state_patch=plan.state_patch,
+            stop_after_action=False,
+            creates_visible_window=False,
+        )
+    return HostAction(
+        action=plan.next_action,
+        state_patch=plan.state_patch,
+        user_message=plan.user_message,
+        stop_after_action=plan.stop_after_action,
+        creates_visible_window=False,
+    )
 
 
 def project_session_context(root: Path, config: dict[str, Any]) -> Optional[str]:
@@ -175,6 +246,233 @@ def commit_uses_implicit_staging(command: str) -> bool:
     )
 
 
+BUILD_COMMAND_RE = re.compile(
+    r"(?is)(?:^|[;&|]\s*)(?:python\d*\s+-m\s+(?:pytest|unittest)|pytest|"
+    r"xcodebuild|cargo\s+(?:test|build|check)|go\s+test|"
+    r"(?:npm|pnpm|yarn)\s+(?:test|run\s+build|build)|"
+    r"(?:gradle|gradlew|mvn|make)\b)"
+)
+DEPENDENCY_COMMAND_RE = re.compile(
+    r"(?is)(?:^|[;&|]\s*)(?:python\d*\s+-m\s+pip\s+install|pip\d*\s+install|"
+    r"(?:npm|pnpm|yarn)\s+(?:install|add)|brew\s+install|"
+    r"(?:apt|apt-get|dnf|yum)\s+install)\b"
+)
+WORKTREE_WRITE_COMMAND_RE = re.compile(
+    r"(?is)(?:^|[;&|]\s*)(?:sed\s+[^\n;&|]*\s-i\b|perl\s+[^\n;&|]*\s-pi\b|"
+    r"(?:tee|cp|mv|rm|touch)\b)|(?:^|[^<])>{1,2}(?!=)"
+)
+MERGE_COMMAND_RE = re.compile(
+    r"(?is)(?:^|[;&|]\s*)git\s+(?:merge|cherry-pick|rebase)\b"
+)
+
+
+def hook_session_id(payload: dict[str, Any]) -> str:
+    for key in ("session_id", "conversation_id", "thread_id"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _tool_paths(tool_input: dict[str, Any]) -> list[str]:
+    paths: list[str] = []
+    for key in ("file_path", "path"):
+        value = tool_input.get(key)
+        if isinstance(value, str) and value.strip():
+            paths.append(value.strip().replace("\\", "/"))
+    patch = tool_input.get("patch") or tool_input.get("input")
+    if isinstance(patch, str):
+        paths.extend(
+            match.replace("\\", "/")
+            for match in re.findall(
+                r"(?m)^\*\*\* (?:Add|Update|Delete) File:\s*(.+?)\s*$", patch
+            )
+        )
+    return paths
+
+
+def _relative_tool_path(root: Path, value: str) -> str:
+    path = Path(value)
+    if path.is_absolute():
+        try:
+            return path.resolve().relative_to(root.resolve()).as_posix()
+        except ValueError:
+            return value.replace("\\", "/")
+    return value.lstrip("./")
+
+
+def _path_operation(
+    root: Path, config: dict[str, Any], paths: list[str]
+) -> tuple[str, str]:
+    if not paths:
+        return "business_write", ""
+    relative_paths = [_relative_tool_path(root, path) for path in paths]
+    managed_shared = {
+        config["paths"]["prd"],
+        config["paths"]["architecture"],
+        config["paths"]["codemap"],
+        config["paths"]["conventions"],
+        config["paths"]["discussion_prompt"],
+        config["paths"]["execution_prompt"],
+        config["paths"]["integration_prompt"],
+        config["paths"]["project_status"],
+    }
+    if all(path in managed_shared for path in relative_paths):
+        return "shared_state_write", ""
+    task_globs = configured_task_globs(config)
+    if all(any(fnmatch.fnmatch(path, glob) for glob in task_globs) for path in relative_paths):
+        return "governance_write", "task_paths:" + "\n".join(relative_paths)
+    return "business_write", ""
+
+
+def classify_tool_operation(
+    root: Path, config: dict[str, Any], payload: dict[str, Any]
+) -> Optional[tuple[str, str]]:
+    tool_name = str(payload.get("tool_name") or "").lower()
+    tool_input = payload.get("tool_input")
+    tool_input = tool_input if isinstance(tool_input, dict) else {}
+    if tool_name == "bash":
+        command = str(tool_input.get("command") or "")
+        if DEPENDENCY_COMMAND_RE.search(command):
+            return "install_dependency", ""
+        if BUILD_COMMAND_RE.search(command):
+            return "build_test", ""
+        if MERGE_COMMAND_RE.search(command):
+            return "business_write", "merge_resolution"
+        if is_git_commit_command(command):
+            return "commit", ""
+        if WORKTREE_WRITE_COMMAND_RE.search(command):
+            return "business_write", ""
+        return None
+    if tool_name in {"write", "edit", "multiedit", "notebookedit", "apply_patch"}:
+        return _path_operation(root, config, _tool_paths(tool_input))
+    return None
+
+
+def orchestration_gate_plan(
+    root: Path, config: dict[str, Any], payload: dict[str, Any]
+) -> Optional[FlowPlan]:
+    classified = classify_tool_operation(root, config, payload)
+    if classified is None or not config.get("orchestration_gate_enabled", True):
+        return None
+    operation, operation_scope = classified
+    session_id = hook_session_id(payload)
+    runtime = read_session_runtime(root, session_id) if session_id else None
+    if runtime is None:
+        runtime = {
+            "session": {
+                "session_id": session_id,
+                "role": "neutral",
+                "host": "unknown",
+                "phase": "planning",
+                "expected_transition": None,
+            }
+        }
+    runtime = dict(runtime)
+    session_value = runtime.get("session")
+    session_value = dict(session_value) if isinstance(session_value, dict) else {}
+    role = str(session_value.get("role") or "neutral")
+    task_value = runtime.get("task") if isinstance(runtime.get("task"), dict) else {}
+    task_id = str(task_value.get("task_id") or "")
+    runtime["worker_runtime"] = {}
+    runtime["integration_runtime"] = {}
+    if role == "worker" and task_id:
+        active_claims = [
+            claim
+            for claim in inspect_claims(root, task_id)
+            if claim.get("effective_lease_status") == "active"
+            and claim.get("branch") == current_branch(root)
+            and claim.get("worktree") == str(root.resolve())
+            and (
+                claim.get("worker_id") == session_id
+                or claim.get("host_thread_ref") == session_id
+            )
+        ]
+        if len(active_claims) == 1:
+            runtime["worker_runtime"] = {
+                "claim_id": active_claims[0].get("claim_id"),
+                "branch": active_claims[0].get("branch"),
+                "worktree": active_claims[0].get("worktree"),
+                "host_window_or_thread_id": active_claims[0].get("host_thread_ref"),
+            }
+    if role == "discussion" and session_value.get("phase") == "integrating":
+        lease = inspect_integration_lease(root)
+        if (
+            lease
+            and lease.get("effective_lease_status") == "active"
+            and lease.get("session_id") == session_id
+            and lease.get("base_branch") == current_branch(root)
+            and lease.get("worktree") == str(root.resolve())
+        ):
+            runtime["integration_runtime"] = {
+                "lease_id": lease.get("lease_id"),
+                "integration_id": lease.get("integration_id"),
+                "base_branch": lease.get("base_branch"),
+                "worktree": lease.get("worktree"),
+                "selected_task_ids": lease.get("selected_task_ids", []),
+                "selected_reports": lease.get("selected_reports", []),
+            }
+    if operation == "governance_write" and operation_scope.startswith("task_paths:"):
+        requested_paths = operation_scope.removeprefix("task_paths:").splitlines()
+        states = []
+        for path in requested_paths:
+            content = read_version(root, path, "worktree")
+            if content is None:
+                continue
+            states.append(parse_task_state(path, content))
+        operation_scope = (
+            "own_task_state"
+            if states
+            and len(states) == len(requested_paths)
+            and task_id
+            and all(state.task_id == task_id for state in states)
+            else "other_task_state"
+        )
+    state = orchestration_state_from_dict(runtime)
+    capability = HostCapability(
+        host=state.session.host,
+        can_create_visible_worker=state.session.host == "codex",
+        can_gate_writes=True,
+        can_gate_builds=True,
+        can_gate_reads=config.get("read_gate_mode") == "enforce",
+    )
+    return reduce_orchestration(
+        state,
+        UserEvent(
+            kind="operation_requested",
+            data={
+                "operation": operation,
+                "operation_scope": operation_scope,
+                "task_authorized": bool(task_value.get("worker_authorized")),
+            },
+        ),
+        capability,
+    )
+
+
+def emit_orchestration_gate(plan: FlowPlan, mode: str) -> None:
+    reason = "WishGraph orchestration gate blocked this operation. " + plan.denial_reason
+    if mode == "warn":
+        emit(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "additionalContext": reason,
+                }
+            }
+        )
+    else:
+        emit(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": reason,
+                }
+            }
+        )
+
+
 def hook_main(event: str) -> int:
     payload = read_hook_input()
     root = find_git_root(Path(payload.get("cwd") or os.getcwd()))
@@ -191,13 +489,30 @@ def hook_main(event: str) -> int:
         emit({})
         return 0
 
+    if event == "session-start":
+        session_id = hook_session_id(payload)
+        if session_id and read_session_runtime(root, session_id) is None:
+            write_session_runtime(
+                root,
+                session_id,
+                {
+                    "session": {
+                        "session_id": session_id,
+                        "role": "neutral",
+                        "host": str(payload.get("host") or "unknown"),
+                        "phase": "planning",
+                        "expected_transition": None,
+                    }
+                },
+            )
+
     if event == "pre-tool-use":
         tool_input = payload.get("tool_input")
         command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
-        if payload.get("tool_name") != "Bash" or not is_git_commit_command(str(command)):
-            emit({})
-            return 0
-        if commit_uses_implicit_staging(str(command)):
+        commit_command = payload.get("tool_name") == "Bash" and is_git_commit_command(
+            str(command)
+        )
+        if commit_command and commit_uses_implicit_staging(str(command)):
             reason = (
                 "WishGraph blocks git commit options that stage implicitly (-a/--all, "
                 "-i/--include, -o/--only). Stage the bounded code and external-memory "
@@ -223,40 +538,44 @@ def hook_main(event: str) -> int:
                     }
                 )
             return 0
-        result = check_sync(root, config, "staged")
-        if result.ok:
-            if result.warnings:
+        result = check_sync(root, config, "staged") if commit_command else None
+        if result is not None and not result.ok:
+            reason = format_failure(result, "staged")
+            if config.get("mode") == "warn":
                 emit(
                     {
                         "hookSpecificOutput": {
                             "hookEventName": "PreToolUse",
-                            "additionalContext": format_warnings(result),
+                            "additionalContext": reason,
                         }
                     }
                 )
             else:
-                emit({})
+                emit(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": reason,
+                        }
+                    }
+                )
             return 0
-        reason = format_failure(result, "staged")
-        if config.get("mode") == "warn":
+        gate_plan = orchestration_gate_plan(root, config, payload)
+        if gate_plan is not None and not gate_plan.accepted:
+            emit_orchestration_gate(gate_plan, str(config.get("mode")))
+            return 0
+        if result is not None and result.warnings:
             emit(
                 {
                     "hookSpecificOutput": {
                         "hookEventName": "PreToolUse",
-                        "additionalContext": reason,
+                        "additionalContext": format_warnings(result),
                     }
                 }
             )
         else:
-            emit(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "permissionDecision": "deny",
-                        "permissionDecisionReason": reason,
-                    }
-                }
-            )
+            emit({})
         return 0
 
     result = check_sync(root, config, "worktree")
@@ -374,23 +693,184 @@ def integration_plan_main(host_capability: str) -> int:
     state = integration_state(root, config).as_dict()
     if not state["auto_integration_eligible"]:
         host_action = state["next_action"]
-    elif host_capability == "background":
-        host_action = "launch_temporary_background_integrator"
-    elif host_capability == "active_agent":
-        host_action = "enter_internal_integration_phase"
+    elif host_capability in {"background", "active_agent"}:
+        host_action = "enter_discussion_local_integration"
     else:
-        host_action = "keep_pending_until_discussion_or_refresh"
+        host_action = "persist_integration_pending_until_discussion_resume"
     payload = {
         "ok": True,
         "visibility": "silent_unless_blocked",
         "host_capability": host_capability,
         "host_action": host_action,
+        "creates_visible_integration_window": False,
         "integration_prompt": config["paths"]["integration_prompt"],
         "ready_reports": state["selected_reports"] or state["ready_reports"],
         "status": state,
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
+
+
+def flow_plan_main(args: argparse.Namespace) -> int:
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+        state = orchestration_state_from_dict(payload["state"])
+        event_value = payload["event"]
+        event = UserEvent(
+            kind=str(event_value["kind"]),
+            data=event_value.get("data", {}) if isinstance(event_value, dict) else {},
+        )
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        print(json.dumps({"ok": False, "error": "invalid_flow_input", "detail": str(exc)}))
+        return 2
+    capability = HostCapability(
+        host=args.host,
+        can_create_visible_worker=args.can_create_visible_worker,
+        can_gate_writes=True,
+        can_gate_builds=True,
+        can_gate_reads=args.can_gate_reads,
+    )
+    plan = reduce_orchestration(state, event, capability)
+    action = map_flow_plan_to_host(plan, capability)
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "plan": flow_plan_to_dict(plan),
+                "host_action": {
+                    "action": action.action,
+                    "state_patch": action.state_patch,
+                    "user_message": action.user_message,
+                    "stop_after_action": action.stop_after_action,
+                    "creates_visible_window": action.creates_visible_window,
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def session_main(args: argparse.Namespace) -> int:
+    root = find_git_root(Path.cwd())
+    if root is None:
+        payload = {"ok": False, "error": "git_repository_required"}
+    elif args.session_action == "get":
+        runtime = read_session_runtime(root, args.session_id)
+        payload = (
+            {"ok": True, "runtime": runtime}
+            if runtime is not None
+            else {"ok": False, "error": "session_runtime_not_found"}
+        )
+    elif args.session_action == "apply":
+        try:
+            patch = json.load(sys.stdin)
+        except (OSError, json.JSONDecodeError) as exc:
+            payload = {
+                "ok": False,
+                "error": "invalid_session_runtime_patch",
+                "detail": str(exc),
+            }
+        else:
+            payload = apply_session_runtime_patch(root, args.session_id, patch)
+    else:
+        expected = None
+        if args.expected_kind:
+            expected = {
+                "kind": args.expected_kind,
+                "task_id": args.task_id,
+                "report_id": args.report_id,
+                "decision_id": args.decision_id,
+                "integration_id": args.integration_id,
+            }
+        runtime = {
+            "session": {
+                "session_id": args.session_id,
+                "role": args.role,
+                "host": args.host,
+                "phase": args.phase,
+                "expected_transition": expected,
+            }
+        }
+        if args.task_id:
+            runtime["task"] = {
+                "task_id": args.task_id,
+                "lifecycle": args.task_lifecycle,
+                "worker_authorized": args.worker_authorized,
+                "run_report": args.report_id,
+            }
+        payload = write_session_runtime(root, args.session_id, runtime)
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0 if payload.get("ok") else 1
+
+
+def integration_lease_main(args: argparse.Namespace) -> int:
+    root = find_git_root(Path.cwd())
+    if root is None:
+        payload = {"ok": False, "error": "git_repository_required"}
+    elif args.lease_action == "inspect":
+        payload = {"ok": True, "lease": inspect_integration_lease(root)}
+    elif args.lease_action == "acquire":
+        runtime = read_session_runtime(root, args.session_id)
+        session = runtime.get("session", {}) if isinstance(runtime, dict) else {}
+        if not isinstance(session, dict) or session.get("role") != "discussion":
+            payload = {"ok": False, "error": "discussion_session_required"}
+        elif session.get("phase") != "integrating":
+            payload = {"ok": False, "error": "integration_phase_required"}
+        else:
+            payload = acquire_integration_lease(
+                root,
+                session_id=args.session_id,
+                integration_id=args.integration_id,
+                task_ids=args.task_id,
+                reports=args.report,
+                require_clean=not args.allow_dirty,
+            )
+            if payload.get("ok"):
+                persisted = apply_session_runtime_patch(
+                    root,
+                    args.session_id,
+                    {
+                        "integration_runtime": {
+                            "lease_id": payload["lease"]["lease_id"],
+                            "integration_id": args.integration_id,
+                            "base_branch": payload["lease"]["base_branch"],
+                            "worktree": payload["lease"]["worktree"],
+                            "selected_task_ids": list(args.task_id),
+                            "selected_reports": list(args.report),
+                        }
+                    },
+                )
+                if not persisted.get("ok"):
+                    update_integration_lease(
+                        root,
+                        "revoke",
+                        session_id=args.session_id,
+                    )
+                    payload = {
+                        "ok": False,
+                        "error": "integration_runtime_persistence_failed",
+                        "detail": persisted,
+                    }
+    else:
+        payload = update_integration_lease(
+            root,
+            args.lease_action,
+            session_id=args.session_id,
+            branch=(
+                current_branch(root)
+                if args.lease_action != "revoke" or args.enforce_binding
+                else None
+            ),
+            worktree=(
+                str(root)
+                if args.lease_action != "revoke" or args.enforce_binding
+                else None
+            ),
+        )
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0 if payload.get("ok") else 1
 
 
 def task_specs(root: Path, config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -617,11 +1097,53 @@ def claim_main(args: argparse.Namespace) -> int:
                             if task["execution_mode"] == "competitive"
                             else "exclusive"
                         ),
-                        host_thread_ref=args.host_thread_ref,
+                        host_thread_ref=args.host_thread_ref or args.session_id,
                         stale_after_seconds=args.stale_after,
                     )
                     if payload.get("ok"):
                         payload["task"] = task
+                        if args.session_id:
+                            runtime_payload = write_session_runtime(
+                                root,
+                                args.session_id,
+                                {
+                                    "session": {
+                                        "session_id": args.session_id,
+                                        "role": "worker",
+                                        "host": args.host,
+                                        "phase": "waiting_for_worker",
+                                        "expected_transition": {
+                                            "kind": "wait_for_worker",
+                                            "task_id": task["task_id"],
+                                        },
+                                    },
+                                    "task": {
+                                        "task_id": task["task_id"],
+                                        "lifecycle": "running",
+                                        "worker_authorized": True,
+                                        "run_report": task["run_report"],
+                                    },
+                                    "worker_runtime": {
+                                        "claim_id": payload["claim"]["claim_id"],
+                                        "branch": payload["claim"]["branch"],
+                                        "worktree": payload["claim"]["worktree"],
+                                        "host_window_or_thread_id": (
+                                            args.host_thread_ref or args.session_id
+                                        ),
+                                    },
+                                },
+                            )
+                            if not runtime_payload.get("ok"):
+                                update_claim(
+                                    root,
+                                    payload["claim"]["claim_id"],
+                                    "revoke",
+                                )
+                                payload = {
+                                    "ok": False,
+                                    "error": "worker_runtime_persistence_failed",
+                                    "detail": runtime_payload,
+                                }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if payload.get("ok") else 1
 
@@ -640,6 +1162,43 @@ def main() -> int:
         choices=("background", "active_agent", "inactive"),
         required=True,
     )
+    flow_parser = subparsers.add_parser("flow-plan")
+    flow_parser.add_argument("--host", choices=("codex", "claude", "unknown"), required=True)
+    flow_parser.add_argument("--can-create-visible-worker", action="store_true")
+    flow_parser.add_argument("--can-gate-reads", action="store_true")
+    session_parser = subparsers.add_parser("session")
+    session_subparsers = session_parser.add_subparsers(
+        dest="session_action", required=True
+    )
+    session_get_parser = session_subparsers.add_parser("get")
+    session_get_parser.add_argument("session_id")
+    session_apply_parser = session_subparsers.add_parser("apply")
+    session_apply_parser.add_argument("session_id")
+    session_set_parser = session_subparsers.add_parser("set")
+    session_set_parser.add_argument("session_id")
+    session_set_parser.add_argument("--role", choices=sorted(SESSION_ROLES), required=True)
+    session_set_parser.add_argument("--host", choices=("codex", "claude", "unknown"), default="unknown")
+    session_set_parser.add_argument("--phase", choices=sorted(FLOW_PHASES), required=True)
+    session_set_parser.add_argument("--expected-kind", choices=sorted(EXPECTED_TRANSITIONS))
+    session_set_parser.add_argument("--task-id", default="")
+    session_set_parser.add_argument("--task-lifecycle", default="draft")
+    session_set_parser.add_argument("--worker-authorized", action="store_true")
+    session_set_parser.add_argument("--report-id", default="")
+    session_set_parser.add_argument("--decision-id", default="")
+    session_set_parser.add_argument("--integration-id", default="")
+    lease_parser = subparsers.add_parser("integration-lease")
+    lease_subparsers = lease_parser.add_subparsers(dest="lease_action", required=True)
+    lease_subparsers.add_parser("inspect")
+    lease_acquire = lease_subparsers.add_parser("acquire")
+    lease_acquire.add_argument("--session-id", required=True)
+    lease_acquire.add_argument("--integration-id", required=True)
+    lease_acquire.add_argument("--task-id", action="append", required=True)
+    lease_acquire.add_argument("--report", action="append", required=True)
+    lease_acquire.add_argument("--allow-dirty", action="store_true")
+    for lease_action in ("heartbeat", "release", "revoke"):
+        lease_action_parser = lease_subparsers.add_parser(lease_action)
+        lease_action_parser.add_argument("--session-id", required=True)
+        lease_action_parser.add_argument("--enforce-binding", action="store_true")
     competitive_parser = subparsers.add_parser("competitive-plan")
     competitive_parser.add_argument("task_id")
     competitive_parser.add_argument("--candidates", type=int, default=2, choices=range(2, 9))
@@ -651,6 +1210,10 @@ def main() -> int:
     acquire_parser = claim_subparsers.add_parser("acquire")
     acquire_parser.add_argument("task_id")
     acquire_parser.add_argument("--worker-id", required=True)
+    acquire_parser.add_argument("--session-id")
+    acquire_parser.add_argument(
+        "--host", choices=("codex", "claude", "unknown"), default="unknown"
+    )
     acquire_parser.add_argument(
         "--authorization-action",
         choices=("execute", "continue", "retry", "take_over"),
@@ -675,6 +1238,12 @@ def main() -> int:
         return status_main()
     if args.command == "integration-plan":
         return integration_plan_main(args.host_capability)
+    if args.command == "flow-plan":
+        return flow_plan_main(args)
+    if args.command == "session":
+        return session_main(args)
+    if args.command == "integration-lease":
+        return integration_lease_main(args)
     if args.command == "competitive-plan":
         return competitive_plan_main(args.task_id, args.candidates)
     if args.command == "task":
