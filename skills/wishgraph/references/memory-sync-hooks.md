@@ -4,7 +4,7 @@ Use this reference when a user wants WishGraph to enforce external-memory closeo
 
 ## Principle
 
-Hooks enforce worker and integration boundaries and expose read-only integration status; they do not write semantic project memory. Workers create immutable task-scoped reports. A temporary single-writer integration agent applies shared-memory updates and refreshes the project overview and discussion handoff.
+Hooks enforce worker and integration boundaries and expose read-only integration status; they do not write semantic project memory. Workers create immutable task-scoped reports. A temporary single-writer integration agent applies shared-memory updates, rewrites Project Status, and refreshes the discussion handoff.
 
 The project-local hook runtime uses three events:
 
@@ -50,11 +50,18 @@ For strict `enforce` mode, add `--git-hook` so commits outside the agent and too
 ```text
 .wishgraph/config.json
 .wishgraph/hooks/memory_sync.py
+.wishgraph/hooks/workflow_state.py
 .codex/hooks.json        # when Codex is selected
 .claude/settings.json    # when Claude Code is selected
 ```
 
 The installer merges JSON hook groups and preserves unrelated existing hooks. It refuses to replace a modified generated runtime unless `--force-assets` is supplied.
+
+New projects use the visible `tasks/build/*.md` path. The runtime also scans legacy `.tasks/build/*.md`, and installer upgrades preserve an existing project's configured primary task path instead of moving its files automatically.
+
+New projects use `reports/PROJECT_STATUS.md` as the current integrated snapshot. Existing `paths.dev_report` configuration is migrated to `paths.project_status` without changing a custom path value. A project that only has `reports/DEV_REPORT.md` remains readable with a migration warning; if both standard files exist, the hook reports an ambiguous source of truth and strict mode blocks integration until one authoritative file remains.
+
+The default snapshot limits are 160 lines and 12,000 characters. The discussion prompt's dynamic state block is limited to 30 lines, and SessionStart context is capped at 2,000 characters. Exceeding either Project Status limit means the integration agent must rewrite it more concisely: move historical detail to immutable Run Reports and Git history, but retain every unresolved risk, conflict, and pending decision. `warn` mode reports the issue without blocking completion; `enforce` mode blocks integration completion and commit boundaries.
 
 For Codex, the user must trust the repository and review new or changed hooks with `/hooks` before they run.
 
@@ -62,15 +69,19 @@ For Codex, the user must trust the repository and review new or changed hooks wi
 
 Each worker uses a separate branch or worktree and creates exactly one new `reports/runs/<work-unit-id>.md`. Run reports are immutable after entering Git history. A formal task uses its task ID; ad-hoc work uses a unique timestamped ID.
 
+New Task Specs embed `wishgraph:task-state`, Run Reports embed `wishgraph:run-state`, and Project Status embeds `wishgraph:integration-state`. Together they form the checked lifecycle `draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`. The runtime prefers a valid structured block and falls back to legacy labels when no block exists. A present but invalid block is an error rather than a silent fallback.
+
+Discussion may refine a `draft` task before authorization. It sets `worker_creation_authorized: true` only after an explicit human creation command; execution identity becomes immutable at approval except that a blocked or incomplete retry must receive a new Run Report path. Workers move authorized tasks through running and closeout states. Integration moves absorbed tasks to integrated. Discussion records reviewed only after human acceptance. Authorization, retry, and review transitions may omit a Worker report only when surrounding task prose is unchanged; `running` never counts as a completed closeout.
+
 Workers are explicit, user-visible tasks created only after a human creation command. The discussion agent may create and configure them through a supported host capability; Hooks never start them. Each task and report records `Work type`, `Batch ID`, and `Integration authorization`. Completed reports also record integration readiness, scope check, conflict status, material new decisions, and machine-readable validation results.
 
 Worker reports use the exact shared-memory rows from `reports/RUN_REPORT.md`:
 
 - Use `Integrate` when the integration agent should update shared memory.
 - Use `N/A` with a concrete reason when no shared update is needed.
-- Do not let workers edit PRD, architecture, CODEMAP, conventions, prompts, or `reports/DEV_REPORT.md`.
+- Do not let Workers edit PRD, architecture, CODEMAP, conventions, prompts, or `reports/PROJECT_STATUS.md`.
 
-The integration agent merges worker commits with `--no-commit` or an equivalent no-commit cherry-pick. It reads every new run report, updates affected shared memory, lists absorbed report paths in `reports/DEV_REPORT.md`, and updates the dynamic state block in `prompts/DISCUSSION_AI.md`. The overview uses Updated or N/A rows and records integration kind and authorization.
+The integration agent merges Worker commits with `--no-commit` or an equivalent no-commit cherry-pick. It reads every new Run Report, updates affected shared memory, rewrites `reports/PROJECT_STATUS.md` as the current snapshot with only this integration's absorbed report paths, and then refreshes the concise dynamic state block in `prompts/DISCUSSION_AI.md`. Project Status uses Updated or N/A rows and records integration kind and authorization.
 
 Safe sequential work inherits integration authority from task approval. Parallel batches and high-risk work require explicit user confirmation naming the reports. Hooks enforce this distinction but never grant authority themselves.
 
@@ -86,11 +97,21 @@ It scans task specs, the current target branch, and immutable run reports visibl
 
 ```json
 {
+  "schema_version": 1,
+  "kind": "integration_status",
   "pending_integration": true,
   "integration_kind": "parallel_batch",
   "ready_reports": [],
   "waiting_reports": [],
   "blocked_reports": [],
+  "work_units": [
+    {
+      "task_id": "012-example",
+      "lifecycle_status": "completed",
+      "worker_creation_authorized": true,
+      "integration_policy": "inherited_task_approval"
+    }
+  ],
   "requires_user_confirmation": true,
   "reason": ""
 }

@@ -9,14 +9,31 @@
 - 日期：
 - Agent：
 - 分支 / worktree：
-- 状态：Completed / Blocked / Incomplete
-- 工作类型：sequential / parallel_batch / high_risk
-- 批次 ID：串行填写 N/A；并行填写稳定批次 ID
-- 集成授权：随任务批准授权 / 需要用户明确确认
-- 集成就绪状态：Ready / Blocked / Needs decision
-- 范围检查：Pass / Fail
-- 冲突状态：None / Present
-- 新增产品 / 架构 / 数据决策：No / Yes
+
+下面的 JSON 块是生命周期状态的机器可读真相源；叙述性证据继续写在后续章节中。串行任务的 `batch_id` 使用 `null`。
+
+<!-- wishgraph:run-state:start -->
+```json
+{
+  "schema_version": 1,
+  "kind": "run",
+  "unit": "NNN-short-slug",
+  "status": "completed",
+  "work_type": "sequential",
+  "batch_id": null,
+  "integration_authorization": "inherited_task_approval",
+  "integration_readiness": "ready",
+  "scope_check": "pass",
+  "conflict_status": "none",
+  "new_decision": false,
+  "validation": {
+    "build": "n/a",
+    "tests": "pass",
+    "manual": "n/a"
+  }
+}
+```
+<!-- wishgraph:run-state:end -->
 
 ## 摘要
 

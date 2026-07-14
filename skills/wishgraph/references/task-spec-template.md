@@ -1,20 +1,31 @@
 # WishGraph Task Spec Template
 
-Use this structure when creating `tasks/build/NNN-short-slug.md`.
+Use this structure when creating `tasks/build/NNN-short-slug.md`. Existing projects that already use `.tasks/build/` may keep that legacy path.
 
 For a worked example and review checklist, read `references/good-execution-spec.md`.
 
-```markdown
+````markdown
 # NNN - Task Title
 
-Status: Pending
 Spec source:
 Dependencies:
 Language mode:
-Run report: `reports/runs/NNN-short-slug.md`
-Work type: sequential / parallel_batch / high_risk
-Batch ID: N/A or stable batch ID
-Integration authorization: Inherited task approval / Requires explicit user confirmation
+
+<!-- wishgraph:task-state:start -->
+```json
+{
+  "schema_version": 1,
+  "kind": "task",
+  "task_id": "NNN-short-slug",
+  "status": "draft",
+  "work_type": "sequential",
+  "batch_id": null,
+  "run_report": "reports/runs/NNN-short-slug.md",
+  "worker_creation_authorized": false,
+  "integration_policy": "inherited_task_approval"
+}
+```
+<!-- wishgraph:task-state:end -->
 
 ## Intent
 
@@ -43,7 +54,7 @@ Integration authorization: Inherited task approval / Requires explicit user conf
 ## Rollback Boundary
 
 ## Execution Report Requirements
-```
+````
 
 ## Quality Bar
 
@@ -56,6 +67,7 @@ A good task spec is:
 - Clear about validation and rollback.
 - Clear about the language mode for human-facing explanations when the project uses bilingual handoff.
 - Clear about why the work is sequential, parallel, or high-risk and who must authorize integration.
+- Starts as `draft` without Worker authority, then follows the checked lifecycle through approval, execution, integration, and human review.
 
 ## Split A Task When
 

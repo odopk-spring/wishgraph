@@ -1,6 +1,6 @@
 # Good Execution Spec
 
-Use this reference when writing or reviewing `tasks/build/*.md`.
+Use this reference when writing or reviewing `tasks/build/*.md`. Existing projects that already use `.tasks/build/*.md` may keep that legacy path.
 
 ## What "Good" Means
 

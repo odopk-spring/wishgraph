@@ -145,6 +145,8 @@ WishGraph addresses that by externalizing the working memory:
 - **Probe**: the checks that catch regressions and prove behavior.
 - **Review Window**: the compressed human-facing summary of plans, risks, validation, and choices.
 
+WishGraph uses a hybrid state boundary. PRD, architecture, CODEMAP, evidence, risks, and decisions remain human-readable Markdown. Machine workflow facts such as task status, work type, authorization, safety gates, validation results, and absorbed report paths live in small versioned JSON blocks embedded in Task Specs, Run Reports, and Project Status. Hooks evaluate those blocks but never generate semantic project truth.
+
 Review remains a human-facing view inside discussion, not a permanent fourth agent. Safe sequential task approval includes normal integration authority; parallel batches require a second explicit integration approval.
 
 The human stays in charge of direction and judgment. AI handles the high-bandwidth translation into specs, tasks, code edits, validation, repair, and reports.
@@ -181,7 +183,7 @@ wishgraph/
 │   ├── tasks/build/001-bootstrap-project.md
 │   ├── tasks/build/EXAMPLE-good-task.md
 │   ├── tasks/build/NNN-task.md
-│   ├── reports/DEV_REPORT.md
+│   ├── reports/PROJECT_STATUS.md
 │   ├── reports/RUN_REPORT.md
 │   └── zh-CN/
 └── docs/
@@ -246,7 +248,7 @@ cp templates/prompts/INTEGRATION_AI.md /path/to/project/prompts/INTEGRATION_AI.m
 cp templates/tasks/build/001-bootstrap-project.md /path/to/project/tasks/build/001-bootstrap-project.md
 cp templates/tasks/build/EXAMPLE-good-task.md /path/to/project/tasks/build/EXAMPLE-good-task.md
 cp templates/tasks/build/NNN-task.md /path/to/project/tasks/build/001-first-task.md
-cp templates/reports/DEV_REPORT.md /path/to/project/reports/DEV_REPORT.md
+cp templates/reports/PROJECT_STATUS.md /path/to/project/reports/PROJECT_STATUS.md
 cp templates/reports/RUN_REPORT.md /path/to/project/reports/RUN_REPORT.md
 ```
 
@@ -263,16 +265,16 @@ In a target project, the skill creates or updates:
 - `prompts/INTEGRATION_AI.md`: stable start prompt for merging workers and updating shared project state.
 - `tasks/build/001-bootstrap-project.md`: first-use task for turning a vague idea into durable project memory before implementation.
 - `tasks/build/EXAMPLE-good-task.md`: a compact example of a good execution spec.
-- `tasks/build/NNN-short-slug.md`: self-contained execution task specs.
-- Existing projects that already use `.tasks/build/*.md` remain supported; new projects use the visible `tasks/build/*.md` path.
+- `tasks/build/NNN-short-slug.md`: visible, self-contained execution task specs with checked task-state and explicit Worker authority. Older projects may keep `.tasks/build/`; Hooks recognize both paths.
 - `reports/RUN_REPORT.md`: template for immutable task-scoped worker reports.
 - `reports/runs/<work-unit-id>.md`: one report per worker or ad-hoc execution.
-- `reports/DEV_REPORT.md`: latest integrated project overview; only the integration agent updates it.
+- `reports/PROJECT_STATUS.md`: current integrated Project Status; Integration AI rewrites it after each integration while history remains in Run Reports and Git.
 
 Optional project-local memory-sync hooks add:
 
 - `.wishgraph/config.json`: enforcement mode and managed memory paths.
 - `.wishgraph/hooks/memory_sync.py`: deterministic closeout checker shared by agent tools.
+- `.wishgraph/hooks/workflow_state.py`: typed parser for versioned workflow-state blocks embedded in Markdown.
 - `.codex/hooks.json` and/or `.claude/settings.json`: host lifecycle integration merged without replacing unrelated hooks.
 
 Install them in `warn` mode first:

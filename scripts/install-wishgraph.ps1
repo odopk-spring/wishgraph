@@ -192,7 +192,8 @@ if ($SetupProject) {
     if (-not $Strict) {
         Write-Host "Memory sync starts in warn mode. Ask your agent for strict mode after one successful closeout."
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $Project "reports/DEV_REPORT.md")) -or
+    if ((-not (Test-Path -LiteralPath (Join-Path $Project "reports/PROJECT_STATUS.md")) -and
+        -not (Test-Path -LiteralPath (Join-Path $Project "reports/DEV_REPORT.md"))) -or
         -not (Test-Path -LiteralPath (Join-Path $Project "prompts/DISCUSSION_AI.md"))) {
         Write-Host 'Next: ask your agent, "Use $wishgraph to set up this project." Hooks remain non-blocking until the project memory files are ready.'
     }

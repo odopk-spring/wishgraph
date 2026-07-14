@@ -101,22 +101,32 @@ def install_runtime(target: Path, mode: str, force_assets: bool) -> list[Path]:
     installed: list[Path] = []
     target_hook_dir = target / ".wishgraph" / "hooks"
     target_hook_dir.mkdir(parents=True, exist_ok=True)
-    runtime_target = target_hook_dir / "memory_sync.py"
-    if runtime_target.exists() and not force_assets:
-        current = runtime_target.read_bytes()
-        incoming = (ASSET_ROOT / "memory_sync.py").read_bytes()
-        if current != incoming:
-            raise FileExistsError(
-                f"{runtime_target} already exists and differs; re-run with --force-assets"
-            )
-    else:
-        shutil.copy2(ASSET_ROOT / "memory_sync.py", runtime_target)
-        runtime_target.chmod(runtime_target.stat().st_mode | stat.S_IXUSR)
-        installed.append(runtime_target)
+    for asset_name in ("memory_sync.py", "workflow_state.py"):
+        runtime_target = target_hook_dir / asset_name
+        if runtime_target.exists() and not force_assets:
+            current = runtime_target.read_bytes()
+            incoming = (ASSET_ROOT / asset_name).read_bytes()
+            if current != incoming:
+                raise FileExistsError(
+                    f"{runtime_target} already exists and differs; re-run with --force-assets"
+                )
+        else:
+            shutil.copy2(ASSET_ROOT / asset_name, runtime_target)
+            if asset_name == "memory_sync.py":
+                runtime_target.chmod(runtime_target.stat().st_mode | stat.S_IXUSR)
+            installed.append(runtime_target)
 
     config_target = target / ".wishgraph" / "config.json"
     default_config = read_json(ASSET_ROOT / "config.json")
     existing_config = read_json(config_target) if config_target.exists() else {}
+    existing_paths = existing_config.get("paths")
+    if isinstance(existing_paths, dict) and "dev_report" in existing_paths:
+        migrated_paths = dict(existing_paths)
+        if "project_status" not in migrated_paths:
+            migrated_paths["project_status"] = migrated_paths["dev_report"]
+        del migrated_paths["dev_report"]
+        existing_config = dict(existing_config)
+        existing_config["paths"] = migrated_paths
     config = deep_merge(default_config, existing_config)
     config["version"] = default_config["version"]
     config["required_impact_rows"] = list(

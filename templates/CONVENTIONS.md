@@ -20,7 +20,8 @@ Responsibilities:
 - Check task dependencies, file and core-module overlap, independent validation and rollback, cross-task contamination, and unresolved product or architecture decisions before recommending parallel work.
 - Do not change business code unless the project owner explicitly approves a trivial direct-edit exception.
 - A direct-edit exception may omit a task file, but not validation, a unique run report, or the normal commit boundary.
-- Read `reports/DEV_REPORT.md` before presenting integrated execution results.
+- Read `reports/PROJECT_STATUS.md` before presenting integrated execution results.
+- Maintain the concise dynamic handoff in `prompts/DISCUSSION_AI.md` during discussion and after human review; do not copy the full Project Status into it.
 - After showing the approved task and work classification, ask whether to create the execution window. Only an explicit human command authorizes creation. Then create and configure one user-visible Worker task per authorized spec with `prompts/EXECUTION_AI.md` and the task file already handed off. Use `<task-id> · <short title> · WG Worker` so task identity appears first. Manual copying is only the fallback when the platform cannot create visible tasks. Do not require users to edit memory or integration files.
 
 ### Execution Agent
@@ -34,7 +35,9 @@ Responsibilities:
 - Keep the patch minimal and scoped.
 - Run the validation commands listed in the task.
 - Update task status when present and create exactly one new immutable `reports/runs/<work-unit-id>.md`.
-- Record `Integrate` or `N/A` proposals for shared memory. Do not edit `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, `CONVENTIONS.md`, `reports/DEV_REPORT.md`, or any prompt file.
+- Record `Integrate` or `N/A` proposals for shared memory. Do not edit `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, `CONVENTIONS.md`, `reports/PROJECT_STATUS.md`, or any prompt file.
+- Fill the Run Report's versioned `wishgraph:run-state` JSON block for machine lifecycle facts. Keep evidence, risks, and impact reasoning in Markdown.
+- Use the versioned task-state lifecycle `draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`. Discussion records explicit Worker authorization and human review, Workers record execution states, and Integration records `integrated`.
 - Create one atomic commit per completed task unless the project owner explicitly says not to commit.
 - Never start workers in the background by default.
 
@@ -48,8 +51,10 @@ Responsibilities:
 
 - Merge worker branches with `--no-commit` or use an equivalent no-commit cherry-pick so new run reports and code remain visible in one integration diff.
 - Read every new `reports/runs/*.md` report before resolving conflicts.
-- Update affected shared memory, `reports/DEV_REPORT.md`, and the dynamic state in `prompts/DISCUSSION_AI.md`.
-- List every absorbed run report in `reports/DEV_REPORT.md`.
+- Rewrite `reports/PROJECT_STATUS.md` as the current integrated snapshot, retaining current facts and unresolved items but no integration history.
+- Fill its versioned `wishgraph:integration-state` JSON block with the current integration ID, status, kind, authorization, and absorbed Run Reports.
+- List only this integration's absorbed run reports in `reports/PROJECT_STATUS.md`; preserve detailed history in immutable run reports and Git.
+- After the Project Status is complete, refresh the concise dynamic state in `prompts/DISCUSSION_AI.md`.
 - Run integration validation and create the integration commit.
 - For a safe sequential result, use the integration authority inherited when the task was approved; do not ask twice.
 - For parallel_batch or high_risk work, require explicit user approval naming the reports to integrate.
@@ -67,7 +72,7 @@ Responsibilities:
 
 ## Launch Prompt Files
 
-- `prompts/DISCUSSION_AI.md` is mutable shared state. The integration agent updates it after absorbing completed worker reports.
+- `prompts/DISCUSSION_AI.md` is concise mutable discussion state. Discussion AI maintains it during planning and after human review; Integration AI refreshes it after absorbing Worker reports.
 - `prompts/EXECUTION_AI.md` is stable. It tells an execution agent how to start, what files to read, and how to verify. Do not pack task-specific requirements into it; those belong in `tasks/build/*.md`.
 - Users should be able to paste either prompt into any agent interface and get a coherent continuation without relying on previous chat context.
 - Keep project memory in the language chosen by the user. If bilingual output is requested, write key user-facing explanations in Chinese first, then English. Do not translate file paths, commands, code identifiers, symbols, routes, package names, or environment variables.
@@ -83,7 +88,7 @@ Worker agents propose shared-memory impact in their own immutable run report. In
 - Update the dynamic handoff state in `prompts/DISCUSSION_AI.md` after integrating one or more completed execution units so a new or resumed planning window can receive the result.
 - Update `tasks/build/*.md` in the worker branch when a task file exists.
 - Add one `reports/runs/<work-unit-id>.md` file after every formal or ad-hoc worker execution. Never overwrite an earlier run report.
-- Update `reports/DEV_REPORT.md` only during integration.
+- Rewrite `reports/PROJECT_STATUS.md` only during integration. It is the current snapshot, not an append-only log.
 - If an agent cannot update a required file, it must report the exact text that should be added.
 
 ## Memory Sync Hooks
@@ -91,7 +96,7 @@ Worker agents propose shared-memory impact in their own immutable run report. In
 - Project-local hooks may enforce this closeout through `.wishgraph/config.json`, `.codex/hooks.json`, and `.claude/settings.json`.
 - Hooks inspect and block; they do not invent semantic PRD, architecture, CODEMAP, or handoff content.
 - Before completion or commit, run `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` when hooks are installed.
-- Worker run reports use `Integrate` or `N/A`. Integration overviews use `Updated` or `N/A`.
+- Worker run reports use `Integrate` or `N/A`. Project Status snapshots use `Updated` or `N/A`.
 - Ad-hoc work does not require a task file, but it needs a unique run-report ID.
 - On session start or resume, hooks may inject the latest integrated results and discussion handoff as read-only context. This is not a live push to an already-running window.
 - Hooks may expose pending integration, integration kind, ready, waiting, and blocked reports, confirmation requirement, and a reason. They do not choose parallelism, start agents, merge code, write semantic memory, or replace human review.

@@ -1,13 +1,24 @@
 # 001 - 用 WishGraph 启动项目治理
 
-Status: Draft
 Spec source: 第一个讨论窗口把用户初始想法转换为 `PRD.md`。
 Dependencies: None.
 Language mode: 使用用户选择的项目语言；如果要求双语，中文在前、英文在后。
-Run report: `reports/runs/001-bootstrap-project.md`
-Work type: sequential
-Batch ID: N/A
-Integration authorization: 随任务批准授权
+
+<!-- wishgraph:task-state:start -->
+```json
+{
+  "schema_version": 1,
+  "kind": "task",
+  "task_id": "001-bootstrap-project",
+  "status": "draft",
+  "work_type": "sequential",
+  "batch_id": null,
+  "run_report": "reports/runs/001-bootstrap-project.md",
+  "worker_creation_authorized": false,
+  "integration_policy": "inherited_task_approval"
+}
+```
+<!-- wishgraph:task-state:end -->
 
 ## Intent
 
@@ -32,7 +43,7 @@ Integration authorization: 随任务批准授权
 | `prompts/INTEGRATION_AI.md` | Temporary integration handoff | 保存授权单写者集成和真实后台降级的稳定提示词。 |
 | `tasks/build/002-first-slice.md` | First implementation task | PRD 批准后写首个有边界的实现任务。 |
 | `reports/runs/001-bootstrap-project.md` | Bootstrap run report | 记录创建文件、假设、验证和共享记忆建议。 |
-| `reports/DEV_REPORT.md` | Initial project overview | 把 bootstrap 汇总为第一份集成快照。 |
+| `reports/PROJECT_STATUS.md` | 初始项目状态概览 | 把 bootstrap 汇总为第一份当前集成快照。 |
 | `.wishgraph/` 和宿主 hook 配置 | 可选收尾强制 | Owner 要求 hooks 时，以 `warn` 模式安装，且不替换现有 hook groups。 |
 
 ## Implementation Notes
@@ -54,10 +65,10 @@ Integration authorization: 随任务批准授权
 - [ ] 治理文件存在并且彼此一致。
 - [ ] `PRD.md` 包含目标用户、目标、非目标、首个薄切片和验收标准。
 - [ ] `prompts/DISCUSSION_AI.md` 可复制到新讨论窗口。
-- [ ] `prompts/EXECUTION_AI.md` 加 `tasks/build/002-first-slice.md` 可复制到新执行窗口。
+- [ ] `prompts/EXECUTION_AI.md` 加 `tasks/build/002-first-slice.md` 可交接给用户可见 Worker。
 - [ ] 讨论提示词解释首个任务的工作类型、为什么串行或并行、准确 Worker 启动步骤，以及何时需要用户确认集成。
 - [ ] `reports/runs/001-bootstrap-project.md` 记录创建内容和未知项。
-- [ ] `reports/DEV_REPORT.md` 列出 bootstrap 执行报告并汇总初始集成状态。
+- [ ] `reports/PROJECT_STATUS.md` 列出 bootstrap 单次执行报告并汇总初始集成状态。
 - [ ] `prompts/DISCUSSION_AI.md` 记录项目语言模式。
 - [ ] 如果要求 hooks，`.wishgraph/config.json` 初始使用 `warn`，且直接 worktree 检查可以运行。
 - [ ] 除非用户明确说不提交，否则创建一个原子 commit。

@@ -63,7 +63,7 @@ Copy this adapter's `CLAUDE.md` into the target project root or merge it into an
 cp adapters/claude-code/CLAUDE.md /path/to/project/CLAUDE.md
 ```
 
-Use `CLAUDE.md` for always-loaded project rules. Keep large task procedures in the `/wishgraph` skill and in WishGraph project files such as `PRD.md`, `CODEMAP.md`, `tasks/build/*.md`, `reports/runs/*.md`, and `reports/DEV_REPORT.md`.
+Use `CLAUDE.md` for always-loaded project rules. Keep large task procedures in the `/wishgraph` skill and in WishGraph project files such as `PRD.md`, `CODEMAP.md`, `tasks/build/*.md`, `reports/runs/*.md`, and `reports/PROJECT_STATUS.md`.
 
 ## Install Project Memory-Sync Hooks
 
@@ -106,7 +106,7 @@ This safely merges `SessionStart`, `PreToolUse`, `Stop`, and `TaskCompleted` gro
    prompts/INTEGRATION_AI.md
    tasks/build/*.md
    reports/RUN_REPORT.md
-   reports/DEV_REPORT.md
+   reports/PROJECT_STATUS.md
    ```
 
 3. Let discussion AI explain whether the task is sequential or parallel and ask whether to create the execution session. After an explicit human command, it should create and configure one user-visible Worker per authorized spec when the host supports that capability, including the execution prompt, approved task file, and canonical `<task-id> · <short title> · WG Worker` name. It must not create Workers silently or use hidden subagents. Manual copying is the fallback when visible session creation is unavailable.

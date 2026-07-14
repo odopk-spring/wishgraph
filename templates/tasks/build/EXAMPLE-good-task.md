@@ -1,12 +1,23 @@
 # 012 - Move token refresh out of dashboard render path
 
-Status: Example
 Spec source: `PRD.md` "Now" roadmap says dashboard first paint must not wait on auth refresh.
 Dependencies: None.
-Run report: `reports/runs/012-dashboard-token-refresh.md`
-Work type: sequential
-Batch ID: N/A
-Integration authorization: Inherited task approval
+
+<!-- wishgraph:task-state:start -->
+```json
+{
+  "schema_version": 1,
+  "kind": "task",
+  "task_id": "012-dashboard-token-refresh",
+  "status": "draft",
+  "work_type": "sequential",
+  "batch_id": null,
+  "run_report": "reports/runs/012-dashboard-token-refresh.md",
+  "worker_creation_authorized": false,
+  "integration_policy": "inherited_task_approval"
+}
+```
+<!-- wishgraph:task-state:end -->
 
 ## Intent
 

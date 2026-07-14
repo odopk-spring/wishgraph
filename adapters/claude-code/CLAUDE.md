@@ -22,8 +22,8 @@ When working on planning, task writing, or execution, read:
 3. `CODEMAP.md`
 4. `CONVENTIONS.md`
 5. `prompts/DISCUSSION_AI.md` for planning sessions
-6. `prompts/EXECUTION_AI.md` and the assigned `tasks/build/*.md` for execution sessions
-7. `reports/DEV_REPORT.md` for the latest integrated handoff
+6. `prompts/EXECUTION_AI.md` and the assigned `tasks/build/*.md` for execution sessions; accept `.tasks/build/*.md` in an existing legacy project
+7. `reports/PROJECT_STATUS.md` for the current integrated Project Status
 
 ## Collaboration Rules
 
@@ -32,8 +32,9 @@ When working on planning, task writing, or execution, read:
 - Execution sessions implement only the approved task spec.
 - Keep task specs self-contained; do not rely on chat history.
 - Worker sessions use separate branches or worktrees, create one immutable `reports/runs/<work-unit-id>.md`, and record Integrate or N/A proposals without editing shared memory.
-- An integration session merges with `--no-commit`, updates affected shared memory, `reports/DEV_REPORT.md`, and the dynamic handoff state in `prompts/DISCUSSION_AI.md`.
+- An integration session merges with `--no-commit`, rewrites `reports/PROJECT_STATUS.md` as the current snapshot, updates affected shared memory, and then refreshes the concise dynamic handoff in `prompts/DISCUSSION_AI.md`.
 - Worker creation requires an explicit human command. When the host supports user-visible task or session creation, the planning agent creates one visible Worker per authorized spec, hands off the execution prompt and task file, and names it `<task-id> · <short title> · WG Worker`. Never create Workers silently or use hidden subagents; manual copying is the fallback when this capability is unavailable.
+- Persist that command in task-state before creation: `draft -> approved` and `worker_creation_authorized: true`. Workers record execution states, Integration records `integrated`, and discussion records `reviewed` after human acceptance.
 - Integration is temporary. Safe sequential task approval includes normal integration authority; parallel_batch and high_risk require explicit user confirmation. Use background execution only when the host supports it, otherwise switch roles or provide a one-time launch instruction truthfully.
 - Hooks expose status and enforce boundaries; they do not choose parallelism, launch agents, merge code, write semantic memory, or replace review.
 - SessionStart may inject latest integrated results into new or resumed sessions; this is not a live push into a continuously running window.

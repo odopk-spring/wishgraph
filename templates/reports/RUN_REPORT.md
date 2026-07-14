@@ -9,14 +9,31 @@ Create one new file from this template for each worker execution. Use `reports/r
 - Date:
 - Agent:
 - Branch / worktree:
-- Status: Completed / Blocked / Incomplete
-- Work type: sequential / parallel_batch / high_risk
-- Batch ID: N/A for sequential; stable batch ID for parallel work
-- Integration authorization: Inherited task approval / Requires explicit user confirmation
-- Integration readiness: Ready / Blocked / Needs decision
-- Scope check: Pass / Fail
-- Conflict status: None / Present
-- New product / architecture / data decision: No / Yes
+
+The JSON block below is the machine-readable source for lifecycle state. Keep narrative evidence in the sections that follow. Use `null` for a sequential Batch ID.
+
+<!-- wishgraph:run-state:start -->
+```json
+{
+  "schema_version": 1,
+  "kind": "run",
+  "unit": "NNN-short-slug",
+  "status": "completed",
+  "work_type": "sequential",
+  "batch_id": null,
+  "integration_authorization": "inherited_task_approval",
+  "integration_readiness": "ready",
+  "scope_check": "pass",
+  "conflict_status": "none",
+  "new_decision": false,
+  "validation": {
+    "build": "n/a",
+    "tests": "pass",
+    "manual": "n/a"
+  }
+}
+```
+<!-- wishgraph:run-state:end -->
 
 ## Summary
 

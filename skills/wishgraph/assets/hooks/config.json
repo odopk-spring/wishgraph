@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 7,
   "mode": "enforce",
   "paths": {
     "prd": "PRD.md",
@@ -9,7 +9,7 @@
     "discussion_prompt": "prompts/DISCUSSION_AI.md",
     "execution_prompt": "prompts/EXECUTION_AI.md",
     "integration_prompt": "prompts/INTEGRATION_AI.md",
-    "dev_report": "reports/DEV_REPORT.md",
+    "project_status": "reports/PROJECT_STATUS.md",
     "run_report_glob": "reports/runs/*.md",
     "task_glob": "tasks/build/*.md",
     "task_globs": [
@@ -40,5 +40,8 @@
   "require_discussion_update_for_substantive_changes": true,
   "scan_worker_refs_for_status": true,
   "inject_project_summary_on_session_start": true,
+  "project_status_max_lines": 160,
+  "project_status_max_chars": 12000,
+  "discussion_dynamic_max_lines": 30,
   "session_summary_max_chars": 2000
 }

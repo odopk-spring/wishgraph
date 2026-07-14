@@ -15,12 +15,13 @@
 - 在要求执行 agent 重构架构或实现功能前，先建立或更新 `PRD.md`。
 - 新项目或模糊项目先做 intake：一次问一个关键决策，每次给推荐默认值，再写实现任务。
 - 只问会实质改变范围的决策。
-- 在用户可见的 `tasks/build/` 目录写自包含任务规格。只有旧项目已经使用 `.tasks/build/` 时才保留该路径。
+- 在可见的 `tasks/build/` 目录写自包含任务规格；只有已使用 `.tasks/build/` 的旧项目才保留旧路径。
 - 创建 Worker 前把工作判断为 discussion、sequential、parallel_batch 或 high_risk。讨论 Agent 推荐执行形态，项目 owner 最终确认。
 - 推荐并行前检查任务依赖、相同文件或核心模块、独立验证和回滚、任务间污染，以及未确认的产品或架构决策。
 - 除非项目 owner 明确批准低风险直接编辑例外，否则不改业务代码。
 - 直接编辑例外可以省略 task 文件，但不能省略验证、唯一执行报告或正常 commit 边界。
-- 向用户呈现已集成结果前，先读 `reports/DEV_REPORT.md`。
+- 向用户呈现已集成结果前，先读 `reports/PROJECT_STATUS.md`。
+- 讨论期间和用户 Review 后维护 `prompts/DISCUSSION_AI.md` 的精简动态交接，不要复制完整项目状态概览。
 - 展示已批准任务和工作类型后，询问是否创建执行窗口。只有人类明确命令才授权创建；随后由讨论 Agent 为每个已授权规格创建并配置用户可见 Worker，自动交接 `prompts/EXECUTION_AI.md` 和任务文件，并使用 `<task-id> · <short title> · WG Worker` 命名，让任务身份优先显示。平台不能创建可见任务时才降级为手动复制；不要求用户自己修改记忆或集成文件。
 
 ### 执行 Agent
@@ -34,7 +35,9 @@
 - 保持 patch 最小、聚焦。
 - 运行任务列出的验证命令。
 - 有任务文件时更新任务状态，并且只新增一个不可变的 `reports/runs/<work-unit-id>.md`。
-- 在执行报告中对共享记忆填写 `Integrate` 或 `N/A`。不要修改 `PRD.md`、`ARCHITECTURE.md`、`CODEMAP.md`、`CONVENTIONS.md`、`reports/DEV_REPORT.md` 或提示词文件。
+- 在单次执行报告中对共享记忆填写 `Integrate` 或 `N/A`。不要修改 `PRD.md`、`ARCHITECTURE.md`、`CODEMAP.md`、`CONVENTIONS.md`、`reports/PROJECT_STATUS.md` 或提示词文件。
+- 在执行报告的版本化 `wishgraph:run-state` JSON 块中填写机器生命周期事实；证据、风险和影响理由继续保存在 Markdown 中。
+- 使用版本化 task-state 生命周期：`draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`。讨论窗口记录显式 Worker 授权和人类评审，Worker 记录执行状态，Integration 记录 `integrated`。
 - 除非项目 owner 明确说不提交，否则一个完成任务对应一个原子 commit。
 - Worker 默认不得在后台自动启动。
 
@@ -48,8 +51,10 @@
 
 - 使用 `--no-commit` merge 或等价的 no-commit cherry-pick，让新执行报告和代码同时留在集成 diff 中。
 - 解决冲突前读取每个新增的 `reports/runs/*.md`。
-- 更新受影响的共享记忆、`reports/DEV_REPORT.md` 和 `prompts/DISCUSSION_AI.md` 动态状态。
-- 在 `reports/DEV_REPORT.md` 中列出本次吸收的全部执行报告。
+- 把 `reports/PROJECT_STATUS.md` 重写为当前已集成快照，保留当前事实和未解决事项，不保存历次集成历史。
+- 在其中的版本化 `wishgraph:integration-state` JSON 块记录本次集成 ID、状态、类型、授权和吸收的执行报告。
+- `reports/PROJECT_STATUS.md` 只列本次集成吸收的单次执行报告；详细历史留在不可变执行报告和 Git 中。
+- 项目状态概览完成后，再刷新 `prompts/DISCUSSION_AI.md` 的精简动态交接。
 - 运行集成验证并创建集成 commit。
 - 安全串行结果使用任务批准时继承的集成授权，不重复询问。
 - parallel_batch 或 high_risk 必须取得明确列出待集成报告的用户授权。
@@ -67,7 +72,7 @@
 
 ## 启动提示词文件
 
-- `prompts/DISCUSSION_AI.md` 是可变共享状态。集成 Agent 在吸收完成的 Worker 报告后更新它。
+- `prompts/DISCUSSION_AI.md` 是精简的可变讨论状态。讨论 AI 在规划和用户 Review 后维护；集成 Agent 吸收 Worker 报告后刷新。
 - `prompts/EXECUTION_AI.md` 是稳定的。它告诉执行 agent 如何启动、读哪些文件、如何验证。不要把具体任务要求塞进去；具体要求属于 `tasks/build/*.md`。
 - 用户应该能把任一提示词复制到任意 agent 界面，并在不依赖旧聊天上下文的情况下继续。
 - 项目记忆使用用户选择的语言。若要求双语，面向用户的解释按中文在前、英文在后写。文件路径、命令、代码符号、路由、包名和环境变量不要翻译。
@@ -83,7 +88,7 @@ Worker 在自己的不可变执行报告中提出共享记忆影响；集成 Age
 - 集成一个或多个执行单元后，更新 `prompts/DISCUSSION_AI.md` 动态状态，让新建或恢复的规划窗口收到结果。
 - Worker 分支有 task 文件时更新 `tasks/build/*.md`。
 - 每个正式或 ad-hoc Worker 执行都新增一个 `reports/runs/<work-unit-id>.md`，不得覆盖旧报告。
-- 只有集成阶段更新 `reports/DEV_REPORT.md`。
+- 只有集成阶段重写 `reports/PROJECT_STATUS.md`；它是当前快照，不是追加式日志。
 - 如果 agent 无法更新必要文件，必须报告应添加的准确文本。
 
 ## 记忆同步 Hooks
@@ -91,7 +96,7 @@ Worker 在自己的不可变执行报告中提出共享记忆影响；集成 Age
 - 项目级 hooks 可以通过 `.wishgraph/config.json`、`.codex/hooks.json` 和 `.claude/settings.json` 强制执行收尾。
 - Hooks 负责检查和阻止，不负责编造 PRD、架构、CODEMAP 或交接语义。
 - 安装 hooks 后，结束或提交前运行 `python3 .wishgraph/hooks/memory_sync.py check --scope worktree`。
-- Worker 执行报告使用 `Integrate` 或 `N/A`；集成概览使用 `Updated` 或 `N/A`。
+- Worker 单次执行报告使用 `Integrate` 或 `N/A`；项目状态概览使用 `Updated` 或 `N/A`。
 - Ad-hoc 修改可以没有 task 文件，但必须有唯一执行报告 ID。
 - SessionStart 或恢复时，Hook 可以把最新集成结果和讨论交接作为只读上下文注入。这不是向正在运行的窗口实时推送。
 - Hooks 可以输出待集成状态、集成类型、准备／等待／阻塞报告、是否需要确认和理由；不得决定是否并行、启动 Agent、合并代码、编写语义记忆或代替人类 Review。

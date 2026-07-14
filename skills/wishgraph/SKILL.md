@@ -50,7 +50,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - `prompts/EXECUTION_AI.md`
    - `prompts/INTEGRATION_AI.md`
    - `tasks/build/001-bootstrap-project.md` or the first implementation task
-   - `reports/DEV_REPORT.md`
+   - `reports/PROJECT_STATUS.md`
    - `reports/RUN_REPORT.md`
 7. Use the bundled templates under `assets/templates/` as structure, then adapt them to the repository. For Chinese-first projects, use `assets/templates/zh-CN/` as the source template set. For bilingual projects, start from the user's primary language template and add bilingual user-facing explanations only where useful.
 8. For Skill or hook installation, follow **Natural-Language Installation** and `references/installation.md`. Adapt the required governance files before enabling strict mode, preserve unrelated hook configuration, and tell Codex users to review `/hooks`.
@@ -80,8 +80,8 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
      - `prompts/DISCUSSION_AI.md` as the mutable launch prompt for planning or discussion agents.
      - `prompts/EXECUTION_AI.md` as the stable launch prompt for execution agents.
      - `prompts/INTEGRATION_AI.md` as the stable launch prompt for the shared-state integration agent.
-     - `tasks/build/NNN-short-slug.md` for visible, self-contained execution specs. Preserve `.tasks/build/*.md` only when adapting an existing project that already uses it.
-     - `reports/DEV_REPORT.md` for the latest integrated project overview.
+     - `tasks/build/NNN-short-slug.md` for visible, self-contained execution specs.
+     - `reports/PROJECT_STATUS.md` for the current integrated project snapshot.
      - `reports/RUN_REPORT.md` as the template for immutable worker reports under `reports/runs/`.
    - Use `assets/templates/` as the file-shape source, but remove generic placeholder content that does not fit the target repo.
 
@@ -90,7 +90,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - Include goal, context summary, anchored files/symbols, implementation instructions, "do not do" boundaries, validation commands, rollback boundary, and required report format.
    - Follow the project's language mode for human-facing explanations. Do not translate file paths, commands, code identifiers, symbols, routes, package names, or environment variables.
    - Prefer small atomic tasks. Split any task whose validation, risk, or rollback boundary is unclear.
-   - Record Work type, Batch ID, Integration authorization, and a unique Run report path.
+   - Fill the versioned `wishgraph:task-state` block with task ID, `draft` status, work type, batch ID, unique Run Report path, `worker_creation_authorized: false`, and the integration policy. Use `requires_explicit_user_confirmation` for parallel or high-risk integration.
 
 5. **Classify work and obtain the right authority**
    - Use `discussion` while requirements or architecture remain unclear; start no worker or integration.
@@ -98,12 +98,13 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - Use `parallel_batch` only for two or more independent, non-overlapping, independently testable and revertible tasks. Show the batch first; the user explicitly authorizes exactly which visible Worker tasks to create and confirms integration again after statuses are summarized.
    - Use `high_risk` for product or architecture decisions, data migration, conflict, failed validation, unsafe rollback, or scope drift. Return to the user; do not auto-integrate.
    - Check dependencies, shared files or core modules, validation and rollback independence, cross-task contamination, and unresolved decisions. Discussion AI recommends; the user decides. Hooks and integration agents do not choose parallelism.
+   - After an explicit Worker-creation command, change only the authorized task-state blocks from `draft` to `approved` and set `worker_creation_authorized: true` before launching Workers.
 
 6. **Separate planning, worker, and integration roles**
    - Planning agents grill the intent and write specs.
-   - Worker execution agents use separate branches or worktrees, implement only the approved spec or bounded ad-hoc instruction, update task status, and create one immutable `reports/runs/<work-unit-id>.md`.
+   - Worker execution agents use separate branches or worktrees, verify task-state authorization, move `approved -> running -> completed|blocked|incomplete`, implement only the approved spec or bounded ad-hoc instruction, and create one immutable `reports/runs/<work-unit-id>.md`.
    - Workers record `Integrate` or `N/A` proposals and never edit shared project memory.
-   - The integration agent merges workers with `--no-commit`, reads every new run report, resolves conflicts, updates affected shared memory, updates `reports/DEV_REPORT.md`, and updates the dynamic state in `prompts/DISCUSSION_AI.md`.
+   - The integration agent merges workers with `--no-commit`, reads every new run report, resolves conflicts, updates affected shared memory, rewrites `reports/PROJECT_STATUS.md`, and then refreshes the concise dynamic state in `prompts/DISCUSSION_AI.md`.
    - Keep `prompts/EXECUTION_AI.md` stable; put task-specific instructions in `tasks/build/*.md`.
    - For trivial one-line changes, allow direct execution only if the repo conventions explicitly permit it.
    - Never start Workers without an explicit human creation command. When the platform supports user-visible task or thread creation, the discussion agent creates and configures those visible tasks; it must not use hidden subagents. Manual prompt copying is only the truthful fallback when visible task creation is unavailable or fails.
@@ -111,14 +112,18 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
 7. **Close every execution unit**
    - Formal tasks and approved ad-hoc edits use the same validation and external-memory closeout. Only the task file is optional for ad-hoc work.
    - Create one new immutable run report for every worker execution. Use the task ID or a unique timestamped ad-hoc ID.
+   - In new Run Reports, fill the versioned `wishgraph:run-state` JSON block as the lifecycle source for status, work type, authorization, readiness, safety gates, and validation results. Keep summaries, evidence, risks, and shared-memory impact in normal Markdown. Preserve label-based legacy reports when adapting an existing project; do not add a malformed structured block.
    - Record Integrate or N/A with a concrete reason for each managed shared-memory file.
    - When project hooks are installed, run `.wishgraph/hooks/memory_sync.py check` before claiming completion. Hooks inspect and block; they do not invent semantic memory content.
 
 8. **Integrate worker results**
-   - Keep shared memory single-writer. Do not let workers race on PRD, architecture, CODEMAP, prompts, or the project overview.
+   - Keep shared memory single-writer. Do not let workers race on PRD, architecture, CODEMAP, prompts, or Project Status.
    - Merge or cherry-pick worker commits without committing, so their new run reports remain visible in the integration diff.
-   - Update `reports/DEV_REPORT.md` with the absorbed run-report paths, latest integrated results, validation, risks, and Updated/N/A rows.
-   - Update the dynamic state block in `prompts/DISCUSSION_AI.md`. SessionStart can inject a concise overview and handoff into new or resumed agent sessions.
+   - Read the old `reports/PROJECT_STATUS.md`, preserve current facts and unresolved items, absorb this integration's Run Reports, and rewrite the complete snapshot. Never append integration history; list only reports absorbed this time and leave detail in `reports/runs/*.md` and Git.
+   - Fill the versioned `wishgraph:integration-state` JSON block with the integration ID, status, kind, authorization, and exactly the Run Reports absorbed this time. Treat the block as workflow truth and the surrounding Markdown as the human review view.
+   - Move each absorbed structured task from `completed` to `integrated`. After the human accepts the result, discussion moves only that task-state block from `integrated` to `reviewed`.
+   - Keep Project Status within configured line and character limits without deleting unresolved risks, conflicts, or pending decisions.
+   - After Project Status is complete, update only the concise dynamic state block in `prompts/DISCUSSION_AI.md`: latest integration ID, discussion focus, result to present, pending decisions, next action, and the Project Status pointer. Discussion AI maintains this block during planning and after human review; Workers never edit it.
    - Run `.wishgraph/hooks/memory_sync.py status` when available and show ready, waiting, and blocked reports plus pending integration and the next action.
    - For one safe sequential result, use the authority inherited from task approval without asking twice. Require Completed and ready metadata, passing prescribed validation, bounded scope, no conflict or new product/architecture/data decision, and a safe target worktree.
    - For parallel_batch or high_risk results, require explicit user confirmation naming the reports to integrate. Keep integration authorization separate from post-integration human review.
@@ -145,7 +150,8 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
 - Read `references/worker-window-launch.md` before offering, creating, naming, or falling back from a user-visible Worker task or thread.
 - Read `references/task-spec-template.md` before creating or revising task files.
 - Read `references/good-execution-spec.md` when creating the first task spec for a project, reviewing whether a task spec is good enough, or showing the user an example.
-- Read `references/review-window.md` before producing human-facing review summaries, Dev Reports, or single-window status digests.
+- Read `references/review-window.md` before producing human-facing review summaries, Project Status snapshots, or single-window status digests.
+- When adapting an existing project, if only `reports/DEV_REPORT.md` exists, read it, check Git state, use `git mv` to rename it to `reports/PROJECT_STATUS.md`, and update project references. If both names exist, stop and ask which current facts are authoritative; never maintain both.
 - Read `references/debug-causality.md` before triaging bugs, regressions, failed validation, or hidden state corruption.
 - Read `references/memory-sync-hooks.md` before installing, configuring, or debugging Codex / Claude Code external-memory hooks.
 
@@ -167,7 +173,7 @@ For English or language-neutral projects, use the root files under `assets/templ
 | `assets/templates/001-bootstrap-project.md` | `tasks/build/001-bootstrap-project.md` when setting up a new project |
 | `assets/templates/NNN-task.md` | `tasks/build/001-first-task.md` or the next task number |
 | `assets/templates/EXAMPLE-good-task.md` | Optional example for humans and planning agents |
-| `assets/templates/DEV_REPORT.md` | `reports/DEV_REPORT.md` |
+| `assets/templates/PROJECT_STATUS.md` | `reports/PROJECT_STATUS.md` |
 | `assets/templates/RUN_REPORT.md` | `reports/RUN_REPORT.md` |
 
 Chinese mirror:
@@ -184,7 +190,7 @@ Chinese mirror:
 | `assets/templates/zh-CN/tasks/build/001-bootstrap-project.md` | `tasks/build/001-bootstrap-project.md` |
 | `assets/templates/zh-CN/tasks/build/NNN-task.md` | `tasks/build/001-first-task.md` or the next task number |
 | `assets/templates/zh-CN/tasks/build/EXAMPLE-good-task.md` | Optional example for humans and planning agents |
-| `assets/templates/zh-CN/reports/DEV_REPORT.md` | `reports/DEV_REPORT.md` |
+| `assets/templates/zh-CN/reports/PROJECT_STATUS.md` | `reports/PROJECT_STATUS.md` |
 | `assets/templates/zh-CN/reports/RUN_REPORT.md` | `reports/RUN_REPORT.md` |
 
 ## Output Rules

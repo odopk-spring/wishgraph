@@ -105,12 +105,13 @@ Minimum files:
 - `prompts/DISCUSSION_AI.md`: mutable launch prompt for planning windows.
 - `prompts/EXECUTION_AI.md`: stable launch prompt for execution windows.
 - `prompts/INTEGRATION_AI.md`: stable launch prompt for merging workers and updating shared state.
-- `tasks/build/NNN-short-slug.md`: self-contained execution task specs.
+- `tasks/build/NNN-short-slug.md`: visible, self-contained execution task specs.
 - `tasks/build/001-bootstrap-project.md`: first-use bootstrap task when the project starts from a vague idea.
-- Existing `.tasks/build/*.md` projects remain supported, but new projects use the visible `tasks/build/*.md` path.
 - `reports/RUN_REPORT.md`: template for one immutable report per worker execution.
 - `reports/runs/<work-unit-id>.md`: worker-specific validation and integration proposals.
-- `reports/DEV_REPORT.md`: latest integrated project overview and discussion handoff.
+- `reports/PROJECT_STATUS.md`: current integrated Project Status; it is a rewritten snapshot, not a history log.
+
+New Task Specs, Run Reports, and Project Status snapshots contain small versioned JSON blocks for lifecycle facts. Keep product meaning, evidence, risks, and decisions in normal Markdown; do not move semantic project truth into the structured block.
 
 ## 2.5. Optionally Enforce Memory Closeout With Hooks
 
@@ -143,9 +144,9 @@ The hooks check three boundaries: pending state at session start, staged memory 
 
 To switch in one command, re-run the top-level installer with `--setup-project --strict`. Strict mode also requests a Git pre-commit fallback and will not overwrite an existing Git hook.
 
-Hooks do not write PRD, architecture, CODEMAP, or handoff prose. Workers record Integrate or N/A in task-scoped run reports; one integration agent applies shared updates and records Updated or N/A in `reports/DEV_REPORT.md`.
+Hooks do not write PRD, architecture, CODEMAP, Project Status, or handoff prose. Workers record Integrate or N/A in task-scoped Run Reports; one integration agent applies shared updates and records Updated or N/A in `reports/PROJECT_STATUS.md`.
 
-The read-only command `python3 .wishgraph/hooks/memory_sync.py status` reports ready, waiting, and blocked worker reports, integration kind, whether confirmation is required, and a reason. Hooks do not start workers or integration agents.
+The read-only command `python3 .wishgraph/hooks/memory_sync.py status` joins Task Specs, Run Reports, and Project Status into `work_units`, then reports ready, waiting, and blocked workers, integration kind, confirmation requirement, and reason. Hooks do not start workers or integration agents.
 
 ## 3. Use The Foreground Discussion Workflow
 
@@ -193,7 +194,7 @@ Workers do not start silently or as hidden subagents. When a task is ready, disc
 
 ### Temporary Integration Agent
 
-Use `prompts/INTEGRATION_AI.md` as a temporary event task after worker branches are ready. It merges without committing, reads approved run reports, resolves or reports conflicts, updates shared memory and the project overview, refreshes the discussion handoff, validates, creates the integration commit, returns the result, and ends.
+Use `prompts/INTEGRATION_AI.md` as a temporary event task after worker branches are ready. It merges without committing, reads approved run reports, resolves or reports conflicts, updates shared memory, rewrites the current Project Status, refreshes the discussion handoff, validates, creates the integration commit, returns the result, and ends.
 
 For one safe sequential task, approving the task also authorizes normal integration after all validation, scope, conflict, decision, rollback, and target-worktree gates pass. Do not ask twice. For parallel_batch or high_risk work, discussion AI first lists ready, waiting, and blocked reports, overlap and dependency checks, validation, conflicts, and risk; the user must explicitly approve which reports may be integrated.
 
@@ -236,7 +237,7 @@ Human intent
 -> Worker AI validates and creates an immutable run report
 -> Discussion AI checks ready / waiting / blocked status and applicable authority
 -> Temporary Integration AI merges approved results and updates shared memory
--> Integration AI updates DEV_REPORT and discussion handoff
+-> Integration AI rewrites PROJECT_STATUS and refreshes the concise discussion handoff
 -> Temporary Integration AI ends
 -> Discussion AI receives the summary on next start/resume and presents it
 -> Human reviews the result and decides next direction or correction
@@ -253,7 +254,7 @@ If a single execution result is unsatisfactory, keep the correction in the discu
 
 ## 5. External Memory Must Stay Current
 
-Workers review shared-memory impact but do not edit shared project truth. They record Integrate or N/A in their own run report. The integration agent applies the proposals, updates shared files, and records Updated or N/A in the project overview.
+Workers review shared-memory impact but do not edit shared project truth. They record Integrate or N/A in their own run report. The integration agent applies the proposals, updates shared files, and records Updated or N/A in Project Status.
 
 Update these files when relevant:
 
@@ -262,9 +263,9 @@ Update these files when relevant:
 - `CODEMAP.md`: feature status, file locations, public contracts, runtime probes.
 - `CONVENTIONS.md`: workflow rules, validation rules, git rules, memory update obligations.
 - `prompts/DISCUSSION_AI.md`: current progress, active task, next likely task, open decisions, known risks.
-- `tasks/build/*.md`: task status and execution-relevant corrections.
+- `tasks/build/*.md`: task status and execution-relevant corrections. Existing `.tasks/build/*.md` projects remain supported.
 - `reports/runs/<work-unit-id>.md`: worker facts, validation, risk, and integration proposals.
-- `reports/DEV_REPORT.md`: latest integrated results, validation summary, residual risk, and next handoff.
+- `reports/PROJECT_STATUS.md`: current integrated results, validation, unresolved items, Worker state, and next recommendation.
 - `.wishgraph/config.json`: hook mode and machine-readable closeout paths when hooks are installed.
 
 If an agent cannot update a required file, it must say so and provide the exact text that should be added.

@@ -28,11 +28,13 @@ This remains an explicit Worker workflow because the human authorizes creation a
 
 Worker-creation authority is not integration authority. Apply the separate sequential, parallel-batch, and high-risk integration rules after execution.
 
+Persist the authority before creation: change only the authorized task's `wishgraph:task-state` block from `draft` to `approved` and set `worker_creation_authorized` to true. Task drafting, requirement approval, or a general request to continue is not a substitute for this explicit Worker-creation record.
+
 ## Before Creation
 
 Verify all of the following:
 
-- The task is approved and has a self-contained `tasks/build/*.md` specification.
+- The task is approved, has `worker_creation_authorized: true`, and has a self-contained `tasks/build/*.md` specification. Accept `.tasks/build/*.md` only as a legacy project path.
 - The discussion agent has classified the work and explained the serial or parallel recommendation.
 - `prompts/EXECUTION_AI.md` is present and current.
 - Each Worker can use an isolated branch or worktree when the platform supports it.

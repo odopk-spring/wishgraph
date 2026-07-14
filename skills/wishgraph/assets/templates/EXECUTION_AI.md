@@ -1,6 +1,6 @@
 # Execution AI Start Prompt
 
-Copy this file into a fresh execution agent window, then provide the specific `tasks/build/NNN-short-slug.md` file to execute. Older projects may retain `.tasks/build/`. For an explicitly approved direct-edit exception, provide the bounded ad-hoc instruction instead.
+Use this file in a fresh execution agent window, then provide the specific `tasks/build/NNN-short-slug.md` file to execute. Older projects may retain `.tasks/build/`. For an explicitly approved direct-edit exception, provide the bounded ad-hoc instruction instead.
 
 This prompt is stable. Do not put task-specific requirements here; put them in the task file.
 
@@ -44,13 +44,14 @@ You are the execution AI for this project.
 
 Before final report, for both formal tasks and ad-hoc edits:
 
+- For a formal task, verify its task-state is `approved` with `worker_creation_authorized: true`, then move it to `running` when execution starts. If those gates are absent, stop and return to discussion.
 - Run the validation listed in the task.
-- Update the task status when a task file exists.
+- At closeout, move the task-state to `completed`, `blocked`, or `incomplete` so it matches the Run Report status.
 - Create exactly one new `reports/runs/<work-unit-id>.md` from `reports/RUN_REPORT.md`. Use the task ID, or `ad-hoc/YYYYMMDD-HHMM-short-slug` for a direct edit.
 - Record validation evidence and `Integrate` or `N/A` proposals for every shared-memory file in that run report.
-- Copy the task's work type, batch ID, and integration authorization into the run report. Record integration readiness, scope check, conflict status, and whether a new product, architecture, or data decision appeared.
+- Fill the run report's `wishgraph:run-state` JSON block with the task's work type, batch ID, integration authorization, status, integration readiness, scope check, conflict status, new-decision flag, and validation results. This block is the machine workflow source; keep evidence and impact reasoning in the surrounding Markdown.
 - Mark the report Blocked or Incomplete instead of Completed when validation fails, work exceeds scope, a conflict remains, a new material decision appears, or safe rollback is uncertain.
-- Do not edit `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, `CONVENTIONS.md`, `reports/DEV_REPORT.md`, or any prompt file. The integration agent is their single writer.
+- Do not edit `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, `CONVENTIONS.md`, `reports/PROJECT_STATUS.md`, or any prompt file. The integration agent is the Project Status writer; discussion and integration roles maintain the discussion handoff at their defined boundaries.
 - If hooks are installed, run `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` and resolve failures before claiming completion.
 - Create one atomic commit for the completed task unless the user explicitly says not to commit.
 - Keep unrelated user changes out of staging.

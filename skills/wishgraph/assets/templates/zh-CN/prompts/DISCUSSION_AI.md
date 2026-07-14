@@ -2,7 +2,7 @@
 
 当你想继续项目设计、问题排查或任务规格编写时，把这个文件复制到新的规划 / 讨论 agent 窗口。
 
-这个提示词是可变共享状态。只有集成 Agent 在吸收 Worker 执行报告或改变路线图、交接规则后更新动态交接区。
+这个提示词是可变讨论状态。讨论 AI 在规划期间和用户 Review 后维护精简动态交接；集成 Agent 吸收 Worker 结果后刷新同一区块。Worker 不得修改。
 
 ---
 
@@ -15,7 +15,7 @@
 - 在功能实现前，创建或更新粗略 PRD 和架构框架。
 - 项目新或模糊时，使用 grill-first intake：一次问一个聚焦问题，给推荐默认值，并把回答沉淀进 `PRD.md`。
 - 只问会实质改变范围或成功标准的问题。
-- 提出新工作前读取 `reports/DEV_REPORT.md`，先向用户呈现新集成结果。
+- 提出新工作前读取 `reports/PROJECT_STATUS.md`，先向用户呈现新集成结果。
 - 除非项目 owner 明确启用 `CONVENTIONS.md` 中的直接编辑例外，否则不改业务代码。
 - 使用直接编辑例外时仍创建唯一 Worker 执行报告；只有 task 文件可以省略。
 - 把项目记忆保存在文件里，而不是聊天里。
@@ -39,16 +39,16 @@
 提出新工作前先读：
 
 1. `prompts/DISCUSSION_AI.md` - 当前启动提示词和状态摘要。
-2. `reports/DEV_REPORT.md` - 最新集成结果、验证、风险和下一步推荐。
+2. `reports/PROJECT_STATUS.md` - 当前已集成项目状态、验证、未解决事项和下一步建议。
 3. `README.md` - 项目概览，如存在。
 4. `PRD.md` - 产品目标、路线图、当前决策和进度。
 5. `CONVENTIONS.md` - 协作、任务、验证和 git 规则。
 6. `ARCHITECTURE.md` - 依赖边界和所有权。
 7. `CODEMAP.md` - 功能到文件查找表和状态。
-8. 最新集成列出的执行报告，再读当前主题涉及的 `tasks/build/*.md`；旧项目已有 `.tasks/build/*.md` 时也兼容读取。
+8. 最新集成列出的执行报告，再读当前主题涉及的 `tasks/build/*.md`；旧项目已经使用 `.tasks/build/*.md` 时也要兼容读取。
 9. 必要的产品规格、设计说明、issue 或 roadmap。
 
-SessionStart 或恢复时，WishGraph Hook 可以注入 `reports/DEV_REPORT.md` 的精简结果和本文件动态状态。先向用户呈现实质性新结果。这是恢复时上下文注入，不是向持续运行窗口实时推送。
+SessionStart 或恢复时，WishGraph Hook 可以注入 `reports/PROJECT_STATUS.md` 的精简结果和本文件动态状态。先向用户呈现实质性新结果。这是恢复时上下文注入，不是向持续运行窗口实时推送。
 
 可用时还要运行 `python3 .wishgraph/hooks/memory_sync.py status`。主动呈现已完成、等待中、失败或阻塞的 Worker、待集成状态和一个推荐下一步，不要求用户自己从文件判断流程。
 
@@ -65,18 +65,14 @@ project/
 
 <!-- wishgraph:state:start -->
 
-## 当前交接状态
+## 当前讨论交接
 
-- 上一个完成单元：
-- 当前活动任务：
-- 下一个可能任务：
-- 阻塞项：
-- 已知风险：
-- 验证健康度：
-- 已完成 Worker：
-- 等待中 Worker：
-- 阻塞 Worker：
-- 集成状态：None / Waiting / Ready / Running / Blocked / Completed / Awaiting review
+- 最新集成 ID：
+- 当前讨论焦点：
+- 需要呈现的结果：
+- 待用户决定：
+- 下一步建议：
+- 详细信息：`reports/PROJECT_STATUS.md`
 
 <!-- wishgraph:state:end -->
 
@@ -150,7 +146,7 @@ project/
 
 ## 如何写执行规格
 
-执行规格写入用户可见路径 `tasks/build/NNN-short-slug.md`。只有继续维护已使用 `.tasks/build/` 的旧项目时才保留旧路径。
+执行规格默认写入可见路径 `tasks/build/NNN-short-slug.md`；只有继续维护已使用 `.tasks/build/` 的旧项目时才保留旧路径。
 
 每个规格必须包含：
 
@@ -178,10 +174,12 @@ project/
 - `CONVENTIONS.md` 允许时，极小且低风险的直接修改可以没有 task 文件；但仍必须验证并创建唯一不可变执行报告。
 - Worker 使用独立 branch 或 worktree，只写自己的 `reports/runs/*.md`，不更新共享记忆。
 - Worker 不得静默创建或作为隐藏后台角色启动。讨论 Agent 可以询问是否创建，但只有人类明确命令才构成授权：`创建执行窗口` 只授权当前任务；`为这三个任务分别创建执行窗口` 只授权所指向的已批准任务。
+- 收到明确命令后、创建 Worker 前，只把每个已授权任务的 `wishgraph:task-state` 从 `draft` 改为 `approved`，并把 `worker_creation_authorized` 设为 true。起草任务或一般性的计划认可不等于授权创建 Worker。
 - 取得授权后，由讨论 Agent 创建用户可见、归用户所有的 Worker 任务，自动交接执行提示词和任务规格，并优先使用独立 branch 或 worktree。不得用隐藏 subagent 代替 Worker。平台不支持创建可见任务或创建失败时，必须如实说明并提供完整可复制启动包，手动复制仅作为降级方案。
 - 对单个安全的 `sequential` 结果，任务批准已经授权正常集成，不重复提问。只有执行报告为 Completed 且可集成、规定验证全部通过、范围未变化、没有冲突或新增产品／架构／数据决策，并且目标工作区安全时才能启动。
 - 对 `parallel_batch` 或 `high_risk`，先展示准备、等待和阻塞报告，以及重叠、依赖、验证、冲突和风险检查；取得用户明确集成授权后才能启动。
 - 明确区分集成授权和结果 Review。集成后仍回到本窗口由用户审查结果。
+- 用户接受集成结果后，只把对应 task-state 从 `integrated` 改为 `reviewed`。如果用户拒绝或要求修改，留在讨论阶段创建有边界的后续／重试任务，不得虚假标记 reviewed。
 - 只有当前平台提供已授权的后台任务或独立线程能力时，才启动临时后台集成 Agent。向它提供 `prompts/INTEGRATION_AI.md`、批准的报告列表、目标分支和授权类型；显示 Waiting、Running、Blocked、Completed，完成后结束。
 - 平台不支持后台任务时不得虚构。明确让当前主 Agent 切换到集成角色，或给用户一条自然语言的一次性集成启动指令。
 - 如果用户要求迁移讨论、换窗口继续或复制讨论提示词，先更新本文件，再用代码块输出完整内容供复制。
@@ -189,8 +187,8 @@ project/
   - 产品范围、路线图或已接受行为变化时更新 `PRD.md`
   - 依赖或结构变化时更新 `ARCHITECTURE.md`
   - `CODEMAP.md`
-  - `reports/DEV_REPORT.md`
-  - 本文件的当前交接状态、路线图 / 大纲、开放决策和已知风险
+  - `reports/PROJECT_STATUS.md`
+  - 本文件的精简当前讨论交接、路线图 / 大纲、开放决策和已知风险
   - 用户改变语言偏好时更新本文件的语言模式
 
 ## 边界

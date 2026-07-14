@@ -8,7 +8,11 @@ Project-level memory-sync hooks are bundled with the installable skill rather th
 
 Discussion AI classifies work as `discussion`, `sequential`, `parallel_batch`, or `high_risk`. After an explicit human command, it creates and configures user-visible Worker tasks when the host supports that capability; manual copying is the fallback. Safe sequential task approval includes normal integration authority; parallel and high-risk integration require explicit user confirmation. Integration is temporary and must use a truthful fallback when background tasks are unavailable.
 
+Task templates start with a versioned `wishgraph:task-state` block. The checked lifecycle is `draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`; only an explicit human command changes Worker authorization to true.
+
 讨论 AI 先判断工作类型；人类明确命令后，宿主支持时由讨论 Agent 创建并配置用户可见 Worker，手动复制仅作降级。安全串行任务的批准包含正常集成授权；并行和高风险集成需要用户明确确认。集成 Agent 是临时角色，平台不支持后台任务时必须如实降级。
+
+任务模板使用版本化 `wishgraph:task-state` 状态块，受检生命周期为 `draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`；只有人类明确命令才能把 Worker 创建授权改为 true。
 
 ## English
 
@@ -23,7 +27,7 @@ prompts/DISCUSSION_AI.md
 prompts/EXECUTION_AI.md
 prompts/INTEGRATION_AI.md
 tasks/build/*.md
-reports/DEV_REPORT.md
+reports/PROJECT_STATUS.md
 reports/RUN_REPORT.md
 reports/runs/<work-unit-id>.md
 ```
@@ -47,7 +51,7 @@ prompts/DISCUSSION_AI.md
 prompts/EXECUTION_AI.md
 prompts/INTEGRATION_AI.md
 tasks/build/*.md
-reports/DEV_REPORT.md
+reports/PROJECT_STATUS.md
 reports/RUN_REPORT.md
 reports/runs/<work-unit-id>.md
 ```

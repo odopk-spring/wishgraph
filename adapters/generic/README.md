@@ -45,7 +45,7 @@ CONVENTIONS.md
 prompts/DISCUSSION_AI.md
 prompts/EXECUTION_AI.md
 tasks/build/*.md
-reports/DEV_REPORT.md
+reports/PROJECT_STATUS.md
 reports/RUN_REPORT.md
 reports/runs/<work-unit-id>.md
 ```

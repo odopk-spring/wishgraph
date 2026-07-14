@@ -1,6 +1,6 @@
 # 执行 AI 启动提示词
 
-在新的执行 agent 窗口使用本文件，然后提供具体的 `tasks/build/NNN-short-slug.md` 任务文件；旧项目可以保留 `.tasks/build/`。如果明确批准直接编辑例外，则改为提供有边界的 ad-hoc 指令。
+在新的执行 agent 窗口使用本文件，然后提供具体的 `tasks/build/NNN-short-slug.md` 任务文件；旧项目可以继续使用 `.tasks/build/`。如果明确批准直接编辑例外，则改为提供有边界的 ad-hoc 指令。
 
 这个提示词是稳定的。不要把具体任务要求写在这里；任务要求应写在任务文件里。
 
@@ -44,13 +44,14 @@
 
 正式任务和 ad-hoc 修改在最终报告前都必须：
 
+- 正式任务先确认 task-state 为 `approved` 且 `worker_creation_authorized: true`，开始执行时再改为 `running`；缺少这些授权门时停止并返回讨论。
 - 运行任务列出的验证。
-- 有任务文件时更新任务状态。
+- 收尾时把 task-state 改为与执行报告一致的 `completed`、`blocked` 或 `incomplete`。
 - 从 `reports/RUN_REPORT.md` 创建唯一的新文件 `reports/runs/<work-unit-id>.md`。正式任务使用 task ID；直接修改使用 `ad-hoc/YYYYMMDD-HHMM-short-slug`。
 - 在该执行报告中记录验证证据，并对每个共享记忆文件填写 `Integrate` 或 `N/A`。
-- 把任务的工作类型、批次 ID 和集成授权写入执行报告，并记录集成就绪状态、范围检查、冲突状态和是否出现新产品／架构／数据决策。
+- 在执行报告的 `wishgraph:run-state` JSON 块中填写任务工作类型、批次 ID、集成授权、状态、集成就绪状态、范围检查、冲突状态、新决策标记和验证结果。该状态块是机器流程真相源；证据和影响理由继续写在周围 Markdown 中。
 - 验证失败、超出范围、仍有冲突、出现重大新决策或无法安全回滚时，把报告标记为 Blocked 或 Incomplete，不得写 Completed。
-- 不要修改 `PRD.md`、`ARCHITECTURE.md`、`CODEMAP.md`、`CONVENTIONS.md`、`reports/DEV_REPORT.md` 或任何提示词文件；它们只有集成 Agent 可以写。
+- 不要修改 `PRD.md`、`ARCHITECTURE.md`、`CODEMAP.md`、`CONVENTIONS.md`、`reports/PROJECT_STATUS.md` 或任何提示词文件；项目状态概览由集成 Agent 写入，讨论交接由讨论和集成角色在各自边界维护。
 - 已安装 hooks 时运行 `python3 .wishgraph/hooks/memory_sync.py check --scope worktree`，解决失败后才能宣称完成。
 - 除非用户明确说不提交，否则为完成任务创建一个原子 commit。
 - 不要 stage 无关用户改动。

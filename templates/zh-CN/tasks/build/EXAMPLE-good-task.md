@@ -1,12 +1,23 @@
 # 012 - 把 token refresh 移出 dashboard 渲染路径
 
-Status: Example
 Spec source: `PRD.md` "Now" roadmap 要求 dashboard first paint 不能等待 auth refresh。
 Dependencies: None.
-Run report: `reports/runs/012-dashboard-token-refresh.md`
-Work type: sequential
-Batch ID: N/A
-Integration authorization: 随任务批准授权
+
+<!-- wishgraph:task-state:start -->
+```json
+{
+  "schema_version": 1,
+  "kind": "task",
+  "task_id": "012-dashboard-token-refresh",
+  "status": "draft",
+  "work_type": "sequential",
+  "batch_id": null,
+  "run_report": "reports/runs/012-dashboard-token-refresh.md",
+  "worker_creation_authorized": false,
+  "integration_policy": "inherited_task_approval"
+}
+```
+<!-- wishgraph:task-state:end -->
 
 ## Intent
 

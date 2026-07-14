@@ -85,7 +85,7 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
 
 The installer creates the common runtime under `.wishgraph/` and safely merges project-level Codex or Claude Code JSON configuration. It does not replace unrelated existing hooks.
 
-New projects use the visible `tasks/build/*.md` path. The runtime also scans legacy `.tasks/build/*.md`, and installer upgrades preserve an existing project's configured primary task path instead of moving its files automatically.
+The runtime has two small layers: `memory_sync.py` handles Git discovery, transition policy, and host hook responses; `workflow_state.py` parses versioned JSON lifecycle blocks embedded in Markdown artifacts. Semantic project truth remains in Markdown and Git. Task, Run Report, and Integration blocks cover only machine workflow facts.
 
 Start with `warn`. After one successful formal-task and ad-hoc closeout, change `.wishgraph/config.json` to `enforce`.
 
@@ -99,6 +99,8 @@ Every worker uses a separate branch or worktree and creates one new immutable re
 reports/runs/<work-unit-id>.md
 ```
 
+New Task Specs contain `wishgraph:task-state`, Run Reports contain `wishgraph:run-state`, and Project Status snapshots contain `wishgraph:integration-state`. Hooks check `draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`, including explicit Worker-creation authority and integration policy. Drafts remain editable until approval; execution identity is then fixed except for a new retry report path. Authorization, retry, and review transitions may omit a Worker report only when surrounding task prose is unchanged; `running` is not a valid closeout. Legacy label-based files remain readable; a present but invalid block is an error.
+
 Worker reports use `Integrate` or `N/A` and do not edit shared project memory:
 
 ```markdown
@@ -109,7 +111,11 @@ Worker reports use `Integrate` or `N/A` and do not edit shared project memory:
 | `prompts/DISCUSSION_AI.md` | Integrate | Present the completed result after merge |
 ```
 
-The integration agent merges worker commits with `--no-commit`, reads all new run reports, updates affected shared memory, updates `reports/DEV_REPORT.md`, and updates the dynamic handoff state in `prompts/DISCUSSION_AI.md`. The overview lists every absorbed run report and uses Updated or N/A rows.
+The integration agent merges Worker commits with `--no-commit`, reads all new Run Reports, updates affected shared memory, rewrites `reports/PROJECT_STATUS.md` as the current snapshot, and then refreshes the concise dynamic handoff in `prompts/DISCUSSION_AI.md`. Project Status lists only reports absorbed by this integration and uses Updated or N/A rows.
+
+Default size controls keep the snapshot usable: Project Status is limited to 160 lines and 12,000 characters, the discussion dynamic block to 30 lines, and SessionStart injection to 2,000 characters. If either Project Status limit is exceeded, `warn` reports the need to compress without blocking, while `enforce` blocks integration completion and commit. Move historical detail to Run Reports and Git history; never remove unresolved risks, conflicts, or pending decisions just to meet the limit.
+
+Existing `paths.dev_report` settings migrate to `paths.project_status` while preserving custom path values. An old-only `reports/DEV_REPORT.md` remains readable with a migration warning. If old and new standard files both exist, WishGraph reports an ambiguous truth source and strict mode blocks integration until the project keeps one authoritative `reports/PROJECT_STATUS.md`.
 
 Task and run-report metadata distinguish `sequential`, `parallel_batch`, and `high_risk`. Safe sequential task approval includes normal integration authority. Parallel batches and high-risk work require explicit user confirmation before integration. Hooks enforce the recorded authority but do not grant it.
 

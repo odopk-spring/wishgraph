@@ -264,7 +264,8 @@ if [[ "$setup_project" -eq 1 ]]; then
   if [[ "$hook_mode" == "warn" ]]; then
     echo "Memory sync starts in warn mode. Use --strict after one successful closeout."
   fi
-  if [[ ! -f "$project_dir/reports/DEV_REPORT.md" || ! -f "$project_dir/prompts/DISCUSSION_AI.md" ]]; then
+  if [[ ! -f "$project_dir/reports/PROJECT_STATUS.md" && ! -f "$project_dir/reports/DEV_REPORT.md" ]] || \
+    [[ ! -f "$project_dir/prompts/DISCUSSION_AI.md" ]]; then
     echo 'Next: ask your agent, "Use $wishgraph to set up this project." Hooks remain non-blocking until the project memory files are ready.'
   fi
 fi

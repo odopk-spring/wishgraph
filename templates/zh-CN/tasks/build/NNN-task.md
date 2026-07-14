@@ -1,13 +1,26 @@
 # NNN - 任务标题
 
-Status: Pending
 Spec source: 链接或概述已批准需求。
 Dependencies: 列出依赖的前置任务、migration 或决策。
 Language mode: 默认遵循 `prompts/DISCUSSION_AI.md`，除非本任务明确覆盖。
-Run report: `reports/runs/NNN-short-slug.md`
-Work type: sequential / parallel_batch / high_risk
-Batch ID: 串行填写 N/A；并行填写稳定批次 ID
-Integration authorization: 随任务批准授权 / 需要用户明确确认
+
+下面的 JSON 块是机器可读任务生命周期真相源。用户明确授权创建这个可见 Worker 前，保持 `worker_creation_authorized` 为 false。`parallel_batch` 或 `high_risk` 的 `integration_policy` 使用 `requires_explicit_user_confirmation`。
+
+<!-- wishgraph:task-state:start -->
+```json
+{
+  "schema_version": 1,
+  "kind": "task",
+  "task_id": "NNN-short-slug",
+  "status": "draft",
+  "work_type": "sequential",
+  "batch_id": null,
+  "run_report": "reports/runs/NNN-short-slug.md",
+  "worker_creation_authorized": false,
+  "integration_policy": "inherited_task_approval"
+}
+```
+<!-- wishgraph:task-state:end -->
 
 ## Intent
 
@@ -42,7 +55,7 @@ Integration authorization: 随任务批准授权 / 需要用户明确确认
 - [ ] Manual check: `<scenario>`
 - [ ] 在上面指定路径创建唯一的新不可变执行报告。
 - [ ] 执行报告对每个共享记忆文件填写 Integrate 或 N/A 加理由。
-- [ ] Worker 没有修改共享项目记忆或 `reports/DEV_REPORT.md`。
+- [ ] Worker 没有修改共享项目记忆或 `reports/PROJECT_STATUS.md`。
 - [ ] 执行报告记录工作类型、批次 ID、集成就绪状态、范围检查、冲突状态和新增决策状态。
 - [ ] 已安装 hooks 时，`python3 .wishgraph/hooks/memory_sync.py check --scope worktree` 通过。
 - [ ] 除非用户明确要求不提交，否则为本任务创建一个原子 commit。

@@ -22,8 +22,8 @@
 3. `CODEMAP.md`
 4. `CONVENTIONS.md`
 5. 规划 session 阅读 `prompts/DISCUSSION_AI.md`
-6. 执行 session 阅读 `prompts/EXECUTION_AI.md` 和指定 `tasks/build/*.md`
-7. `reports/DEV_REPORT.md` 读取最新集成交接
+6. 执行 session 阅读 `prompts/EXECUTION_AI.md` 和指定 `tasks/build/*.md`；旧项目已有 `.tasks/build/*.md` 时保持兼容
+7. `reports/PROJECT_STATUS.md` 读取当前已集成项目状态概览
 
 ## 协作规则
 
@@ -32,8 +32,9 @@
 - 执行 session 只实现已批准任务规格。
 - 任务规格必须自包含；不要依赖聊天历史。
 - Worker session 使用独立 branch 或 worktree，创建一个不可变的 `reports/runs/<work-unit-id>.md`，填写 Integrate 或 N/A 建议，不修改共享记忆。
-- 集成 session 使用 `--no-commit` 合并，更新受影响共享记忆、`reports/DEV_REPORT.md` 和 `prompts/DISCUSSION_AI.md` 动态交接状态。
+- 集成 session 使用 `--no-commit` 合并，把 `reports/PROJECT_STATUS.md` 重写为当前快照，更新受影响共享记忆，再刷新 `prompts/DISCUSSION_AI.md` 的精简动态交接。
 - 创建 Worker 必须有人类明确命令。宿主支持创建用户可见任务或 session 时，由规划 Agent 为每个已授权规格创建可见 Worker，自动交接执行提示词和任务文件，并命名为 `<task-id> · <short title> · WG Worker`。不得静默创建或使用隐藏 subagent；宿主不支持时才降级为手动复制。
+- 创建前把命令写入 task-state：`draft -> approved` 并设置 `worker_creation_authorized: true`。Worker 记录执行状态，Integration 记录 `integrated`，用户接受后讨论窗口记录 `reviewed`。
 - 集成是临时角色。安全串行任务批准包含正常集成授权；parallel_batch 和 high_risk 必须取得用户明确确认。只有宿主支持时才使用后台执行，否则如实切换角色或提供一次性启动指令。
 - Hooks 只输出状态并执行门禁，不决定是否并行，不启动 Agent，不合并代码，不编写语义记忆，也不代替 Review。
 - SessionStart 可以向新建或恢复 session 注入最新集成结果；这不是向持续运行窗口实时推送。

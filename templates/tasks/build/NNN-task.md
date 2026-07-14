@@ -1,13 +1,26 @@
 # NNN - Task Title
 
-Status: Pending
 Spec source: Link or summarize the approved requirement.
 Dependencies: List required prior tasks, migrations, or decisions.
 Language mode: Follow `prompts/DISCUSSION_AI.md` unless this task explicitly overrides it.
-Run report: `reports/runs/NNN-short-slug.md`
-Work type: sequential / parallel_batch / high_risk
-Batch ID: N/A for sequential; stable batch ID for parallel work
-Integration authorization: Inherited task approval / Requires explicit user confirmation
+
+The JSON block is the machine-readable task lifecycle source. Keep `worker_creation_authorized` false until the user explicitly authorizes this visible Worker. For `parallel_batch` or `high_risk`, use `requires_explicit_user_confirmation` as the integration policy.
+
+<!-- wishgraph:task-state:start -->
+```json
+{
+  "schema_version": 1,
+  "kind": "task",
+  "task_id": "NNN-short-slug",
+  "status": "draft",
+  "work_type": "sequential",
+  "batch_id": null,
+  "run_report": "reports/runs/NNN-short-slug.md",
+  "worker_creation_authorized": false,
+  "integration_policy": "inherited_task_approval"
+}
+```
+<!-- wishgraph:task-state:end -->
 
 ## Intent
 
@@ -42,7 +55,7 @@ Summarize the relevant repo facts discovered from files, tests, logs, or docs.
 - [ ] Manual check: `<scenario>`
 - [ ] Exactly one new immutable run report created at the path above.
 - [ ] Run report records Integrate or N/A with a reason for every shared-memory file.
-- [ ] Worker did not modify shared project memory or `reports/DEV_REPORT.md`.
+- [ ] Worker did not modify shared project memory or `reports/PROJECT_STATUS.md`.
 - [ ] Run report records work type, batch ID, integration readiness, scope check, conflict status, and new-decision status.
 - [ ] `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` passes when hooks are installed.
 - [ ] One atomic commit created for this task, unless the user explicitly requested no commit.

@@ -43,10 +43,10 @@ Create or update:
 - `prompts/DISCUSSION_AI.md`: current planning prompt and handoff state.
 - `prompts/EXECUTION_AI.md`: stable execution prompt.
 - `prompts/INTEGRATION_AI.md`: stable integration prompt and shared-state single-writer rules.
-- `tasks/build/*.md`: self-contained execution task specs.
+- `tasks/build/*.md`: visible, self-contained execution task specs; accept `.tasks/build/*.md` in an existing legacy project.
 - `reports/RUN_REPORT.md`: worker-report template.
 - `reports/runs/*.md`: immutable worker execution evidence.
-- `reports/DEV_REPORT.md`: latest integrated project overview and next handoff.
+- `reports/PROJECT_STATUS.md`: current integrated Project Status and next recommendation.
 
 ## Planning Agent
 
@@ -55,6 +55,7 @@ Create or update:
 - Write self-contained task specs.
 - Classify work as discussion, sequential, parallel_batch, or high_risk. Explain the sequential or parallel recommendation; the user confirms it.
 - Ask whether to create the approved execution window or windows. Only after an explicit human command, use the host's user-visible task or thread capability to create one Worker per authorized spec, hand off the execution prompt and task file, and name it `<task-id> · <short title> · WG Worker`. Never create Workers silently or use hidden subagents; manual copying is the fallback when the host cannot create visible tasks.
+- Before creation, record `draft -> approved` and `worker_creation_authorized: true` in each authorized task-state block.
 - Do not change business code unless the user explicitly approves a tiny direct edit.
 - A tiny direct edit may omit a task file, but it still requires validation, a unique run report, and the normal commit boundary.
 - If the user asks to migrate discussion, update `prompts/DISCUSSION_AI.md` and output the full prompt for copying.
@@ -65,7 +66,7 @@ Create or update:
 - Implement only the approved task.
 - Keep the patch minimal and reversible.
 - Run validation listed in the task.
-- Update task status and create one new immutable `reports/runs/<work-unit-id>.md`.
+- Verify authorization, move task-state through `running` to `completed|blocked|incomplete`, and create one new immutable `reports/runs/<work-unit-id>.md`.
 - Record Integrate or N/A proposals; do not edit shared project memory.
 - If `.wishgraph/hooks/memory_sync.py` exists, run its worktree check before completion.
 - Create one atomic commit unless the user explicitly says not to.
@@ -74,7 +75,8 @@ Create or update:
 
 - Merge workers from separate branches or worktrees with `--no-commit`.
 - Read all new run reports and update affected shared project memory.
-- Update `reports/DEV_REPORT.md` and `prompts/DISCUSSION_AI.md` as the single shared-state writer.
+- Rewrite `reports/PROJECT_STATUS.md` as the current snapshot, then refresh the concise dynamic handoff in `prompts/DISCUSSION_AI.md`.
+- Move absorbed structured tasks to `integrated`; discussion moves them to `reviewed` only after human acceptance.
 - New or resumed discussion sessions may receive a concise integrated-result summary from SessionStart; continuously running windows need an explicit refresh.
 - Treat integration as temporary. Safe sequential task approval includes normal integration authority; parallel_batch and high_risk integration require explicit user confirmation.
 - Use an authorized background task only when the platform supports it. Otherwise switch the main agent explicitly or give one launch command; never claim unsupported background execution.

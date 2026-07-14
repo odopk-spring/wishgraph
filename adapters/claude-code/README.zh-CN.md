@@ -63,7 +63,7 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 cp adapters/claude-code/CLAUDE.zh-CN.md /path/to/project/CLAUDE.md
 ```
 
-`CLAUDE.md` 用于 always-loaded 项目规则。较大的任务过程应留在 `/wishgraph` skill 和 WishGraph 项目文件中，例如 `PRD.md`、`CODEMAP.md`、`tasks/build/*.md`、`reports/runs/*.md` 和 `reports/DEV_REPORT.md`。
+`CLAUDE.md` 用于 always-loaded 项目规则。较大的任务过程应留在 `/wishgraph` skill 和 WishGraph 项目文件中，例如 `PRD.md`、`CODEMAP.md`、`tasks/build/*.md`、`reports/runs/*.md` 和 `reports/PROJECT_STATUS.md`。
 
 ## 安装项目记忆同步 Hooks
 
@@ -106,7 +106,7 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
    prompts/INTEGRATION_AI.md
    tasks/build/*.md
    reports/RUN_REPORT.md
-   reports/DEV_REPORT.md
+   reports/PROJECT_STATUS.md
    ```
 
 3. 先让讨论 AI 解释任务应串行还是并行，并询问是否创建执行 session。只有人类明确命令后，宿主支持时才由讨论 Agent 为每个已授权规格创建并配置用户可见 Worker，自动交接执行提示词、已批准任务文件，并使用 `<task-id> · <short title> · WG Worker` 命名。不得静默创建或使用隐藏 subagent；不能创建可见 session 时才降级为手动复制。

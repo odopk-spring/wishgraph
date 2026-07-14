@@ -93,7 +93,7 @@ Stop grilling and write files when the agent can fill:
 - `tasks/build/001-*.md` first bounded execution task.
 - `reports/RUN_REPORT.md` worker-report template.
 - `reports/runs/001-bootstrap-project.md` bootstrap execution facts.
-- `reports/DEV_REPORT.md` initial integrated project overview.
+- `reports/PROJECT_STATUS.md` initial integrated Project Status snapshot.
 
 If the user requests mechanical memory enforcement, install project-local hooks only after these files exist. Start in `warn` mode, preserve existing host hook groups, and tell Codex users to review new hooks with `/hooks`.
 
