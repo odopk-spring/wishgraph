@@ -450,15 +450,54 @@ class MemorySyncTests(unittest.TestCase):
 
     def test_natural_language_task_commands_preserve_authorization_boundary(self) -> None:
         execute = memory_sync.parse_task_command("执行012号任务")
+        compact_execute = memory_sync.parse_task_command("执行012b")
         inspect = memory_sync.parse_task_command("查看012号任务")
         family = memory_sync.parse_task_command("查看012系列任务")
-        assert execute is not None and inspect is not None and family is not None
+        assert (
+            execute is not None
+            and compact_execute is not None
+            and inspect is not None
+            and family is not None
+        )
         self.assertEqual(execute["action"], "execute")
         self.assertTrue(execute["authorizes_execution"])
+        self.assertEqual(compact_execute["action"], "execute")
+        self.assertEqual(compact_execute["task_id"], "012b")
+        self.assertTrue(compact_execute["authorizes_execution"])
         self.assertEqual(inspect["action"], "inspect")
         self.assertFalse(inspect["authorizes_execution"])
         self.assertEqual(family["action"], "family")
         self.assertIsNone(memory_sync.parse_task_command("随便看看012"))
+
+    def test_compact_execution_command_resolves_exact_suffixed_task(self) -> None:
+        self.write(
+            "tasks/build/012b-follow-up.md",
+            self.structured_task("012b-follow-up", parent_task_id="012"),
+        )
+        self.write(
+            "tasks/build/012ba-later.md",
+            self.structured_task("012ba-later", parent_task_id="012b"),
+        )
+        process = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "task",
+                "route",
+                "执行012b",
+            ],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        payload = json.loads(process.stdout)
+        self.assertEqual(payload["task"]["task_id"], "012b")
+        self.assertEqual(
+            payload["task"]["task_path"], "tasks/build/012b-follow-up.md"
+        )
+        self.assertTrue(payload["command"]["authorizes_execution"])
 
     def test_task_resolver_matches_exact_structured_id(self) -> None:
         self.write("tasks/build/012-main.md", self.structured_task("012-main"))

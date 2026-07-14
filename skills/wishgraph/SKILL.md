@@ -24,7 +24,7 @@ Treat every newly opened window as neutral until the user names its role. `Sessi
 
 Use a structured Task ID matching `^\d{3,}[a-z]*$`. Root tasks are at least three digits (`012`, `1000`). Follow-ups use an unbounded lower-case Excel-style suffix (`012a` through `012z`, then `012aa`); the suffix is a sequence, not hierarchy. Record hierarchy in `parent_task_id` and ordering in `dependencies`. Keep the readable slug only in the filename, for example `tasks/build/012a-refresh-cache.md`; resolve commands against the JSON `task_id` exactly.
 
-Recognize natural-language actions such as `执行012号任务`, `继续执行012号任务`, `查看012号任务`, `观察012号任务`, `停止012号任务`, `重新执行012号任务`, `接管012号任务`, and `查看012系列任务`. Inspect and observe are read-only. Execute is explicit Worker authority, but it must still pass Task completeness, dependency, status, Claim, and worktree checks. Never let `012` select `012a`, and report duplicate IDs or a missing exact match instead of guessing from a filename.
+Recognize compact or explicit natural-language actions such as `执行012b`, `执行012b号任务`, `继续执行012号任务`, `查看012号任务`, `观察012号任务`, `停止012号任务`, `重新执行012号任务`, `接管012号任务`, and `查看012系列任务`. Inspect and observe are read-only. Execute is explicit Worker authority, but it must still pass Task completeness, dependency, status, Claim, and worktree checks. Never let `012` select `012a`, or `012b` select `012ba`, and report duplicate IDs or a missing exact match instead of guessing from a filename.
 
 Retries after `blocked` or `incomplete` retain the same Task ID, increment `attempt`, and allocate a new immutable path such as `reports/runs/012-attempt-2.md`. Follow-up IDs are for new goals, never attempts. Task IDs are never reused; an approved Task Spec filename is immutable.
 

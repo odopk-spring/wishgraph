@@ -251,7 +251,8 @@ def parse_task_command(text: str) -> Optional[dict[str, Any]]:
         sorted((re.escape(item) for item in TASK_COMMANDS), key=len, reverse=True)
     )
     match = re.fullmatch(
-        rf"(?P<action>{action_pattern})\s*(?P<task_id>\d{{3,}}[a-z]*)\s*(?:号)?任务",
+        rf"(?P<action>{action_pattern})\s*(?P<task_id>\d{{3,}}[a-z]*)"
+        rf"(?:\s*(?:号\s*)?任务)?",
         candidate,
     )
     if match:

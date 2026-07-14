@@ -133,7 +133,7 @@ For a sequential task, say that task approval also authorizes silent safe integr
 ## Task IDs And Direct Commands
 
 - Store exact machine IDs as `012`, `012a`, ..., `012z`, `012aa`; keep the slug only in the filename. The suffix is an unbounded sequence, not hierarchy. Use `parent_task_id` and `dependencies` for relationships.
-- Resolve `Execute task 012` or `执行012号任务` only to structured `task_id == "012"`. Never prefix-match `012a` or guess from a filename. `Inspect` and `Observe` are read-only; `Execute` is explicit execution authority after safety checks.
+- Accept compact Chinese execution commands such as `执行012b` as well as explicit forms such as `执行012b号任务`, and resolve them only to structured `task_id == "012b"`. Never prefix-match `012ba` or guess from a filename. `Inspect` and `Observe` are read-only; `Execute` is explicit execution authority after safety checks.
 - A blocked or incomplete retry keeps the Task ID, increments `attempt`, and uses a new immutable `reports/runs/<task-id>-attempt-N.md`. Create a suffixed Task ID only for a new follow-up goal.
 - If multiple files declare one ID, stop and report the conflict. If no exact ID exists, show nearby valid IDs without executing one.
 - Treat “让两个 Agent 分别执行012，最后比较谁做得好” as explicit competitive authority. Plan child candidates with separate Claims/worktrees/reports and integrate only one winner. Objective unique scores may select automatically; ties or preferences return here.
