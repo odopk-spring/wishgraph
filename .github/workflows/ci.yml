@@ -52,7 +52,12 @@ jobs:
           $env:WISHGRAPH_REF = "ci-source"
           & ./scripts/install-wishgraph.ps1 codex -SetupProject -Project $project
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python "$project/.wishgraph/hooks/memory_sync.py" status
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Push-Location $project
+          try {
+            python .wishgraph/hooks/memory_sync.py status
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
           if (-not (Test-Path "$codexHome/skills/wishgraph/SKILL.md")) { exit 1 }
           if (-not (Test-Path "$project/.wishgraph/hooks/memory_sync.py")) { exit 1 }

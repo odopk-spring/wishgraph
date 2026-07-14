@@ -245,20 +245,22 @@ if [[ "$setup_project" -eq 1 ]]; then
   esac
 
   hook_mode="warn"
-  hook_args=()
-  if [[ "$force" -eq 1 ]]; then
-    hook_args+=(--force-assets)
-  fi
   if [[ "$strict" -eq 1 ]]; then
     hook_mode="enforce"
-    hook_args+=(--git-hook)
   fi
 
-  "$python_bin" "$dest/scripts/install_project_hooks.py" \
+  set -- \
+    "$python_bin" "$dest/scripts/install_project_hooks.py" \
     --target "$project_dir" \
     --host "$hook_host" \
-    --mode "$hook_mode" \
-    "${hook_args[@]}"
+    --mode "$hook_mode"
+  if [[ "$force" -eq 1 ]]; then
+    set -- "$@" --force-assets
+  fi
+  if [[ "$strict" -eq 1 ]]; then
+    set -- "$@" --git-hook
+  fi
+  "$@"
 
   echo "WishGraph project setup complete for $project_dir"
   if [[ "$hook_mode" == "warn" ]]; then
