@@ -17,6 +17,7 @@ from typing import Any, Optional
 SCHEMA_VERSION = 1
 SUPPORTED_KINDS = {"task", "run", "integration"}
 TASK_STATUS_ALIASES = {"pending": "draft", "done": "completed"}
+TASK_ID_RE = re.compile(r"^(?P<number>\d{3,})(?P<suffix>[a-z]*)$")
 STATE_BLOCK_RE = re.compile(
     r"<!--\s*wishgraph:state:start\s*-->(.*?)<!--\s*wishgraph:state:end\s*-->",
     re.IGNORECASE | re.DOTALL,
@@ -43,6 +44,8 @@ class ReportState:
     conflict_status: str = "missing"
     new_decision: str = "missing"
     validation_results: list[str] = field(default_factory=list)
+    task_id: str = ""
+    attempt: int = 1
 
 
 @dataclass
@@ -55,6 +58,9 @@ class TaskState:
     run_report: str
     worker_creation_authorized: bool
     integration_policy: str
+    parent_task_id: str = ""
+    dependencies: list[str] = field(default_factory=list)
+    attempt: int = 1
     errors: list[str] = field(default_factory=list)
     state_source: str = "legacy"
 
@@ -132,6 +138,106 @@ def string_list(value: Any) -> list[str]:
         for item in value
         if isinstance(item, str) and item.strip()
     ]
+
+
+def canonical_task_id(value: Any) -> str:
+    """Return a normalized Task ID or an empty string when syntax is invalid."""
+    candidate = str(value or "").strip().lower()
+    return candidate if TASK_ID_RE.fullmatch(candidate) else ""
+
+
+def task_id_parts(value: Any) -> tuple[str, str]:
+    task_id = canonical_task_id(value)
+    if not task_id:
+        raise ValueError("Task ID must match ^\\d{3,}[a-z]*$")
+    match = TASK_ID_RE.fullmatch(task_id)
+    assert match is not None
+    return match.group("number"), match.group("suffix")
+
+
+def suffix_index(suffix: str) -> int:
+    """Convert an Excel-like lower-case suffix to a one-based sequence number."""
+    if not suffix or not re.fullmatch(r"[a-z]+", suffix):
+        raise ValueError("Task suffix must contain one or more lower-case letters")
+    value = 0
+    for letter in suffix:
+        value = value * 26 + (ord(letter) - ord("a") + 1)
+    return value
+
+
+def suffix_for_index(index: int) -> str:
+    """Convert a one-based sequence number to an Excel-like lower-case suffix."""
+    if index < 1:
+        raise ValueError("Task suffix index must be positive")
+    letters: list[str] = []
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        letters.append(chr(ord("a") + remainder))
+    return "".join(reversed(letters))
+
+
+def followup_task_id(root_task_id: Any, index: int) -> str:
+    number, suffix = task_id_parts(root_task_id)
+    if suffix:
+        raise ValueError("Follow-up allocation requires a root numeric Task ID")
+    return f"{number}{suffix_for_index(index)}"
+
+
+TASK_COMMANDS = {
+    "执行": "execute",
+    "继续执行": "continue",
+    "查看": "inspect",
+    "观察": "observe",
+    "停止": "stop",
+    "重新执行": "retry",
+    "重试": "retry",
+    "接管": "take_over",
+}
+
+
+def parse_task_command(text: str) -> Optional[dict[str, Any]]:
+    """Parse one exact natural-language Task command without fuzzy execution."""
+    candidate = text.strip().lower()
+    family = re.fullmatch(r"查看\s*(\d{3,}[a-z]*)\s*系列任务", candidate)
+    if family:
+        task_id = canonical_task_id(family.group(1))
+        return {"action": "family", "task_id": task_id, "authorizes_execution": False}
+
+    action_pattern = "|".join(
+        sorted((re.escape(item) for item in TASK_COMMANDS), key=len, reverse=True)
+    )
+    match = re.fullmatch(
+        rf"(?P<action>{action_pattern})\s*(?P<task_id>\d{{3,}}[a-z]*)\s*(?:号)?任务",
+        candidate,
+    )
+    if match:
+        action = TASK_COMMANDS[match.group("action")]
+        return {
+            "action": action,
+            "task_id": canonical_task_id(match.group("task_id")),
+            "authorizes_execution": action in {"execute", "continue", "retry", "take_over"},
+        }
+
+    english = re.fullmatch(
+        r"(?P<action>execute|continue|inspect|observe|stop|retry|take over)\s+"
+        r"(?:task\s+)?(?P<task_id>\d{3,}[a-z]*)",
+        candidate,
+    )
+    if english:
+        action = english.group("action").replace(" ", "_")
+        return {
+            "action": action,
+            "task_id": canonical_task_id(english.group("task_id")),
+            "authorizes_execution": action in {"execute", "continue", "retry", "take_over"},
+        }
+    return None
+
+
+def positive_attempt(value: Any, errors: list[str]) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        errors.append("attempt must be a positive integer")
+        return 1
+    return value
 
 
 def dynamic_state_block(content: Optional[str]) -> Optional[str]:
@@ -226,6 +332,11 @@ def parse_report_state(report_path: str, content: str) -> ReportState:
         conflict_status = normalized_string(data.get("conflict_status"))
         new_decision = normalized_string(data.get("new_decision"))
         results = validation_values(data.get("validation"))
+        raw_report_task_id = data.get("task_id")
+        task_id = "" if raw_report_task_id is None else canonical_task_id(raw_report_task_id)
+        if raw_report_task_id is not None and raw_report_task_id != "" and not task_id:
+            block_errors.append("task_id must be null or match ^\\d{3,}[a-z]*$")
+        attempt = positive_attempt(data.get("attempt", 1), block_errors)
         state_source = "structured"
     else:
         status = parse_report_status(content) or "missing"
@@ -249,6 +360,8 @@ def parse_report_state(report_path: str, content: str) -> ReportState:
             "新增产品 / 架构 / 数据决策",
         ) or "missing"
         results = validation_results(content)
+        task_id = ""
+        attempt = 1
         state_source = "legacy"
     errors: list[str] = list(block_errors)
 
@@ -263,6 +376,8 @@ def parse_report_state(report_path: str, content: str) -> ReportState:
         conflict_status=conflict_status,
         new_decision=new_decision,
         validation_results=results,
+        task_id=task_id,
+        attempt=attempt,
         safety_errors=errors,
         state_source=state_source,
     )
@@ -305,7 +420,21 @@ def parse_task_state(task_path: str, content: str) -> TaskState:
     errors = list(block_errors)
     if block is not None:
         data = block.data
-        task_id = str(data.get("task_id", "")).strip()
+        raw_task_id = str(data.get("task_id", "")).strip()
+        task_id = canonical_task_id(raw_task_id)
+        if raw_task_id and not task_id:
+            errors.append("task_id must match ^\\d{3,}[a-z]*$")
+        raw_parent = data.get("parent_task_id")
+        parent_task_id = "" if raw_parent is None else canonical_task_id(raw_parent)
+        if raw_parent is not None and raw_parent != "" and not parent_task_id:
+            errors.append("parent_task_id must be null or match ^\\d{3,}[a-z]*$")
+        dependencies = [item.lower() for item in string_list(data.get("dependencies"))]
+        if not isinstance(data.get("dependencies", []), list):
+            errors.append("dependencies must be a list")
+        invalid_dependencies = [item for item in dependencies if not canonical_task_id(item)]
+        if invalid_dependencies:
+            errors.append("dependencies must contain only valid Task IDs")
+        attempt = positive_attempt(data.get("attempt", 1), errors)
         status = canonical_task_status(data.get("status"))
         work_type = normalized_string(data.get("work_type"))
         batch_id = normalized_string(data.get("batch_id"), "n/a")
@@ -318,6 +447,9 @@ def parse_task_state(task_path: str, content: str) -> TaskState:
         state_source = "structured"
     else:
         task_id = Path(task_path).stem
+        parent_task_id = ""
+        dependencies = []
+        attempt = 1
         status = canonical_task_status(
             parse_labeled_field(content, "Status", "状态") or "draft"
         )
@@ -343,6 +475,9 @@ def parse_task_state(task_path: str, content: str) -> TaskState:
         run_report=run_report,
         worker_creation_authorized=worker_authorized,
         integration_policy=integration_policy,
+        parent_task_id=parent_task_id,
+        dependencies=dependencies,
+        attempt=attempt,
         errors=errors,
         state_source=state_source,
     )

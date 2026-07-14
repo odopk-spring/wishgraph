@@ -169,6 +169,8 @@ Use it to:
 
 The discussion AI should not edit business code unless the project explicitly allows a trivial direct-edit exception.
 
+Task IDs are exact structured identifiers such as `012`, `012a`, and `012aa`; readable slugs stay in filenames. You can say `执行012号任务`, `查看012号任务`, or `查看012系列任务`. Exact execution never prefix-matches a follow-up. A retry keeps `012`, increments its attempt, and writes a new report instead of allocating `012a`.
+
 If you want to move the discussion into another AI window, ask:
 
 ```text

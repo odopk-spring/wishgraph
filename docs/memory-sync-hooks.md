@@ -137,6 +137,16 @@ python3 .wishgraph/hooks/memory_sync.py status
 
 The status command emits machine-readable pending integration, integration kind, ready reports, waiting reports, blocked reports, confirmation requirement, and reason. It scans immutable reports on visible Git refs without writing a shared queue file. Discussion entry and explicit refresh read this status; SessionStart only includes it in opt-in compatibility mode.
 
+The read-only task router is also available to host adapters:
+
+```bash
+python3 .wishgraph/hooks/memory_sync.py task route "执行012号任务"
+python3 .wishgraph/hooks/memory_sync.py task resolve 012
+python3 .wishgraph/hooks/memory_sync.py task family 012
+```
+
+It matches structured IDs exactly, reports duplicate declarations, and never executes a nearby or filename-prefix match. Task IDs follow `^\d{3,}[a-z]*$`; retries retain the ID and increment the attempt while follow-up goals allocate the next suffix.
+
 For strict `enforce` mode, add `--git-hook` so commits made outside an agent and tool paths that lifecycle hooks cannot intercept are also checked. The installer refuses to overwrite an existing Git pre-commit hook and prints chaining guidance instead.
 
 ## Boundaries

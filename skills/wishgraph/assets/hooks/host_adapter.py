@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import os
 import re
@@ -12,6 +13,7 @@ from typing import Any, Optional
 
 from git_state import (
     LEGACY_PROJECT_STATUS_PATH,
+    configured_task_globs,
     find_git_root,
     load_config,
     read_version,
@@ -19,7 +21,14 @@ from git_state import (
     standard_project_status_conflict,
 )
 from policy import CheckResult, check_sync, integration_state
-from workflow_state import dynamic_state_block, markdown_section
+from workflow_state import (
+    canonical_task_id,
+    dynamic_state_block,
+    markdown_section,
+    parse_task_command,
+    parse_task_state,
+    task_id_parts,
+)
 
 
 def project_session_context(root: Path, config: dict[str, Any]) -> Optional[str]:
@@ -339,6 +348,104 @@ def status_main() -> int:
     return 0
 
 
+def task_specs(root: Path, config: dict[str, Any]) -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
+    seen: set[Path] = set()
+    for pattern in configured_task_globs(config):
+        for path in sorted(root.glob(pattern)):
+            if path in seen or path.name.startswith(("EXAMPLE-", "NNN-")):
+                continue
+            seen.add(path)
+            relative = path.relative_to(root).as_posix()
+            content = read_version(root, relative, "worktree")
+            if content is None:
+                continue
+            state = parse_task_state(relative, content)
+            specs.append(
+                {
+                    "task_id": state.task_id,
+                    "task_path": relative,
+                    "status": state.status,
+                    "parent_task_id": state.parent_task_id or None,
+                    "dependencies": state.dependencies,
+                    "attempt": state.attempt,
+                    "run_report": state.run_report,
+                    "errors": state.errors,
+                }
+            )
+    return specs
+
+
+def resolve_task(root: Path, config: dict[str, Any], task_id: str) -> dict[str, Any]:
+    requested = canonical_task_id(task_id)
+    if not requested:
+        return {"ok": False, "error": "invalid_task_id", "requested": task_id}
+    specs = task_specs(root, config)
+    matches = [item for item in specs if item["task_id"] == requested]
+    if len(matches) > 1:
+        return {
+            "ok": False,
+            "error": "duplicate_task_id",
+            "task_id": requested,
+            "matches": [item["task_path"] for item in matches],
+        }
+    if not matches:
+        valid_ids = sorted({item["task_id"] for item in specs if item["task_id"]})
+        return {
+            "ok": False,
+            "error": "task_not_found",
+            "task_id": requested,
+            "nearest_task_ids": difflib.get_close_matches(requested, valid_ids, n=5),
+        }
+    return {"ok": True, "task": matches[0]}
+
+
+def task_main(action: str, value: str) -> int:
+    root = find_git_root(Path.cwd())
+    if root is None:
+        print(json.dumps({"ok": False, "error": "git_repository_required"}))
+        return 2
+    try:
+        config = load_config(root)
+    except ValueError as exc:
+        print(json.dumps({"ok": False, "error": "invalid_config", "detail": str(exc)}))
+        return 2
+    if config is None:
+        print(json.dumps({"ok": False, "error": "wishgraph_not_installed"}))
+        return 2
+
+    if action == "route":
+        command = parse_task_command(value)
+        if command is None:
+            print(json.dumps({"ok": False, "error": "unrecognized_task_command"}))
+            return 1
+        if command["action"] == "family":
+            action = "family"
+            value = command["task_id"]
+        else:
+            payload = resolve_task(root, config, command["task_id"])
+            payload["command"] = command
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return 0 if payload["ok"] else 1
+
+    if action == "family":
+        task_id = canonical_task_id(value)
+        if not task_id:
+            payload = {"ok": False, "error": "invalid_task_id", "requested": value}
+        else:
+            number, _ = task_id_parts(task_id)
+            matches = [
+                item
+                for item in task_specs(root, config)
+                if item["task_id"] and task_id_parts(item["task_id"])[0] == number
+            ]
+            payload = {"ok": True, "root_task_id": number, "tasks": matches}
+    else:
+        payload = resolve_task(root, config, value)
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0 if payload["ok"] else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -347,6 +454,9 @@ def main() -> int:
     check_parser = subparsers.add_parser("check")
     check_parser.add_argument("--scope", choices=("worktree", "staged"), default="worktree")
     subparsers.add_parser("status")
+    task_parser = subparsers.add_parser("task")
+    task_parser.add_argument("action", choices=("resolve", "family", "route"))
+    task_parser.add_argument("value")
     subparsers.add_parser("git-pre-commit")
     args = parser.parse_args()
 
@@ -354,6 +464,8 @@ def main() -> int:
         return check_main(args.scope)
     if args.command == "status":
         return status_main()
+    if args.command == "task":
+        return task_main(args.action, args.value)
     if args.command == "git-pre-commit":
         return check_main("staged")
     return hook_main(args.command)

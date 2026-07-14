@@ -64,7 +64,10 @@ Responsibilities:
 ## Task File Rules
 
 - Path: `tasks/build/NNN-short-slug.md`.
-- Use a stable task number. For follow-ups in the same feature line, use a suffix such as `003b` or `014c`.
+- The structured Task ID matches `^\d{3,}[a-z]*$`. Use digits for roots and an unbounded Excel-style lower-case suffix for new follow-up goals (`012z`, then `012aa`). The filename slug is descriptive only.
+- Record relationships with `parent_task_id` and `dependencies`. Never infer hierarchy from suffix length.
+- Never reuse an allocated ID. After approval, neither the Task ID nor Task Spec filename may change.
+- Retries keep the Task ID, increment `attempt`, and use a new immutable `reports/runs/<task-id>-attempt-N.md` path.
 - A task must be executable without chat history.
 - Anchor by symbols, modules, routes, APIs, or tests. Do not rely on line numbers.
 - Include a "Do Not Do" section to stop scope drift.

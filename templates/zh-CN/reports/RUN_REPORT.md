@@ -17,6 +17,8 @@
 {
   "schema_version": 1,
   "kind": "run",
+  "task_id": "001",
+  "attempt": 1,
   "unit": "NNN-short-slug",
   "status": "completed",
   "work_type": "sequential",

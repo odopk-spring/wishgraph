@@ -4,6 +4,7 @@ import ast
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -239,15 +240,24 @@ class MemorySyncTests(unittest.TestCase):
         batch_id: Optional[str] = None,
         worker_authorized: bool = False,
         integration_policy: str = "inherited_task_approval",
+        parent_task_id: Optional[str] = None,
+        dependencies: Optional[list[str]] = None,
+        attempt: int = 1,
+        run_report: Optional[str] = None,
     ) -> str:
+        match = re.match(r"\d{3,}[a-z]*", task_id)
+        structured_id = match.group(0) if match else task_id
         state = {
             "schema_version": 1,
             "kind": "task",
-            "task_id": task_id,
+            "task_id": structured_id,
+            "parent_task_id": parent_task_id,
+            "dependencies": dependencies or [],
             "status": status,
             "work_type": work_type,
             "batch_id": batch_id,
-            "run_report": f"reports/runs/{task_id}.md",
+            "attempt": attempt,
+            "run_report": run_report or f"reports/runs/{task_id}.md",
             "worker_creation_authorized": worker_authorized,
             "integration_policy": integration_policy,
         }
@@ -352,6 +362,90 @@ class MemorySyncTests(unittest.TestCase):
         self.assertEqual(state.status, "completed")
         self.assertEqual(state.readiness, "ready")
         self.assertEqual(state.safety_errors, [])
+
+    def test_task_id_suffixes_are_unbounded_excel_style_sequences(self) -> None:
+        self.assertEqual(memory_sync.task_id_parts("012"), ("012", ""))
+        self.assertEqual(memory_sync.task_id_parts("012a"), ("012", "a"))
+        self.assertEqual(memory_sync.suffix_index("z"), 26)
+        self.assertEqual(memory_sync.suffix_index("aa"), 27)
+        self.assertEqual(memory_sync.suffix_for_index(27), "aa")
+        self.assertEqual(memory_sync.followup_task_id("012", 52), "012az")
+        self.assertEqual(memory_sync.canonical_task_id("012AA"), "012aa")
+        self.assertEqual(memory_sync.canonical_task_id("12a"), "")
+
+    def test_natural_language_task_commands_preserve_authorization_boundary(self) -> None:
+        execute = memory_sync.parse_task_command("执行012号任务")
+        inspect = memory_sync.parse_task_command("查看012号任务")
+        family = memory_sync.parse_task_command("查看012系列任务")
+        assert execute is not None and inspect is not None and family is not None
+        self.assertEqual(execute["action"], "execute")
+        self.assertTrue(execute["authorizes_execution"])
+        self.assertEqual(inspect["action"], "inspect")
+        self.assertFalse(inspect["authorizes_execution"])
+        self.assertEqual(family["action"], "family")
+        self.assertIsNone(memory_sync.parse_task_command("随便看看012"))
+
+    def test_task_resolver_matches_exact_structured_id(self) -> None:
+        self.write("tasks/build/012-main.md", self.structured_task("012-main"))
+        self.write(
+            "tasks/build/012a-follow-up.md",
+            self.structured_task("012a-follow-up", parent_task_id="012"),
+        )
+        process = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "task",
+                "route",
+                "执行012号任务",
+            ],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        payload = json.loads(process.stdout)
+        self.assertEqual(payload["task"]["task_id"], "012")
+        self.assertEqual(payload["task"]["task_path"], "tasks/build/012-main.md")
+        self.assertTrue(payload["command"]["authorizes_execution"])
+
+    def test_task_resolver_reports_duplicate_structured_id(self) -> None:
+        self.write("tasks/build/012-one.md", self.structured_task("012-one"))
+        self.write("tasks/build/012-two.md", self.structured_task("012-two"))
+        process = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "task",
+                "resolve",
+                "012",
+            ],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(process.returncode, 1)
+        payload = json.loads(process.stdout)
+        self.assertEqual(payload["error"], "duplicate_task_id")
+        self.assertEqual(len(payload["matches"]), 2)
+
+    def test_task_parent_dependencies_and_attempt_are_parsed(self) -> None:
+        state = memory_sync.parse_task_state(
+            "tasks/build/012a-follow-up.md",
+            self.structured_task(
+                "012a-follow-up",
+                parent_task_id="012",
+                dependencies=["012"],
+                attempt=2,
+                run_report="reports/runs/012a-attempt-2.md",
+            ),
+        )
+        self.assertEqual(state.task_id, "012a")
+        self.assertEqual(state.parent_task_id, "012")
+        self.assertEqual(state.dependencies, ["012"])
+        self.assertEqual(state.attempt, 2)
 
     def test_invalid_structured_run_state_blocks_closeout(self) -> None:
         self.write("src/app.py", "print('structured')\n")
@@ -462,6 +556,65 @@ class MemorySyncTests(unittest.TestCase):
         result = memory_sync.check_sync(self.root, self.config, "worktree")
         self.assertFalse(result.ok)
         self.assertTrue(any("invalid task transition" in error for error in result.errors))
+
+    def test_blocked_task_retry_keeps_id_and_increments_attempt(self) -> None:
+        task_path = "tasks/build/026-retry.md"
+        first_report = "reports/runs/026-attempt-1.md"
+        self.write(first_report, self.structured_run_report("026-attempt-1", status="blocked", readiness="blocked"))
+        self.write(
+            task_path,
+            self.structured_task(
+                "026-retry",
+                status="blocked",
+                worker_authorized=True,
+                run_report=first_report,
+            ),
+        )
+        self.git("add", task_path, first_report)
+        self.git("commit", "-qm", "blocked retry fixture")
+
+        self.write(
+            task_path,
+            self.structured_task(
+                "026-retry",
+                status="approved",
+                worker_authorized=True,
+                attempt=2,
+                run_report="reports/runs/026-attempt-2.md",
+            ),
+        )
+        valid_retry = memory_sync.check_sync(self.root, self.config, "worktree")
+        self.assertTrue(valid_retry.ok, valid_retry.errors)
+
+        self.write(
+            task_path,
+            self.structured_task(
+                "026-retry",
+                status="approved",
+                worker_authorized=True,
+                attempt=1,
+                run_report="reports/runs/026-attempt-2.md",
+            ),
+        )
+        invalid_retry = memory_sync.check_sync(self.root, self.config, "worktree")
+        self.assertFalse(invalid_retry.ok)
+        self.assertTrue(any("increment attempt" in error for error in invalid_retry.errors))
+
+    def test_approved_task_filename_cannot_be_renamed(self) -> None:
+        old_path = "tasks/build/027-original.md"
+        new_path = "tasks/build/027-renamed.md"
+        self.write(
+            old_path,
+            self.structured_task(
+                "027-original", status="approved", worker_authorized=True
+            ),
+        )
+        self.git("add", old_path)
+        self.git("commit", "-qm", "approved filename fixture")
+        self.git("mv", old_path, new_path)
+        result = memory_sync.check_sync(self.root, self.config, "worktree")
+        self.assertFalse(result.ok)
+        self.assertTrue(any("filename is immutable" in error for error in result.errors))
 
     def test_running_task_is_not_a_valid_closeout_without_report(self) -> None:
         task_id = "022a-running"
@@ -755,12 +908,13 @@ class MemorySyncTests(unittest.TestCase):
         self.write(
             task_path,
             self.structured_task(
-                "structured-parallel",
+                "025-structured-parallel",
                 status="completed",
                 work_type="parallel_batch",
                 batch_id="batch-structured",
                 worker_authorized=True,
                 integration_policy="requires_explicit_user_confirmation",
+                run_report=report_path,
             ),
         )
         stale_task = memory_sync.check_sync(self.root, self.config, "worktree")
@@ -769,12 +923,13 @@ class MemorySyncTests(unittest.TestCase):
         self.write(
             task_path,
             self.structured_task(
-                "structured-parallel",
+                "025-structured-parallel",
                 status="integrated",
                 work_type="parallel_batch",
                 batch_id="batch-structured",
                 worker_authorized=True,
                 integration_policy="requires_explicit_user_confirmation",
+                run_report=report_path,
             ),
         )
         result = memory_sync.check_sync(self.root, self.config, "worktree")
@@ -1158,13 +1313,14 @@ class MemorySyncTests(unittest.TestCase):
             ),
         )
         planned = memory_sync.integration_state(self.root, self.config).as_dict()
-        unit = next(item for item in planned["work_units"] if item["task_id"] == task_id)
+        unit = next(item for item in planned["work_units"] if item["task_id"] == "024")
         self.assertEqual(unit["lifecycle_status"], "approved")
+        self.assertEqual(unit["task_id"], "024")
         self.assertIn(report_path, planned["waiting_reports"])
 
         self.write(report_path, self.structured_run_report(task_id))
         completed = memory_sync.integration_state(self.root, self.config).as_dict()
-        unit = next(item for item in completed["work_units"] if item["task_id"] == task_id)
+        unit = next(item for item in completed["work_units"] if item["task_id"] == "024")
         self.assertEqual(unit["lifecycle_status"], "completed")
 
     def test_session_start_injects_pending_integration_status(self) -> None:

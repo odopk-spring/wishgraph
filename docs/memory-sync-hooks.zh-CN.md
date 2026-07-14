@@ -145,6 +145,16 @@ python3 .wishgraph/hooks/memory_sync.py status
 
 `status` 输出机器可读的待集成状态、集成类型、准备报告、等待报告、阻塞报告、是否需要用户确认和理由。它读取可见 Git refs 中的不可变报告，不写入共享队列文件。讨论入口和显式刷新会读取这个状态；SessionStart 仅在显式兼容模式下包含它。
 
+宿主适配器还可以调用只读任务路由：
+
+```bash
+python3 .wishgraph/hooks/memory_sync.py task route "执行012号任务"
+python3 .wishgraph/hooks/memory_sync.py task resolve 012
+python3 .wishgraph/hooks/memory_sync.py task family 012
+```
+
+它只精确匹配结构化 ID，报告重复声明，不会执行相近编号或文件名前缀匹配。Task ID 遵循 `^\d{3,}[a-z]*$`；重试保留编号并递增 attempt，新 Follow-up Goal 才分配下一个字母后缀。
+
 严格使用 `enforce` 模式时，建议给安装器增加 `--git-hook`，从而覆盖 Agent 以外的提交和生命周期 hook 无法拦截的工具路径。安装器不会覆盖已有 Git pre-commit hook，而是提示如何手动串联。
 
 ## 边界

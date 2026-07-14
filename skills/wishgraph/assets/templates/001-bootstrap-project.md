@@ -9,11 +9,14 @@ Language mode: Follow the user's selected project language; use bilingual Chines
 {
   "schema_version": 1,
   "kind": "task",
-  "task_id": "001-bootstrap-project",
+  "task_id": "001",
+  "parent_task_id": null,
+  "dependencies": [],
   "status": "draft",
   "work_type": "sequential",
   "batch_id": null,
-  "run_report": "reports/runs/001-bootstrap-project.md",
+  "attempt": 1,
+  "run_report": "reports/runs/001-attempt-1.md",
   "worker_creation_authorized": false,
   "integration_policy": "inherited_task_approval"
 }

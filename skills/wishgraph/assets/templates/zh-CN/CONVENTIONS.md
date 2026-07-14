@@ -64,7 +64,10 @@
 ## 任务文件规则
 
 - 路径：`tasks/build/NNN-short-slug.md`。
-- 使用稳定任务编号。同一功能线后续任务使用 `003b` 或 `014c` 这类后缀。
+- 结构化 Task ID 必须匹配 `^\d{3,}[a-z]*$`。根任务使用数字；新 Follow-up Goal 使用可无限延展的 Excel 式小写后缀（`012z` 后是 `012aa`）。文件名 slug 只用于阅读。
+- 使用 `parent_task_id` 和 `dependencies` 表达关系，不能从后缀长度推断层级。
+- 已分配编号不得复用；批准后 Task ID 和 Task Spec 文件名都不可修改。
+- 重试保留 Task ID，递增 `attempt`，并使用新的不可变 `reports/runs/<task-id>-attempt-N.md`。
 - 任务必须不依赖聊天历史即可执行。
 - 用符号、模块、路由、API 或测试锚定，不依赖行号。
 - 必须有 "Do Not Do" 防止范围漂移。

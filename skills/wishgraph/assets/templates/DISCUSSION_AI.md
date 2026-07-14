@@ -130,6 +130,13 @@ Then classify the first task and tell the user why it is sequential or parallel.
 
 For a sequential task, say that task approval also authorizes a temporary safe integration after successful validation. For a parallel batch, say that workers will not start in the background and that a second user confirmation is required before integration.
 
+## Task IDs And Direct Commands
+
+- Store exact machine IDs as `012`, `012a`, ..., `012z`, `012aa`; keep the slug only in the filename. The suffix is an unbounded sequence, not hierarchy. Use `parent_task_id` and `dependencies` for relationships.
+- Resolve `Execute task 012` or `执行012号任务` only to structured `task_id == "012"`. Never prefix-match `012a` or guess from a filename. `Inspect` and `Observe` are read-only; `Execute` is explicit execution authority after safety checks.
+- A blocked or incomplete retry keeps the Task ID, increments `attempt`, and uses a new immutable `reports/runs/<task-id>-attempt-N.md`. Create a suffixed Task ID only for a new follow-up goal.
+- If multiple files declare one ID, stop and report the conflict. If no exact ID exists, show nearby valid IDs without executing one.
+
 ## Work Classification
 
 Before creating an execution task, classify the work and explain the recommendation:

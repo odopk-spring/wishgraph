@@ -152,6 +152,34 @@ def changed_paths(root: Path, scope: str) -> set[str]:
     return staged | unstaged | untracked
 
 
+def changed_path_statuses(root: Path, scope: str) -> list[tuple[str, str, Optional[str]]]:
+    """Return Git name-status records, including old/new paths for detected renames."""
+    if scope == "staged":
+        args = ("diff", "--cached", "--name-status", "--find-renames", "-z", "--")
+    else:
+        args = ("diff", "HEAD", "--name-status", "--find-renames", "-z", "--")
+    fields = run_git(root, *args).stdout.split(b"\0")
+    records: list[tuple[str, str, Optional[str]]] = []
+    index = 0
+    while index < len(fields) and fields[index]:
+        status = fields[index].decode("utf-8", errors="replace")
+        index += 1
+        if status.startswith(("R", "C")):
+            if index + 1 >= len(fields):
+                break
+            old_path = fields[index].decode("utf-8", errors="surrogateescape")
+            new_path = fields[index + 1].decode("utf-8", errors="surrogateescape")
+            index += 2
+            records.append((status, old_path, new_path))
+        else:
+            if index >= len(fields):
+                break
+            path = fields[index].decode("utf-8", errors="surrogateescape")
+            index += 1
+            records.append((status, path, None))
+    return records
+
+
 def matches_any(path: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatch(path, pattern) for pattern in patterns)
 

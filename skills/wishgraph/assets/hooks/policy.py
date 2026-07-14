@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 from git_state import (
     LEGACY_PROJECT_STATUS_PATH,
+    changed_path_statuses,
     changed_paths,
     configured_task_globs,
     matches_any,
@@ -195,6 +196,13 @@ def task_state(task_path: str, content: str) -> TaskState:
     errors = state.errors
     if not state.task_id:
         errors.append("missing task_id")
+    if state.state_source == "structured":
+        if state.parent_task_id and state.parent_task_id == state.task_id:
+            errors.append("parent_task_id cannot equal task_id")
+        if state.task_id in state.dependencies:
+            errors.append("dependencies cannot contain task_id itself")
+        if len(state.dependencies) != len(set(state.dependencies)):
+            errors.append("dependencies cannot contain duplicates")
     if state.status not in TASK_STATUSES:
         errors.append("missing or invalid task status")
     if state.work_type not in WORK_TYPES - {"discussion"}:
@@ -228,26 +236,31 @@ def task_state(task_path: str, content: str) -> TaskState:
     return state
 
 
+def all_task_states(
+    root: Path, config: dict[str, Any], scope: str = "worktree"
+) -> list[TaskState]:
+    tasks: list[TaskState] = []
+    seen: set[Path] = set()
+    for task_glob in configured_task_globs(config):
+        for path in root.glob(task_glob):
+            if path in seen or path.name.startswith(("EXAMPLE-", "NNN-")):
+                continue
+            seen.add(path)
+            relative = path.relative_to(root).as_posix()
+            content = read_version(root, relative, scope)
+            if content is not None:
+                tasks.append(task_state(relative, content))
+    return tasks
+
+
 def task_report_states(
     root: Path, config: dict[str, Any], scope: str = "worktree"
 ) -> dict[str, TaskState]:
     tasks: dict[str, TaskState] = {}
-    seen: set[Path] = set()
-    for task_glob in configured_task_globs(config):
-        for path in root.glob(task_glob):
-            if path in seen:
-                continue
-            seen.add(path)
-            if path.name.startswith("EXAMPLE-") or path.name.startswith("NNN-"):
-                continue
-            relative = path.relative_to(root).as_posix()
-            content = read_version(root, relative, scope)
-            if content is None:
-                continue
-            state = task_state(relative, content)
-            if not state.run_report:
-                continue
-            tasks[state.run_report] = state
+    for state in all_task_states(root, config, scope):
+        if not state.run_report:
+            continue
+        tasks[state.run_report] = state
     return tasks
 
 
@@ -336,6 +349,9 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
             {
                 "task_path": task.path,
                 "task_id": task.task_id,
+                "parent_task_id": task.parent_task_id or None,
+                "dependencies": task.dependencies,
+                "attempt": task.attempt,
                 "lifecycle_status": lifecycle,
                 "task_status": task.status,
                 "work_type": task.work_type,
@@ -637,6 +653,18 @@ def validate_task_spec(
         result.errors.append(
             f"{task_path} run_report must match {config['paths']['run_report_glob']}"
         )
+    known_task_ids = {
+        item.task_id for item in all_task_states(root, config, scope) if item.task_id
+    }
+    if state.parent_task_id and state.parent_task_id not in known_task_ids:
+        result.errors.append(
+            f"{task_path} parent_task_id {state.parent_task_id} does not resolve to a Task"
+        )
+    for dependency in state.dependencies:
+        if dependency not in known_task_ids:
+            result.errors.append(
+                f"{task_path} dependency {dependency} does not resolve to a Task"
+            )
 
     previous_content = read_head_version(root, task_path)
     if previous_content is not None:
@@ -657,6 +685,8 @@ def validate_task_spec(
                 stable_fields = (
                     ("work_type", previous.work_type, state.work_type),
                     ("batch_id", previous.batch_id, state.batch_id),
+                    ("parent_task_id", previous.parent_task_id, state.parent_task_id),
+                    ("dependencies", previous.dependencies, state.dependencies),
                     (
                         "integration_policy",
                         previous.integration_policy,
@@ -673,9 +703,17 @@ def validate_task_spec(
                         result.errors.append(
                             f"{task_path} retry approval requires a new immutable run_report path"
                         )
+                    if state.attempt != previous.attempt + 1:
+                        result.errors.append(
+                            f"{task_path} retry approval must increment attempt by exactly one"
+                        )
                 elif previous.run_report != state.run_report:
                     result.errors.append(
                         f"{task_path} run_report may change only when retrying blocked or incomplete work"
+                    )
+                elif previous.attempt != state.attempt:
+                    result.errors.append(
+                        f"{task_path} attempt may change only when retrying blocked or incomplete work"
                     )
             if previous.status != state.status and state.status not in TASK_TRANSITIONS.get(
                 previous.status, set()
@@ -777,6 +815,36 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
     changed = sorted(path for path in all_changed if not matches_any(path, ignored))
     result.changed_paths = changed
 
+    try:
+        path_statuses = changed_path_statuses(root, scope)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        result.errors.append(f"Unable to inspect Git path transitions: {exc}")
+        path_statuses = []
+    task_globs = configured_task_globs(config)
+    for status, old_path, new_path in path_statuses:
+        if not status.startswith("R") or new_path is None:
+            continue
+        if not any(fnmatch.fnmatch(old_path, pattern) for pattern in task_globs):
+            continue
+        previous_content = read_head_version(root, old_path)
+        if previous_content is None:
+            continue
+        previous = task_state(old_path, previous_content)
+        if previous.state_source == "structured" and previous.status != "draft":
+            result.errors.append(
+                f"Approved Task Spec filename is immutable: {old_path} -> {new_path}"
+            )
+
+    task_paths_by_id: dict[str, list[str]] = {}
+    for state in all_task_states(root, config, scope):
+        if state.state_source == "structured" and state.task_id:
+            task_paths_by_id.setdefault(state.task_id, []).append(state.path)
+    for task_id, duplicate_paths in sorted(task_paths_by_id.items()):
+        if len(duplicate_paths) > 1:
+            result.errors.append(
+                f"Duplicate task_id {task_id} is declared by: {', '.join(sorted(duplicate_paths))}"
+            )
+
     if not changed:
         return result
 
@@ -849,6 +917,14 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
         if report_content is None:
             continue
         report = report_state(report_path, report_content)
+        if report.task_id and report.task_id != task.task_id:
+            result.errors.append(
+                f"{report_path} task_id {report.task_id} does not match {task.path} task_id {task.task_id}"
+            )
+        if report.attempt != task.attempt:
+            result.errors.append(
+                f"{report_path} attempt {report.attempt} does not match {task.path} attempt {task.attempt}"
+            )
         expected_task_status = {
             "completed": "completed",
             "done": "completed",

@@ -11,11 +11,14 @@ The JSON block is the machine-readable task lifecycle source. Keep `worker_creat
 {
   "schema_version": 1,
   "kind": "task",
-  "task_id": "NNN-short-slug",
+  "task_id": "001",
+  "parent_task_id": null,
+  "dependencies": [],
   "status": "draft",
   "work_type": "sequential",
   "batch_id": null,
-  "run_report": "reports/runs/NNN-short-slug.md",
+  "attempt": 1,
+  "run_report": "reports/runs/001-attempt-1.md",
   "worker_creation_authorized": false,
   "integration_policy": "inherited_task_approval"
 }

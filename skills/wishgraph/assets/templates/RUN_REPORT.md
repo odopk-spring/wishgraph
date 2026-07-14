@@ -17,6 +17,8 @@ The JSON block below is the machine-readable source for lifecycle state. Keep na
 {
   "schema_version": 1,
   "kind": "run",
+  "task_id": "001",
+  "attempt": 1,
   "unit": "NNN-short-slug",
   "status": "completed",
   "work_type": "sequential",
