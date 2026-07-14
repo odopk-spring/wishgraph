@@ -93,7 +93,7 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
 
 安装器会把公共运行时放进 `.wishgraph/`，并安全合并 Codex 或 Claude Code 的项目级 JSON 配置，不会替换无关的现有 hooks。
 
-运行时分成两个小层：`memory_sync.py` 负责 Git 发现、状态转换策略和宿主 Hook 响应；`workflow_state.py` 负责解析嵌入 Markdown 的版本化 JSON 生命周期状态块。项目语义真相仍保存在 Markdown 和 Git 中；Task、执行报告和集成状态块只保存机器流程事实。
+`memory_sync.py` 现在只是稳定入口，内部拆成四个明确边界：`git_state.py` 读取 Git 与仓库状态，`workflow_state.py` 解析版本化生命周期块和旧 Markdown 字段，`policy.py` 判断生命周期与收尾规则，`host_adapter.py` 处理 CLI 和宿主 Hook 输入输出。项目语义真相仍保存在 Markdown 和 Git 中；Task、执行报告和集成状态块只保存机器流程事实。
 
 建议先用 `warn`。完成一次正式任务和一次 ad-hoc 修改的正确收尾后，再把 `.wishgraph/config.json` 改成 `enforce`。
 

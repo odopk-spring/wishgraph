@@ -273,8 +273,11 @@ In a target project, the skill creates or updates:
 Optional project-local memory-sync hooks add:
 
 - `.wishgraph/config.json`: enforcement mode and managed memory paths.
-- `.wishgraph/hooks/memory_sync.py`: deterministic closeout checker shared by agent tools.
-- `.wishgraph/hooks/workflow_state.py`: typed parser for versioned workflow-state blocks embedded in Markdown.
+- `.wishgraph/hooks/memory_sync.py`: stable checker entrypoint and compatibility facade.
+- `.wishgraph/hooks/git_state.py`: Git and repository-state discovery.
+- `.wishgraph/hooks/workflow_state.py`: typed parsing for structured and legacy workflow state.
+- `.wishgraph/hooks/policy.py`: lifecycle and closeout policy evaluation.
+- `.wishgraph/hooks/host_adapter.py`: CLI and host Hook input/output.
 - `.codex/hooks.json` and/or `.claude/settings.json`: host lifecycle integration merged without replacing unrelated hooks.
 
 Install them in `warn` mode first:

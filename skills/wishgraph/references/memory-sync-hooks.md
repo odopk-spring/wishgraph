@@ -50,7 +50,10 @@ For strict `enforce` mode, add `--git-hook` so commits outside the agent and too
 ```text
 .wishgraph/config.json
 .wishgraph/hooks/memory_sync.py
+.wishgraph/hooks/git_state.py
 .wishgraph/hooks/workflow_state.py
+.wishgraph/hooks/policy.py
+.wishgraph/hooks/host_adapter.py
 .codex/hooks.json        # when Codex is selected
 .claude/settings.json    # when Claude Code is selected
 ```

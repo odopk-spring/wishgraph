@@ -85,7 +85,7 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
 
 The installer creates the common runtime under `.wishgraph/` and safely merges project-level Codex or Claude Code JSON configuration. It does not replace unrelated existing hooks.
 
-The runtime has two small layers: `memory_sync.py` handles Git discovery, transition policy, and host hook responses; `workflow_state.py` parses versioned JSON lifecycle blocks embedded in Markdown artifacts. Semantic project truth remains in Markdown and Git. Task, Run Report, and Integration blocks cover only machine workflow facts.
+`memory_sync.py` is a stable entrypoint over four explicit boundaries: `git_state.py` reads Git and repository state, `workflow_state.py` parses versioned lifecycle blocks and legacy Markdown fields, `policy.py` evaluates lifecycle and closeout rules, and `host_adapter.py` handles CLI and host Hook input/output. Semantic project truth remains in Markdown and Git. Task, Run Report, and Integration blocks cover only machine workflow facts.
 
 Start with `warn`. After one successful formal-task and ad-hoc closeout, change `.wishgraph/config.json` to `enforce`.
 

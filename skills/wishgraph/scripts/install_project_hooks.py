@@ -101,7 +101,13 @@ def install_runtime(target: Path, mode: str, force_assets: bool) -> list[Path]:
     installed: list[Path] = []
     target_hook_dir = target / ".wishgraph" / "hooks"
     target_hook_dir.mkdir(parents=True, exist_ok=True)
-    for asset_name in ("memory_sync.py", "workflow_state.py"):
+    for asset_name in (
+        "memory_sync.py",
+        "git_state.py",
+        "workflow_state.py",
+        "policy.py",
+        "host_adapter.py",
+    ):
         runtime_target = target_hook_dir / asset_name
         if runtime_target.exists() and not force_assets:
             current = runtime_target.read_bytes()
@@ -218,7 +224,7 @@ def main() -> int:
     parser.add_argument(
         "--force-assets",
         action="store_true",
-        help="Replace an existing generated memory_sync.py runtime",
+        help="Replace an existing generated WishGraph hook runtime",
     )
     parser.add_argument(
         "--git-hook",

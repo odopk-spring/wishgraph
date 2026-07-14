@@ -9,18 +9,54 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional
 
 
 SCHEMA_VERSION = 1
 SUPPORTED_KINDS = {"task", "run", "integration"}
+TASK_STATUS_ALIASES = {"pending": "draft", "done": "completed"}
+STATE_BLOCK_RE = re.compile(
+    r"<!--\s*wishgraph:state:start\s*-->(.*?)<!--\s*wishgraph:state:end\s*-->",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 @dataclass(frozen=True)
 class WorkflowBlock:
     kind: str
     data: dict[str, Any]
+
+
+@dataclass
+class ReportState:
+    path: str
+    status: str
+    work_type: str
+    batch_id: str
+    authorization: str
+    readiness: str
+    safety_errors: list[str] = field(default_factory=list)
+    state_source: str = "legacy"
+    scope_check: str = "missing"
+    conflict_status: str = "missing"
+    new_decision: str = "missing"
+    validation_results: list[str] = field(default_factory=list)
+
+
+@dataclass
+class TaskState:
+    path: str
+    task_id: str
+    status: str
+    work_type: str
+    batch_id: str
+    run_report: str
+    worker_creation_authorized: bool
+    integration_policy: str
+    errors: list[str] = field(default_factory=list)
+    state_source: str = "legacy"
 
 
 def _block_pattern(kind: str) -> re.Pattern[str]:
@@ -96,3 +132,232 @@ def string_list(value: Any) -> list[str]:
         for item in value
         if isinstance(item, str) and item.strip()
     ]
+
+
+def dynamic_state_block(content: Optional[str]) -> Optional[str]:
+    if content is None:
+        return None
+    match = STATE_BLOCK_RE.search(content)
+    return match.group(1).strip() if match else None
+
+
+def markdown_section(content: Optional[str], heading: str) -> Optional[str]:
+    if content is None:
+        return None
+    match = re.search(
+        rf"(?ims)^##\s+{re.escape(heading)}\s*$\n(.*?)(?=^##\s+|\Z)",
+        content,
+    )
+    return match.group(1).strip() if match else None
+
+
+def normalize_cell(value: str) -> str:
+    return value.strip().strip("`").strip().replace("\\", "/")
+
+
+def integrated_report_paths(content: str, run_report_glob: str) -> set[str]:
+    block, errors = parse_workflow_block(content, "integration")
+    if block is not None and not errors:
+        return set(string_list(block.data.get("reports")))
+    prefix = run_report_glob.split("*", 1)[0]
+    return {
+        normalize_cell(match)
+        for match in re.findall(
+            rf"{re.escape(prefix)}[A-Za-z0-9._/-]+\.md",
+            content,
+        )
+    }
+
+
+def parse_report_status(content: str) -> Optional[str]:
+    for kind in ("run", "integration"):
+        block, errors = parse_workflow_block(content, kind)
+        if block is not None and not errors:
+            return normalized_string(block.data.get("status"))
+    match = re.search(
+        r"(?mi)^\s*-\s*(?:Status|状态)\s*[:：]\s*([^\n]+?)\s*$",
+        content,
+    )
+    return normalize_cell(match.group(1)).lower() if match else None
+
+
+def parse_labeled_field(
+    content: str, *labels: str, lowercase: bool = True
+) -> Optional[str]:
+    label_pattern = "|".join(re.escape(label) for label in labels)
+    match = re.search(
+        rf"(?mi)^\s*(?:-\s*)?(?:{label_pattern})\s*[:：]\s*([^\n]+?)\s*$",
+        content,
+    )
+    if not match:
+        return None
+    value = normalize_cell(match.group(1))
+    return value.lower() if lowercase else value
+
+
+def validation_results(content: str) -> list[str]:
+    section = markdown_section(content, "Validation") or markdown_section(content, "验证")
+    if not section:
+        return []
+    results: list[str] = []
+    for line in section.splitlines():
+        if "|" not in line:
+            continue
+        cells = [normalize_cell(cell) for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 3:
+            continue
+        check_name, result = cells[0].lower(), cells[2].lower()
+        if check_name in {"check", "检查", "---"} or not check_name.strip("-: "):
+            continue
+        results.append(result)
+    return results
+
+
+def parse_report_state(report_path: str, content: str) -> ReportState:
+    block, block_errors = parse_workflow_block(content, "run")
+    if block is not None:
+        data = block.data
+        status = normalized_string(data.get("status"))
+        work_type = normalized_string(data.get("work_type"))
+        batch_id = normalized_string(data.get("batch_id"), "n/a")
+        readiness = normalized_string(data.get("integration_readiness"))
+        authorization = normalized_string(data.get("integration_authorization"))
+        scope_check = normalized_string(data.get("scope_check"))
+        conflict_status = normalized_string(data.get("conflict_status"))
+        new_decision = normalized_string(data.get("new_decision"))
+        results = validation_values(data.get("validation"))
+        state_source = "structured"
+    else:
+        status = parse_report_status(content) or "missing"
+        work_type = parse_labeled_field(content, "Work type", "工作类型") or "missing"
+        batch_id = parse_labeled_field(content, "Batch ID", "批次 ID") or "n/a"
+        readiness = (
+            parse_labeled_field(content, "Integration readiness", "集成就绪状态")
+            or "missing"
+        )
+        authorization = (
+            parse_labeled_field(content, "Integration authorization", "集成授权")
+            or "missing"
+        )
+        scope_check = parse_labeled_field(content, "Scope check", "范围检查") or "missing"
+        conflict_status = (
+            parse_labeled_field(content, "Conflict status", "冲突状态") or "missing"
+        )
+        new_decision = parse_labeled_field(
+            content,
+            "New product / architecture / data decision",
+            "新增产品 / 架构 / 数据决策",
+        ) or "missing"
+        results = validation_results(content)
+        state_source = "legacy"
+    errors: list[str] = list(block_errors)
+
+    return ReportState(
+        path=report_path,
+        status=status,
+        work_type=work_type,
+        batch_id=batch_id,
+        authorization=authorization,
+        readiness=readiness,
+        scope_check=scope_check,
+        conflict_status=conflict_status,
+        new_decision=new_decision,
+        validation_results=results,
+        safety_errors=errors,
+        state_source=state_source,
+    )
+
+
+def canonical_task_status(value: Any) -> str:
+    status = normalized_string(value)
+    return TASK_STATUS_ALIASES.get(status, status)
+
+
+def canonical_integration_policy(value: Any) -> str:
+    policy = normalized_string(value)
+    if policy in {
+        "inherited_task_approval",
+        "inherited task approval",
+        "task approval",
+        "approved with task",
+        "随任务批准授权",
+        "任务批准",
+    }:
+        return "inherited_task_approval"
+    if policy in {
+        "explicit_user_confirmation",
+        "explicit user confirmation",
+        "requires explicit user confirmation",
+        "user confirmed",
+        "explicitly confirmed",
+        "用户明确确认",
+        "用户已确认",
+        "需要用户明确确认",
+        "requires_explicit_user_confirmation",
+        "explicit_confirmation_required",
+    }:
+        return "requires_explicit_user_confirmation"
+    return policy
+
+
+def parse_task_state(task_path: str, content: str) -> TaskState:
+    block, block_errors = parse_workflow_block(content, "task")
+    errors = list(block_errors)
+    if block is not None:
+        data = block.data
+        task_id = str(data.get("task_id", "")).strip()
+        status = canonical_task_status(data.get("status"))
+        work_type = normalized_string(data.get("work_type"))
+        batch_id = normalized_string(data.get("batch_id"), "n/a")
+        run_report = normalize_cell(str(data.get("run_report", "")))
+        worker_authorized_value = data.get("worker_creation_authorized")
+        worker_authorized = worker_authorized_value is True
+        if not isinstance(worker_authorized_value, bool):
+            errors.append("worker_creation_authorized must be true or false")
+        integration_policy = canonical_integration_policy(data.get("integration_policy"))
+        state_source = "structured"
+    else:
+        task_id = Path(task_path).stem
+        status = canonical_task_status(
+            parse_labeled_field(content, "Status", "状态") or "draft"
+        )
+        work_type = parse_labeled_field(content, "Work type", "工作类型") or "missing"
+        batch_id = parse_labeled_field(content, "Batch ID", "批次 ID") or "n/a"
+        run_report = normalize_cell(
+            parse_labeled_field(content, "Run report", "执行报告", lowercase=False)
+            or ""
+        )
+        worker_authorized = status != "draft"
+        integration_policy = canonical_integration_policy(
+            parse_labeled_field(content, "Integration authorization", "集成授权")
+            or "missing"
+        )
+        state_source = "legacy"
+
+    return TaskState(
+        path=task_path,
+        task_id=task_id,
+        status=status,
+        work_type=work_type,
+        batch_id=batch_id,
+        run_report=run_report,
+        worker_creation_authorized=worker_authorized,
+        integration_policy=integration_policy,
+        errors=errors,
+        state_source=state_source,
+    )
+
+
+def parse_impact_rows(content: str) -> dict[str, tuple[str, str]]:
+    rows: dict[str, tuple[str, str]] = {}
+    for line in content.splitlines():
+        if "|" not in line:
+            continue
+        cells = [normalize_cell(cell) for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 3:
+            continue
+        path, status, reason = cells[0], cells[1].lower(), cells[2]
+        if path.lower() in {"file", "文件", "---"} or not path.strip("-: "):
+            continue
+        rows[path] = (status, reason)
+    return rows

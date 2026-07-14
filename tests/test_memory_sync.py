@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import os
@@ -32,6 +33,34 @@ def load_runtime_module():
 memory_sync = load_runtime_module()
 
 
+class RuntimeBoundaryTests(unittest.TestCase):
+    def test_runtime_dependencies_follow_the_four_boundaries(self) -> None:
+        local_modules = {
+            "git_state",
+            "workflow_state",
+            "policy",
+            "host_adapter",
+        }
+        expected = {
+            "git_state.py": set(),
+            "workflow_state.py": set(),
+            "policy.py": {"git_state", "workflow_state"},
+            "host_adapter.py": {"git_state", "policy", "workflow_state"},
+            "memory_sync.py": local_modules,
+        }
+
+        for filename, expected_imports in expected.items():
+            with self.subTest(runtime=filename):
+                tree = ast.parse((HOOK_ASSETS / filename).read_text(encoding="utf-8"))
+                imports: set[str] = set()
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Import):
+                        imports.update(alias.name.split(".", 1)[0] for alias in node.names)
+                    elif isinstance(node, ast.ImportFrom) and node.module:
+                        imports.add(node.module.split(".", 1)[0])
+                self.assertEqual(imports & local_modules, expected_imports)
+
+
 class MemorySyncTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -42,10 +71,17 @@ class MemorySyncTests(unittest.TestCase):
 
         (self.root / ".wishgraph" / "hooks").mkdir(parents=True)
         shutil.copy2(HOOK_ASSETS / "config.json", self.root / ".wishgraph" / "config.json")
-        shutil.copy2(
-            HOOK_ASSETS / "memory_sync.py",
-            self.root / ".wishgraph" / "hooks" / "memory_sync.py",
-        )
+        for runtime_name in (
+            "memory_sync.py",
+            "git_state.py",
+            "workflow_state.py",
+            "policy.py",
+            "host_adapter.py",
+        ):
+            shutil.copy2(
+                HOOK_ASSETS / runtime_name,
+                self.root / ".wishgraph" / "hooks" / runtime_name,
+            )
         self.write("PRD.md", "# PRD\n")
         self.write("ARCHITECTURE.md", "# Architecture\n")
         self.write("CODEMAP.md", "# Codemap\n")
@@ -1201,8 +1237,27 @@ class InstallerTests(unittest.TestCase):
             ]
             self.assertIn("echo existing", commands)
             self.assertTrue(any("memory_sync.py" in command for command in commands))
-            self.assertTrue((root / ".wishgraph" / "hooks" / "memory_sync.py").exists())
-            self.assertTrue((root / ".wishgraph" / "hooks" / "workflow_state.py").exists())
+            for runtime_name in (
+                "memory_sync.py",
+                "git_state.py",
+                "workflow_state.py",
+                "policy.py",
+                "host_adapter.py",
+            ):
+                self.assertTrue((root / ".wishgraph" / "hooks" / runtime_name).exists())
+            status = subprocess.run(
+                [
+                    sys.executable,
+                    str(root / ".wishgraph" / "hooks" / "memory_sync.py"),
+                    "status",
+                ],
+                cwd=root,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(status.returncode, 0, status.stderr)
+            self.assertEqual(json.loads(status.stdout)["kind"], "integration_status")
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["version"], 7)
@@ -1678,6 +1733,9 @@ class TemplateMirrorTests(unittest.TestCase):
             "scripts/install-wishgraph.sh",
             "skills/wishgraph/SKILL.md",
             "skills/wishgraph/assets/hooks/memory_sync.py",
+            "skills/wishgraph/assets/hooks/git_state.py",
+            "skills/wishgraph/assets/hooks/host_adapter.py",
+            "skills/wishgraph/assets/hooks/policy.py",
             "skills/wishgraph/assets/templates/INTEGRATION_AI.md",
             "skills/wishgraph/assets/templates/zh-CN/prompts/INTEGRATION_AI.md",
             "skills/wishgraph/references/memory-sync-hooks.md",
