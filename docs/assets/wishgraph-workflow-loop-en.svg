@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1000" viewBox="0 0 1800 1000" role="img" aria-labelledby="title desc">
+  <title id="title">WishGraph Workflow</title>
+  <desc id="desc">Discussion creates a task, execution produces evidence, and integration updates project state for the next discussion.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F8FAFF"/><stop offset="1" stop-color="#F5F7FB"/></linearGradient>
+    <linearGradient id="discussionBadge" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#786EF7"/><stop offset="1" stop-color="#5B5FEF"/></linearGradient>
+    <linearGradient id="executionBadge" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3B82F6"/><stop offset="1" stop-color="#2563EB"/></linearGradient>
+    <linearGradient id="updateBadge" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#34D399"/><stop offset="1" stop-color="#0FAD79"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#25304A" flood-opacity="0.10"/></filter>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#25304A" flood-opacity="0.12"/></filter>
+    <style>
+      .font { font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
+      .title { font-size: 54px; font-weight: 700; fill: #172033; }
+      .subtitle { font-size: 24px; font-weight: 400; fill: #657089; }
+      .step { font-size: 18px; font-weight: 700; fill: #FFFFFF; letter-spacing: 1.5px; }
+      .card-title { font-size: 38px; font-weight: 700; fill: #1C263B; }
+      .card-copy { font-size: 23px; font-weight: 400; fill: #68748B; }
+      .arrow-label { font-size: 20px; font-weight: 600; fill: #4D5970; }
+      .footer-label { font-size: 22px; font-weight: 600; fill: #344057; }
+      .footer-copy { font-size: 22px; font-weight: 500; fill: #657089; }
+    </style>
+  </defs>
+  <rect width="1800" height="1000" rx="36" fill="url(#background)"/>
+  <circle cx="1510" cy="80" r="250" fill="#E9ECFF" opacity="0.55"/>
+  <circle cx="1760" cy="810" r="300" fill="#E5F8F1" opacity="0.55"/>
+  <circle cx="80" cy="900" r="230" fill="#EAF2FF" opacity="0.7"/>
+  <g class="font" text-anchor="middle">
+    <text x="900" y="88" class="title">WishGraph Workflow</text>
+    <text x="900" y="132" class="subtitle">Turn rough intent into tasks and keep project state current</text>
+  </g>
+  <g fill="none" stroke="#6C7891" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M560 420 H620"/><path d="M1120 420 H1180"/><path d="M1450 570 V700 Q1450 790 1360 790 H440 Q350 790 350 700 V640"/>
+  </g>
+  <g fill="#6C7891">
+    <path d="M620 402 L650 420 L620 438 Z"/><path d="M1180 402 L1210 420 L1180 438 Z"/><path d="M332 640 L350 610 L368 640 Z"/>
+  </g>
+  <g class="font" text-anchor="middle">
+    <g filter="url(#softShadow)"><rect x="565" y="355" width="104" height="44" rx="22" fill="#FFFFFF"/><text x="617" y="385" class="arrow-label">Task</text></g>
+    <g filter="url(#softShadow)"><rect x="1131" y="355" width="104" height="44" rx="22" fill="#FFFFFF"/><text x="1183" y="385" class="arrow-label">Result</text></g>
+    <g filter="url(#softShadow)"><rect x="805" y="756" width="190" height="52" rx="26" fill="#FFFFFF"/><text x="900" y="790" class="arrow-label">Latest State</text></g>
+  </g>
+  <g filter="url(#shadow)"><rect x="120" y="230" width="440" height="340" rx="34" fill="#FFFFFF" stroke="#E4E8F1" stroke-width="2"/></g>
+  <rect x="150" y="258" width="68" height="34" rx="17" fill="url(#discussionBadge)"/><text x="184" y="282" class="font step" text-anchor="middle">01</text>
+  <circle cx="340" cy="335" r="62" fill="#EFEEFF"/>
+  <g fill="none" stroke="#625DF1" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M296 310 h72 a20 20 0 0 1 20 20 v9 a20 20 0 0 1-20 20 h-31 l-21 17 v-17 h-20 a20 20 0 0 1-20-20 v-9 a20 20 0 0 1 20-20z"/><path d="M305 333 h8 M329 333 h8 M353 333 h8"/></g>
+  <g class="font" text-anchor="middle"><text x="340" y="440" class="card-title">Discussion</text><text x="340" y="484" class="card-copy">Clarify intent</text><text x="340" y="518" class="card-copy">Confirm goals and scope</text></g>
+  <g filter="url(#shadow)"><rect x="680" y="230" width="440" height="340" rx="34" fill="#FFFFFF" stroke="#E4E8F1" stroke-width="2"/></g>
+  <rect x="710" y="258" width="68" height="34" rx="17" fill="url(#executionBadge)"/><text x="744" y="282" class="font step" text-anchor="middle">02</text>
+  <circle cx="900" cy="335" r="62" fill="#EAF3FF"/>
+  <g fill="none" stroke="#2D72E8" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><rect x="862" y="292" width="76" height="91" rx="10"/><path d="M883 292 v-10 h34 v10 M879 326 l10 10 18-20 M879 357 h40"/></g>
+  <g class="font" text-anchor="middle"><text x="900" y="440" class="card-title">Execution</text><text x="900" y="484" class="card-copy">Implement the Task</text><text x="900" y="518" class="card-copy">Validate and record evidence</text></g>
+  <g filter="url(#shadow)"><rect x="1240" y="230" width="440" height="340" rx="34" fill="#FFFFFF" stroke="#E4E8F1" stroke-width="2"/></g>
+  <rect x="1270" y="258" width="68" height="34" rx="17" fill="url(#updateBadge)"/><text x="1304" y="282" class="font step" text-anchor="middle">03</text>
+  <circle cx="1460" cy="335" r="62" fill="#E9F9F3"/>
+  <g fill="none" stroke="#14A878" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M1418 316 l42-21 42 21-42 21z M1418 336 l42 21 42-21 M1418 356 l42 21 42-21"/><path d="M1492 294 a35 35 0 0 1 8 14 M1500 308 l-2-15-14 4"/></g>
+  <g class="font" text-anchor="middle"><text x="1460" y="440" class="card-title">Update</text><text x="1460" y="484" class="card-copy">Record current state</text><text x="1460" y="518" class="card-copy">Ground the next discussion</text></g>
+  <g class="font" text-anchor="middle"><rect x="400" y="872" width="1000" height="72" rx="36" fill="#FFFFFF" stroke="#E2E7F0" stroke-width="2"/><text x="535" y="916" class="footer-label">You only need to:</text><circle cx="660" cy="908" r="5" fill="#A1AABE"/><text x="780" y="916" class="footer-copy">State the goal</text><circle cx="900" cy="908" r="5" fill="#A1AABE"/><text x="1020" y="916" class="footer-copy">Approve the Task</text><circle cx="1145" cy="908" r="5" fill="#A1AABE"/><text x="1270" y="916" class="footer-copy">Review the result</text></g>
+</svg>
