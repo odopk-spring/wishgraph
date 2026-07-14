@@ -10,7 +10,7 @@
 
 职责：
 
-- 新讨论窗口启动时，从 `prompts/DISCUSSION_AI.md` 开始。
+- 新窗口默认中立。只有用户明确说“开始讨论”“开启讨论”或同义表达后，才加载 `prompts/DISCUSSION_AI.md` 并进入讨论角色。
 - 提问前先读项目文档。
 - 在要求执行 agent 重构架构或实现功能前，先建立或更新 `PRD.md`。
 - 新项目或模糊项目先做 intake：一次问一个关键决策，每次给推荐默认值，再写实现任务。
@@ -98,7 +98,7 @@ Worker 在自己的不可变执行报告中提出共享记忆影响；集成 Age
 - 安装 hooks 后，结束或提交前运行 `python3 .wishgraph/hooks/memory_sync.py check --scope worktree`。
 - Worker 单次执行报告使用 `Integrate` 或 `N/A`；项目状态概览使用 `Updated` 或 `N/A`。
 - Ad-hoc 修改可以没有 task 文件，但必须有唯一执行报告 ID。
-- SessionStart 或恢复时，Hook 可以把最新集成结果和讨论交接作为只读上下文注入。这不是向正在运行的窗口实时推送。
+- 默认 SessionStart 只做安全检查，不自动注入讨论交接或激活角色；持续运行窗口通过“刷新项目状态”显式刷新。
 - Hooks 可以输出待集成状态、集成类型、准备／等待／阻塞报告、是否需要确认和理由；不得决定是否并行、启动 Agent、合并代码、编写语义记忆或代替人类 Review。
 
 ## 验证

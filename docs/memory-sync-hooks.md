@@ -5,7 +5,7 @@ WishGraph hooks make parallel worker closeout and single-writer integration enfo
 ## Why three events
 
 ```text
-SessionStart -> recover pending state and inject latest integrated results
+SessionStart -> run neutral safety checks without choosing a window role
 PreToolUse   -> block an unsynchronized git commit
 Stop         -> continue an agent that tries to finish before closeout
 ```
@@ -113,7 +113,7 @@ Worker reports use `Integrate` or `N/A` and do not edit shared project memory:
 
 The integration agent merges Worker commits with `--no-commit`, reads all new Run Reports, updates affected shared memory, rewrites `reports/PROJECT_STATUS.md` as the current snapshot, and then refreshes the concise dynamic handoff in `prompts/DISCUSSION_AI.md`. Project Status lists only reports absorbed by this integration and uses Updated or N/A rows.
 
-Default size controls keep the snapshot usable: Project Status is limited to 160 lines and 12,000 characters, the discussion dynamic block to 30 lines, and SessionStart injection to 2,000 characters. If either Project Status limit is exceeded, `warn` reports the need to compress without blocking, while `enforce` blocks integration completion and commit. Move historical detail to Run Reports and Git history; never remove unresolved risks, conflicts, or pending decisions just to meet the limit.
+Default size controls keep the snapshot usable: Project Status is limited to 160 lines and 12,000 characters, the discussion dynamic block to 30 lines, and optional compatibility-mode SessionStart context to 2,000 characters. If either Project Status limit is exceeded, `warn` reports the need to compress without blocking, while `enforce` blocks integration completion and commit. Move historical detail to Run Reports and Git history; never remove unresolved risks, conflicts, or pending decisions just to meet the limit.
 
 Existing `paths.dev_report` settings migrate to `paths.project_status` while preserving custom path values. An old-only `reports/DEV_REPORT.md` remains readable with a migration warning. If old and new standard files both exist, WishGraph reports an ambiguous truth source and strict mode blocks integration until the project keeps one authoritative `reports/PROJECT_STATUS.md`.
 
@@ -121,7 +121,7 @@ Task and run-report metadata distinguish `sequential`, `parallel_batch`, and `hi
 
 Worker creation always requires an explicit human command. The discussion Agent may then create user-visible Worker tasks through a supported host capability; Hooks never do so. Hidden subagents are not Worker windows, and manual copying is the fallback when visible task creation is unavailable. Integration is a temporary event role: use an authorized background task or independent thread when the platform supports it; otherwise explicitly switch the current main agent or give one user-launch command. Never claim unsupported background execution.
 
-On the next supported session start or resume, hooks inject a concise `Latest Integrated Results` excerpt and discussion handoff into agent context. A discussion AI can then present the result automatically. This is not a live push into a window that remains continuously active; that case needs an explicit refresh.
+New sessions are neutral. With the default `session_start_context_mode: safety_only`, hooks emit context only when they find safety or synchronization issues; they do not load the discussion prompt or activate a role. Say `Start discussion` to load Discussion state in the current visible window, or `Refresh WishGraph project state and present the latest integrated results` to refresh an active discussion. Existing installations that explicitly retain `discussion_summary` compatibility mode can still receive the old concise injection.
 
 In a continuously running discussion window, say: `Refresh WishGraph project state and present the latest integrated results.`
 
@@ -135,7 +135,7 @@ python3 .wishgraph/hooks/memory_sync.py check --scope staged
 python3 .wishgraph/hooks/memory_sync.py status
 ```
 
-The status command emits machine-readable pending integration, integration kind, ready reports, waiting reports, blocked reports, confirmation requirement, and reason. It scans immutable reports on visible Git refs without writing a shared queue file. SessionStart may inject this status so discussion AI can guide the user.
+The status command emits machine-readable pending integration, integration kind, ready reports, waiting reports, blocked reports, confirmation requirement, and reason. It scans immutable reports on visible Git refs without writing a shared queue file. Discussion entry and explicit refresh read this status; SessionStart only includes it in opt-in compatibility mode.
 
 For strict `enforce` mode, add `--git-hook` so commits made outside an agent and tool paths that lifecycle hooks cannot intercept are also checked. The installer refuses to overwrite an existing Git pre-commit hook and prints chaining guidance instead.
 

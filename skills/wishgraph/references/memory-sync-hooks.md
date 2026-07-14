@@ -8,7 +8,7 @@ Hooks enforce worker and integration boundaries and expose read-only integration
 
 The project-local hook runtime uses three events:
 
-1. `SessionStart`: warn about pending changes and inject a concise latest-integration summary plus discussion handoff into new or resumed sessions.
+1. `SessionStart`: run neutral safety checks. The default `safety_only` mode warns about pending or invalid state without activating Discussion or injecting its full context.
 2. `PreToolUse`: inspect staged changes before an agent runs `git commit` and deny the commit when closeout is incomplete.
 3. `Stop`: inspect the worktree before the agent finishes and continue the agent when closeout is incomplete.
 
@@ -120,11 +120,11 @@ It scans task specs, the current target branch, and immutable run reports visibl
 }
 ```
 
-SessionStart may inject the same status. Discussion AI combines it with platform thread status when available, presents completed, waiting, and blocked workers, and recommends the next action. The status is evidence, not a semantic review or an instruction to merge.
+Explicit Discussion entry or project-state refresh reads the same status. Optional `discussion_summary` compatibility mode may also inject it at SessionStart. Discussion AI combines it with platform thread status when available, presents completed, waiting, and blocked workers, and recommends the next action. The status is evidence, not a semantic review or an instruction to merge.
 
 Treat integration as an event-triggered temporary agent. If the platform exposes an authorized background-task or independent-thread capability, discussion AI may launch it after the applicable authority exists and must report Waiting, Running, Blocked, or Completed before it ends. If unsupported, switch the current main agent explicitly or give one user-launch command. Never claim background work that the platform cannot perform.
 
-SessionStart context injection presents results automatically on supported start, resume, clear, or compact events. It is not a real-time push into a discussion window that remains continuously active; use an explicit refresh in that case.
+New windows remain neutral until the user explicitly says "Start discussion" or an equivalent phrase. Use explicit refresh in a continuously active discussion. Do not rely on SessionStart to select or activate a role.
 
 Run the checker directly when debugging:
 

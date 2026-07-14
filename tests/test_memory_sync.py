@@ -117,6 +117,12 @@ class MemorySyncTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
 
+    def update_config(self, **values: object) -> None:
+        path = self.root / ".wishgraph" / "config.json"
+        config = json.loads(path.read_text(encoding="utf-8"))
+        config.update(values)
+        path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+
     def impact_table(
         self,
         defaults: tuple[str, str],
@@ -892,7 +898,20 @@ class MemorySyncTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertTrue(any("immutable" in error for error in result.errors))
 
-    def test_session_start_injects_integrated_results_and_handoff(self) -> None:
+    def test_clean_session_start_is_neutral_by_default(self) -> None:
+        process = subprocess.run(
+            [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "session-start"],
+            cwd=self.root,
+            input=json.dumps({"cwd": str(self.root)}),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        self.assertEqual(json.loads(process.stdout), {})
+
+    def test_session_start_can_opt_in_to_discussion_summary(self) -> None:
+        self.update_config(session_start_context_mode="discussion_summary")
         process = subprocess.run(
             [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "session-start"],
             cwd=self.root,
@@ -927,8 +946,30 @@ class MemorySyncTests(unittest.TestCase):
             check=True,
         )
         context = json.loads(process.stdout)["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("reports/DEV_REPORT.md uses the retired status-file name", context)
-        self.assertIn("latest worker results integrated", context)
+        self.assertIn("Legacy status file reports/DEV_REPORT.md is still in use", context)
+        self.assertNotIn("latest worker results integrated", context)
+        self.assertIn("开始讨论", context)
+
+    def test_legacy_session_start_boolean_maps_to_explicit_modes(self) -> None:
+        path = self.root / ".wishgraph" / "config.json"
+        config = json.loads(path.read_text(encoding="utf-8"))
+        config.pop("session_start_context_mode")
+        config["inject_project_summary_on_session_start"] = True
+        path.write_text(json.dumps(config), encoding="utf-8")
+        loaded = memory_sync.load_config(self.root)
+        assert loaded is not None
+        self.assertEqual(loaded["session_start_context_mode"], "discussion_summary")
+
+        config["inject_project_summary_on_session_start"] = False
+        path.write_text(json.dumps(config), encoding="utf-8")
+        loaded = memory_sync.load_config(self.root)
+        assert loaded is not None
+        self.assertEqual(loaded["session_start_context_mode"], "safety_only")
+
+    def test_invalid_session_start_context_mode_is_rejected(self) -> None:
+        self.update_config(session_start_context_mode="surprise")
+        with self.assertRaisesRegex(ValueError, "session_start_context_mode"):
+            memory_sync.load_config(self.root)
 
     def test_both_project_status_files_create_source_conflict(self) -> None:
         old_content = (self.root / "reports" / "PROJECT_STATUS.md").read_text(
@@ -1129,6 +1170,7 @@ class MemorySyncTests(unittest.TestCase):
     def test_session_start_injects_pending_integration_status(self) -> None:
         self.write("src/app.py", "print('pending')\n")
         self.write("reports/runs/012-pending.md", self.run_report("012-pending"))
+        self.update_config(session_start_context_mode="discussion_summary")
         process = subprocess.run(
             [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "session-start"],
             cwd=self.root,
@@ -1260,7 +1302,8 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(json.loads(status.stdout)["kind"], "integration_status")
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
-            self.assertEqual(config["version"], 7)
+            self.assertEqual(config["version"], 8)
+            self.assertEqual(config["session_start_context_mode"], "safety_only")
             self.assertEqual(config["paths"]["run_report_glob"], "reports/runs/*.md")
             self.assertEqual(
                 config["paths"]["project_status"], "reports/PROJECT_STATUS.md"
@@ -1336,7 +1379,8 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertEqual(process.returncode, 0, process.stderr)
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
-            self.assertEqual(config["version"], 7)
+            self.assertEqual(config["version"], 8)
+            self.assertEqual(config["session_start_context_mode"], "safety_only")
             self.assertEqual(config["session_summary_max_chars"], 1234)
             self.assertTrue(config["scan_worker_refs_for_status"])
             self.assertEqual(config["paths"]["task_glob"], ".tasks/build/*.md")

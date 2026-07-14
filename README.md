@@ -10,7 +10,7 @@ Wish -> Spec Graph -> Task Graph -> Code Change -> Probe -> Report -> Human Revi
 
 The core move is simple: stop depending on chat memory for complex work. Put the project state in durable files that any future agent can read, audit, and continue.
 
-The normal user experience is one foreground discussion AI, human-authorized user-visible Worker tasks created and configured by that Agent, and an event-triggered temporary integration agent. Discussion AI recommends discussion, sequential, parallel_batch, or high_risk work; the user confirms the execution shape and explicitly authorizes Worker creation. Hooks expose state and enforce boundaries but do not choose parallelism, launch workers, merge code, write semantic memory, or replace human review.
+The normal user experience exposes only a Discussion window and user-visible Execution windows. A new window stays neutral until the user says "开始讨论" / "Start discussion" or explicitly asks to execute a task. Integration is an event-triggered control transaction behind those windows. Hooks expose state and enforce boundaries but do not activate roles, choose parallelism, launch workers, merge code, write semantic memory, or replace human review.
 
 ## Install For Your Agent
 

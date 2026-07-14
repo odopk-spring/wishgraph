@@ -152,6 +152,8 @@ The read-only command `python3 .wishgraph/hooks/memory_sync.py status` joins Tas
 
 ### Discussion AI Window
 
+Open any normal window and say `开始讨论` / `Start discussion`. WishGraph then reads the discussion prompt and current project status in that visible window. New windows remain neutral by default; SessionStart only surfaces safety problems and does not silently choose a role. Say `刷新项目状态` / `Refresh project state` to reload current state without opening another window.
+
 Use it to:
 
 - Discuss user intent.

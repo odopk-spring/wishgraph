@@ -125,6 +125,13 @@ def install_runtime(target: Path, mode: str, force_assets: bool) -> list[Path]:
     config_target = target / ".wishgraph" / "config.json"
     default_config = read_json(ASSET_ROOT / "config.json")
     existing_config = read_json(config_target) if config_target.exists() else {}
+    if "session_start_context_mode" not in existing_config:
+        legacy_injection = existing_config.get("inject_project_summary_on_session_start")
+        if isinstance(legacy_injection, bool):
+            existing_config = dict(existing_config)
+            existing_config["session_start_context_mode"] = (
+                "discussion_summary" if legacy_injection else "safety_only"
+            )
     existing_paths = existing_config.get("paths")
     if isinstance(existing_paths, dict) and "dev_report" in existing_paths:
         migrated_paths = dict(existing_paths)

@@ -98,7 +98,7 @@ Worker agents propose shared-memory impact in their own immutable run report. In
 - Before completion or commit, run `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` when hooks are installed.
 - Worker run reports use `Integrate` or `N/A`. Project Status snapshots use `Updated` or `N/A`.
 - Ad-hoc work does not require a task file, but it needs a unique run-report ID.
-- On session start or resume, hooks may inject the latest integrated results and discussion handoff as read-only context. This is not a live push to an already-running window.
+- New windows are neutral. By default SessionStart performs safety checks only; enter Discussion only after the user explicitly says "Start discussion" or equivalent. Refresh is explicit in an already-running window.
 - Hooks may expose pending integration, integration kind, ready, waiting, and blocked reports, confirmation requirement, and a reason. They do not choose parallelism, start agents, merge code, write semantic memory, or replace human review.
 
 ## Validation

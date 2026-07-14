@@ -11,6 +11,15 @@ Use this skill to turn a repository into a WishGraph: a file-backed system where
 
 WishGraph is not autonomous magic. It is a governance layer that makes AI collaboration legible: what the user wants, what the agent plans to change, why those files are in scope, how the work will be verified, and what state future agents must read before continuing.
 
+## Explicit Window Roles
+
+Treat every newly opened window as neutral until the user names its role. `SessionStart` performs safety checks only by default and must not silently activate Discussion AI or inject the full discussion prompt.
+
+- When the user says "开始讨论", "开启讨论", "继续讨论", "start discussion", or an equivalent phrase, enter Discussion mode in that same visible window. Read `prompts/DISCUSSION_AI.md`, `reports/PROJECT_STATUS.md`, and the read-only WishGraph status before responding with the current focus and recommended next action.
+- When the user says "刷新项目状态", "刷新 WishGraph 项目状态", "refresh project state", or equivalent, refresh those sources without requiring a new window.
+- Do not treat unrelated natural-language conversation as permission to activate a role.
+- Hosts that cannot route these phrases automatically should execute the same read sequence in the current visible window. Hooks only check and expose state; they never start hidden agents.
+
 ## Natural-Language Installation
 
 When the user asks to install, configure, enable, or set up WishGraph, read `references/installation.md` and translate their words into one of these outcomes:

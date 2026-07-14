@@ -23,7 +23,7 @@ from workflow_state import dynamic_state_block, markdown_section
 
 
 def project_session_context(root: Path, config: dict[str, Any]) -> Optional[str]:
-    if not config.get("inject_project_summary_on_session_start", True):
+    if config.get("session_start_context_mode", "safety_only") != "discussion_summary":
         return None
     paths = config["paths"]
     status_path = resolve_project_status_path(root, config)
@@ -105,6 +105,22 @@ def format_warnings(result: CheckResult) -> str:
     return "WishGraph status warnings:\n" + "\n".join(
         f"- {warning}" for warning in result.warnings
     )
+
+
+def format_session_safety(result: CheckResult) -> str:
+    """Return concise safety-only SessionStart context without role activation."""
+    issues = [*result.errors, *result.warnings]
+    if not issues:
+        return ""
+    lines = ["WishGraph safety check found project-state issues:"]
+    lines.extend(f"- {issue}" for issue in issues[:8])
+    if len(issues) > 8:
+        lines.append(f"- ... and {len(issues) - 8} more")
+    lines.append(
+        "Resolve these issues before claiming completion. Say '开始讨论' or "
+        "'Start discussion' when you want WishGraph to load discussion context."
+    )
+    return "\n".join(lines)
 
 
 def read_hook_input() -> dict[str, Any]:
@@ -229,12 +245,13 @@ def hook_main(event: str) -> int:
     if result.ok:
         warning_text = format_warnings(result) if result.warnings else None
         if event == "session-start" and (session_context or warning_text):
+            session_warning = format_session_safety(result) if result.warnings else None
             emit(
                 {
                     "hookSpecificOutput": {
                         "hookEventName": "SessionStart",
                         "additionalContext": "\n\n".join(
-                            part for part in (session_context, warning_text) if part
+                            part for part in (session_context, session_warning) if part
                         ),
                     }
                 }
@@ -253,10 +270,7 @@ def hook_main(event: str) -> int:
         context_parts = []
         if session_context:
             context_parts.append(session_context)
-        context_parts.append(
-            "WishGraph found pending or unsynchronized project changes from a prior "
-            f"session. Resolve them before claiming new work complete.\n\n{reason}"
-        )
+        context_parts.append(format_session_safety(result))
         emit(
             {
                 "hookSpecificOutput": {

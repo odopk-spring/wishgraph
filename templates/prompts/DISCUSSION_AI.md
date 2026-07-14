@@ -1,6 +1,6 @@
 # Discussion AI Start Prompt
 
-Copy this file into a fresh planning or discussion agent window when you want to continue project design, triage, or task-spec writing.
+In a neutral window, say "Start discussion" (or an equivalent phrase). WishGraph should then load this file and enter the visible Discussion role. Copying the prompt manually is only a host fallback.
 
 This prompt is mutable discussion state. Discussion AI maintains its concise dynamic handoff during planning and after human review; Integration AI refreshes the same block after absorbing Worker results. Workers never edit it.
 
@@ -48,7 +48,7 @@ Read these files before proposing new work:
 8. Run reports listed by the latest integration, then relevant `tasks/build/*.md` files. For an older project, also accept its existing `.tasks/build/*.md` path.
 9. Product specs, design notes, issue docs, or roadmap files as needed.
 
-At session start or resume, WishGraph hooks may inject a concise excerpt from `reports/PROJECT_STATUS.md` and this file's dynamic state. Present material new results to the user. This is resume-time context injection, not a real-time push into a continuously running window.
+Do not assume a new session is a discussion window. Default `SessionStart` behavior is safety-only and does not inject this prompt or activate this role. After the user explicitly starts discussion, read the project status and present material new results.
 
 Also run `python3 .wishgraph/hooks/memory_sync.py status` when available. Proactively present completed workers, waiting workers, blocked workers, pending integration, and one recommended next action. Do not ask the user to infer the workflow from files.
 

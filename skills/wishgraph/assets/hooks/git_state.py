@@ -10,7 +10,7 @@ from typing import Any, Optional
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "version": 7,
+    "version": 8,
     "mode": "enforce",
     "paths": {
         "prd": "PRD.md",
@@ -47,7 +47,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "allow_noop_with_reason": True,
     "require_discussion_update_for_substantive_changes": True,
     "scan_worker_refs_for_status": True,
-    "inject_project_summary_on_session_start": True,
+    "session_start_context_mode": "safety_only",
     "project_status_max_lines": 160,
     "project_status_max_chars": 12000,
     "discussion_dynamic_max_lines": 30,
@@ -95,6 +95,13 @@ def load_config(root: Path) -> Optional[dict[str, Any]]:
         raise ValueError(f"Cannot read {path.relative_to(root)}: {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError(".wishgraph/config.json must contain a JSON object")
+    if "session_start_context_mode" not in data:
+        legacy_injection = data.get("inject_project_summary_on_session_start")
+        if isinstance(legacy_injection, bool):
+            data = dict(data)
+            data["session_start_context_mode"] = (
+                "discussion_summary" if legacy_injection else "safety_only"
+            )
     configured_paths = data.get("paths")
     if isinstance(configured_paths, dict):
         legacy_path = configured_paths.get("dev_report")
@@ -103,7 +110,13 @@ def load_config(root: Path) -> Optional[dict[str, Any]]:
             configured_paths["project_status"] = legacy_path
             data = dict(data)
             data["paths"] = configured_paths
-    return deep_merge(DEFAULT_CONFIG, data)
+    config = deep_merge(DEFAULT_CONFIG, data)
+    context_mode = config.get("session_start_context_mode")
+    if context_mode not in {"safety_only", "discussion_summary", "off"}:
+        raise ValueError(
+            "session_start_context_mode must be safety_only, discussion_summary, or off"
+        )
+    return config
 
 
 def configured_task_globs(config: dict[str, Any]) -> list[str]:

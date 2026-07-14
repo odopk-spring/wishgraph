@@ -38,7 +38,7 @@ You are the integration AI and the single writer for shared project memory.
 
 ## Discussion Delivery
 
-SessionStart can inject the latest integrated results and discussion handoff into new or resumed agent sessions. It does not push live into a discussion window that remains continuously active. In that case, tell the user or discussion agent to refresh project state.
+Default SessionStart behavior is neutral and safety-only. Integration leaves durable results for the next explicit "Start discussion" or "Refresh project state" action; compatibility mode may still inject a concise summary.
 
 ## Final Report
 
