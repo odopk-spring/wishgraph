@@ -138,9 +138,9 @@ case "$target" in
     ;;
 esac
 
-echo "WishGraph install estimate: about 0.2 MB on disk and usually under 1 minute."
+echo "WishGraph install estimate: about 0.5 MB on disk and usually under 1 minute."
 if [[ "$setup_project" -eq 1 ]]; then
-  echo "Project hooks add less than 0.1 MB and usually take under 10 seconds."
+  echo "Project hooks add about 0.3 MB and usually take under 10 seconds."
 fi
 echo "Installation stage 1: checking prerequisites."
 
@@ -262,12 +262,8 @@ if [[ "$setup_project" -eq 1 ]]; then
   fi
   "$@"
 
-  echo "WishGraph project setup complete for $project_dir"
+  echo "WishGraph project hook setup complete for $project_dir"
   if [[ "$hook_mode" == "warn" ]]; then
     echo "Memory sync starts in warn mode. Use --strict after one successful closeout."
-  fi
-  if [[ ! -f "$project_dir/reports/PROJECT_STATUS.md" && ! -f "$project_dir/reports/DEV_REPORT.md" ]] || \
-    [[ ! -f "$project_dir/prompts/DISCUSSION_AI.md" ]]; then
-    echo 'Next: ask your agent, "Use $wishgraph to set up this project." Hooks remain non-blocking until the project memory files are ready.'
   fi
 fi

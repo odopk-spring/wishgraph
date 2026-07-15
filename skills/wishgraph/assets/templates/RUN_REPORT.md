@@ -12,7 +12,7 @@ Create one new file from this template for each worker execution. Use `reports/r
 
 The JSON block below is the machine-readable source for lifecycle state. Keep narrative evidence in the sections that follow. Use `null` for a sequential Batch ID.
 
-Use `change_class: micro` only for an independent ad-hoc unit with no API, schema, persistence, security, permission, billing, deletion, migration, dependency, or cross-module-contract impact. List every changed path. Competitive candidates record their objective score only when the Task defines a complete scorecard; set `selection_requires_judgment: true` for preferences or close tradeoffs.
+`change_class: micro` is compatibility-only for legacy reports; do not create new ad-hoc micro work. New corrections use a Task Revision and new feature work uses a formal Task. Competitive candidates record their objective score only when the Task defines a complete scorecard; set `selection_requires_judgment: true` for preferences or close tradeoffs.
 
 For a Task Revision, set `change_class: revision`, keep `task_id` as the parent Task, set the exact `revision_id`, and list every changed path. All explicit risk flags must remain false; otherwise stop and request a formal follow-up Task.
 

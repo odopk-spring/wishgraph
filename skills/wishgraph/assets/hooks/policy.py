@@ -21,6 +21,7 @@ from git_state import (
     read_head_version,
     read_version,
     report_contents_across_refs,
+    report_contents_for_paths_across_refs,
     report_paths_in_ref,
     resolve_project_status_path,
     standard_project_status_conflict,
@@ -36,6 +37,7 @@ from workflow_state import (
     TaskState,
     UserEvent,
     canonical_revision_id,
+    canonical_task_id,
     dynamic_state_block,
     integrated_report_paths,
     markdown_section,
@@ -374,7 +376,13 @@ def reduce_orchestration(
                 task_id=parent_task_id,
                 denial_reason="revision_id_is_invalid",
             )
+        run_report = str(
+            data.get("run_report")
+            or f"reports/runs/{revision_id}-attempt-1.md"
+        )
         payload["revision_id"] = revision_id
+        payload["run_report"] = run_report
+        payload["worker_creation_authorized"] = True
         revision_patch = {
             "revision": {
                 "revision_id": revision_id,
@@ -383,10 +391,12 @@ def reduce_orchestration(
                 "user_request": request,
                 "allowed_scope": allowed_scope,
                 "validation_plan": validation_plan,
+                "run_report": run_report,
+                "worker_creation_authorized": True,
             }
         }
         reusable_previous = (
-            runtime.previous_task_id in {"", parent_task_id}
+            runtime.previous_task_id == parent_task_id
             and runtime.worker_availability in {"idle", "available"}
             and runtime.binding_status in {"released", "unbound", "idle"}
         )
@@ -604,8 +614,8 @@ def reduce_orchestration(
             requested_paths = [
                 str(path) for path in data.get("requested_paths", ()) if path
             ]
-            if worker_authorized and runtime.allowed_scope and requested_paths:
-                allowed = all(
+            if worker_authorized and runtime.allowed_scope:
+                allowed = bool(requested_paths) and all(
                     any(fnmatch.fnmatch(path, pattern) for pattern in runtime.allowed_scope)
                     for path in requested_paths
                 )
@@ -1070,6 +1080,8 @@ class CheckResult:
 
 @dataclass
 class IntegrationState:
+    view: str = "full"
+    task_filter: Optional[str] = None
     pending_integration: bool = False
     integration_kind: str = "none"
     ready_reports: list[str] = field(default_factory=list)
@@ -1087,6 +1099,8 @@ class IntegrationState:
         return {
             "schema_version": WORKFLOW_STATE_SCHEMA_VERSION,
             "kind": "integration_status",
+            "view": self.view,
+            "task_filter": self.task_filter,
             "pending_integration": self.pending_integration,
             "integration_kind": self.integration_kind,
             "ready_reports": self.ready_reports,
@@ -1338,10 +1352,73 @@ def execution_preflight(
     return state, errors
 
 
-def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
-    reports = report_contents_across_refs(root, config)
+def integration_state(
+    root: Path,
+    config: dict[str, Any],
+    *,
+    view: str = "full",
+    task_id: Optional[str] = None,
+) -> IntegrationState:
+    """Build integration state without scanning report history for normal views."""
+    if view not in {"active", "full"}:
+        raise ValueError("view must be active or full")
+    task_filter = canonical_task_id(task_id) if task_id else None
+    if task_id and not task_filter:
+        raise ValueError("task_id must match ^\\d{3,}[a-z]*$")
+
+    all_tasks = all_task_states(root, config)
+    all_revisions = all_revision_states(root, config)
+    if task_filter:
+        selected_tasks = [task for task in all_tasks if task.task_id == task_filter]
+        selected_revisions = [
+            revision
+            for revision in all_revisions
+            if revision.parent_task_id == task_filter
+        ]
+    elif view == "active":
+        selected_tasks = [
+            task
+            for task in all_tasks
+            if task.status
+            in {"approved", "running", "completed", "blocked", "incomplete"}
+            or (task.state_source == "legacy" and task.status == "draft")
+        ]
+        selected_revisions = [
+            revision
+            for revision in all_revisions
+            if revision.status in {"pending", "running", "completed", "blocked"}
+        ]
+    else:
+        selected_tasks = all_tasks
+        selected_revisions = all_revisions
+
+    tasks = {task.run_report: task for task in selected_tasks if task.run_report}
+    revisions = {
+        revision.run_report: revision
+        for revision in selected_revisions
+        if revision.run_report
+    }
+    candidate_reports = set(tasks) | set(revisions)
+    if view == "active" and task_filter is None:
+        report_glob = config["paths"]["run_report_glob"]
+        candidate_reports.update(
+            path
+            for path in changed_paths(root, "worktree")
+            if fnmatch.fnmatch(path, report_glob)
+        )
+    reports = (
+        report_contents_across_refs(root, config)
+        if view == "full" and task_filter is None
+        else report_contents_for_paths_across_refs(root, config, candidate_reports)
+    )
     prefix = config["paths"]["run_report_glob"].split("*", 1)[0].rstrip("/")
-    settled = report_paths_in_ref(root, "HEAD", prefix)
+    settled = (
+        report_paths_in_ref(root, "HEAD", prefix)
+        if view == "full" and task_filter is None
+        else {
+            path for path in candidate_reports if read_head_version(root, path) is not None
+        }
+    )
     overview_path = resolve_project_status_path(root, config)
     overview = read_version(root, overview_path, "worktree") or ""
     settled |= integrated_report_paths(overview, config["paths"]["run_report_glob"])
@@ -1361,8 +1438,6 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
         for state in pending_states
         if state.status not in {"completed", "done"} or state.safety_errors
     )
-    tasks = task_report_states(root, config)
-    revisions = revision_report_states(root, config)
     waiting = sorted(
         path
         for path, task in tasks.items()
@@ -1406,7 +1481,7 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
     pending = bool(ready or blocked)
     pending_by_path = {state.path: state for state in pending_states}
     task_by_report = tasks
-    task_status_by_id = {task.task_id: task.status for task in tasks.values() if task.task_id}
+    task_status_by_id = {task.task_id: task.status for task in all_tasks if task.task_id}
 
     def dependencies_satisfied(task: TaskState) -> bool:
         return all(
@@ -1582,13 +1657,14 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
                         "worktree": claim.get("worktree"),
                         "updated_at": claim.get("updated_at"),
                         "execution_mode": claim.get("execution_mode"),
+                        "agent_platform": claim.get("agent_platform", "unknown"),
                     }
                     for claim in active_claims
                 ],
             }
         )
 
-    for revision in all_revision_states(root, config):
+    for revision in selected_revisions:
         active_claims = [
             claim
             for claim in inspect_claims(root, revision.parent_task_id)
@@ -1633,6 +1709,7 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
                         "branch": claim.get("branch"),
                         "worktree": claim.get("worktree"),
                         "updated_at": claim.get("updated_at"),
+                        "agent_platform": claim.get("agent_platform", "unknown"),
                     }
                     for claim in active_claims
                 ],
@@ -1640,6 +1717,8 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
         )
 
     return IntegrationState(
+        view=view,
+        task_filter=task_filter,
         pending_integration=pending,
         integration_kind=kind,
         ready_reports=ready,
@@ -1789,10 +1868,16 @@ def validate_integration_overview(
     validate_single_current_snapshot(overview_path, overview, result)
 
     report_states: list[ReportState] = []
+    required_report_integrations: set[str] = set()
     for report_path in run_reports:
         report_content = read_version(root, report_path, scope)
         if report_content is not None:
             report_states.append(report_state(report_path, report_content))
+            required_report_integrations.update(
+                memory_path
+                for memory_path, (status, _) in parse_impact_rows(report_content).items()
+                if status in INTEGRATE_STATUSES
+            )
     integration_kind = parse_labeled_field(
         overview, "Integration kind", "集成类型"
     )
@@ -1878,6 +1963,11 @@ def validate_integration_overview(
             result.errors.append(f"{overview_path} is missing an impact row for {memory_path}")
             continue
         status, reason = row
+        if memory_path in required_report_integrations and status not in UPDATED_STATUSES:
+            result.errors.append(
+                f"{overview_path} must mark {memory_path} Updated because a selected "
+                "Run Report marked it Integrate"
+            )
         if status in UPDATED_STATUSES:
             if memory_path not in changed:
                 result.errors.append(

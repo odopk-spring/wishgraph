@@ -70,9 +70,9 @@ function Write-PythonHelp {
     [Console]::Error.WriteLine("Official guide: https://docs.python.org/3/using/windows.html")
 }
 
-Write-Host "WishGraph install estimate: about 0.2 MB on disk and usually under 1 minute."
+Write-Host "WishGraph install estimate: about 0.5 MB on disk and usually under 1 minute."
 if ($SetupProject) {
-    Write-Host "Project hooks add less than 0.1 MB and usually take under 10 seconds."
+    Write-Host "Project hooks add about 0.3 MB and usually under 10 seconds."
 }
 Write-Host "Installation stage 1: checking prerequisites."
 
@@ -188,13 +188,8 @@ if ($SetupProject) {
     & $pythonExecutable @installerArguments
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    Write-Host "WishGraph project setup complete for $Project"
+    Write-Host "WishGraph project hook setup complete for $Project"
     if (-not $Strict) {
         Write-Host "Memory sync starts in warn mode. Ask your agent for strict mode after one successful closeout."
-    }
-    if ((-not (Test-Path -LiteralPath (Join-Path $Project "reports/PROJECT_STATUS.md")) -and
-        -not (Test-Path -LiteralPath (Join-Path $Project "reports/DEV_REPORT.md"))) -or
-        -not (Test-Path -LiteralPath (Join-Path $Project "prompts/DISCUSSION_AI.md"))) {
-        Write-Host 'Next: ask your agent, "Use $wishgraph to set up this project." Hooks remain non-blocking until the project memory files are ready.'
     }
 }

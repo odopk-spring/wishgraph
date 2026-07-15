@@ -12,7 +12,7 @@
 
 下面的 JSON 块是生命周期状态的机器可读真相源；叙述性证据继续写在后续章节中。串行任务的 `batch_id` 使用 `null`。
 
-只有独立 ad-hoc 单元且不涉及 API、schema、持久化、安全、权限、计费、删除、迁移、依赖或跨模块契约时，才使用 `change_class: micro`，并列出全部 changed paths。只有 Task 定义了完整客观评分表时，竞争候选才填写分数；涉及偏好或接近的取舍时设 `selection_requires_judgment: true`。
+`change_class: micro` 只用于读取旧报告，不再创建新的 ad-hoc micro 工作。新的局部修正使用 Task Revision，新功能使用正式 Task。只有 Task 定义了完整客观评分表时，竞争候选才填写分数；涉及偏好或接近的取舍时设 `selection_requires_judgment: true`。
 
 执行 Task Revision 时使用 `change_class: revision`，`task_id` 保持为原 Task，填写精确 `revision_id` 并列出全部 changed paths。所有显式风险字段必须为 false；否则停止并请求正式后续 Task。
 

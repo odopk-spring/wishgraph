@@ -8,6 +8,7 @@ import fnmatch
 import json
 import os
 import re
+import shlex
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,12 +53,14 @@ from workflow_state import (
     canonical_revision_id,
     competitive_candidate_ids,
     dynamic_state_block,
+    is_contextual_approval,
     markdown_section,
     parse_task_command,
     parse_task_state,
     parse_revision_state,
     flow_plan_to_dict,
     orchestration_state_from_dict,
+    parse_user_prompt,
     revision_id_parts,
     task_id_parts,
 )
@@ -207,7 +210,7 @@ def project_session_context(root: Path, config: dict[str, Any]) -> Optional[str]
     )
     state = dynamic_state_block(discussion)
     sections: list[str] = []
-    integration = integration_state(root, config).as_dict()
+    integration = integration_state(root, config, view="active").as_dict()
     if status_path == LEGACY_PROJECT_STATUS_PATH:
         sections.append(
             "Migration reminder: reports/DEV_REPORT.md uses the retired status-file name. "
@@ -262,7 +265,7 @@ def format_failure(result: CheckResult, scope: str) -> str:
             "Integration: merge with --no-commit, rewrite reports/PROJECT_STATUS.md and",
             "prompts/DISCUSSION_AI.md, record integration kind and authorization, then",
             "record Updated or N/A for shared memory. Parallel/high-risk work needs user confirmation.",
-            "Ad-hoc work does not require a task file, but still needs a unique run report.",
+            "Legacy ad-hoc reports remain readable; new work requires a Task or Revision.",
         ]
     )
     return "\n".join(lines)
@@ -325,7 +328,11 @@ def commit_uses_implicit_staging(command: str) -> bool:
 
 BUILD_COMMAND_RE = re.compile(
     r"(?is)(?:^|[;&|]\s*)(?:python\d*\s+-m\s+(?:pytest|unittest)|pytest|"
+    r"(?:uv|poetry)\s+run\s+pytest|tox|"
     r"xcodebuild|cargo\s+(?:test|build|check)|go\s+test|"
+    r"swift\s+(?:test|build)|dotnet\s+(?:test|build)|cmake\s+--build|"
+    r"ninja|bazel\s+(?:test|build)|meson\s+(?:compile|test)|"
+    r"bun\s+(?:test|run\s+build)|"
     r"(?:npm|pnpm|yarn)\s+(?:test|run\s+build|build)|"
     r"(?:gradle|gradlew|mvn|make)\b)"
 )
@@ -353,11 +360,23 @@ def hook_session_id(payload: dict[str, Any]) -> str:
 
 def _tool_paths(tool_input: dict[str, Any]) -> list[str]:
     paths: list[str] = []
-    for key in ("file_path", "path"):
+    for key in (
+        "file_path",
+        "filePath",
+        "path",
+        "target_path",
+        "targetPath",
+        "old_path",
+        "new_path",
+    ):
         value = tool_input.get(key)
         if isinstance(value, str) and value.strip():
             paths.append(value.strip().replace("\\", "/"))
-    patch = tool_input.get("patch") or tool_input.get("input")
+    patch = (
+        tool_input.get("patch")
+        or tool_input.get("input")
+        or tool_input.get("command")
+    )
     if isinstance(patch, str):
         paths.extend(
             match.replace("\\", "/")
@@ -370,12 +389,11 @@ def _tool_paths(tool_input: dict[str, Any]) -> list[str]:
 
 def _relative_tool_path(root: Path, value: str) -> str:
     path = Path(value)
-    if path.is_absolute():
-        try:
-            return path.resolve().relative_to(root.resolve()).as_posix()
-        except ValueError:
-            return value.replace("\\", "/")
-    return value.lstrip("./")
+    candidate = path.resolve() if path.is_absolute() else (root / path).resolve()
+    try:
+        return candidate.relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return candidate.as_posix()
 
 
 def _path_operation(
@@ -405,13 +423,35 @@ def _path_operation(
     return "business_write", "business_paths:" + "\n".join(relative_paths)
 
 
+def _shell_write_paths(command: str) -> list[str]:
+    paths: list[str] = []
+    for segment in re.split(r"\s*(?:&&|\|\||[;|])\s*", command):
+        try:
+            tokens = shlex.split(segment)
+        except ValueError:
+            continue
+        if not tokens:
+            continue
+        executable = Path(tokens[0]).name.lower()
+        arguments = [token for token in tokens[1:] if not token.startswith("-")]
+        if executable in {"touch", "rm", "tee", "cp", "mv"}:
+            paths.extend(arguments)
+        elif executable in {"sed", "perl"} and arguments:
+            paths.append(arguments[-1])
+    paths.extend(
+        match.group(1).strip("\"'")
+        for match in re.finditer(r"(?<!<)>{1,2}\s*([^\s;&|]+)", command)
+    )
+    return paths
+
+
 def classify_tool_operation(
     root: Path, config: dict[str, Any], payload: dict[str, Any]
 ) -> Optional[tuple[str, str]]:
     tool_name = str(payload.get("tool_name") or "").lower()
     tool_input = payload.get("tool_input")
     tool_input = tool_input if isinstance(tool_input, dict) else {}
-    if tool_name == "bash":
+    if tool_name in {"bash", "shell", "exec_command"}:
         command = str(tool_input.get("command") or "")
         if DEPENDENCY_COMMAND_RE.search(command):
             return "install_dependency", ""
@@ -422,9 +462,13 @@ def classify_tool_operation(
         if is_git_commit_command(command):
             return "commit", ""
         if WORKTREE_WRITE_COMMAND_RE.search(command):
-            return "business_write", ""
+            return _path_operation(root, config, _shell_write_paths(command))
         return None
     if tool_name in {"write", "edit", "multiedit", "notebookedit", "apply_patch"}:
+        return _path_operation(root, config, _tool_paths(tool_input))
+    if tool_name.startswith("mcp__") and re.search(
+        r"(?:write|edit|patch|create|delete|move|rename|update)", tool_name
+    ):
         return _path_operation(root, config, _tool_paths(tool_input))
     return None
 
@@ -452,6 +496,7 @@ def orchestration_gate_plan(
     session_value = runtime.get("session")
     session_value = dict(session_value) if isinstance(session_value, dict) else {}
     role = str(session_value.get("role") or "neutral")
+    session_host = str(session_value.get("host") or "unknown")
     task_value = runtime.get("task") if isinstance(runtime.get("task"), dict) else {}
     task_id = str(task_value.get("task_id") or "")
     runtime["worker_runtime"] = {}
@@ -463,6 +508,7 @@ def orchestration_gate_plan(
             if claim.get("effective_lease_status") == "active"
             and claim.get("branch") == current_branch(root)
             and claim.get("worktree") == str(root.resolve())
+            and claim.get("agent_platform", "unknown") in {"", "unknown", session_host}
             and (
                 claim.get("worker_id") == session_id
                 or claim.get("host_thread_ref") == session_id
@@ -596,7 +642,176 @@ def emit_orchestration_gate(plan: FlowPlan, mode: str) -> None:
         )
 
 
-def hook_main(event: str) -> int:
+def hook_prompt_text(payload: dict[str, Any]) -> str:
+    for key in ("prompt", "user_prompt", "message", "text"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def governance_ready(root: Path, config: dict[str, Any]) -> bool:
+    paths = config["paths"]
+    status_path = resolve_project_status_path(root, config)
+    return (root / status_path).is_file() and (root / paths["discussion_prompt"]).is_file()
+
+
+def user_prompt_submit_main(
+    root: Path, config: dict[str, Any], payload: dict[str, Any], host: str
+) -> int:
+    """Route explicit workflow commands without loading unrelated project files."""
+    text = hook_prompt_text(payload)
+    command = parse_user_prompt(text)
+    session_id = hook_session_id(payload)
+    runtime = read_session_runtime(root, session_id) if session_id else None
+    capability = HostCapability(
+        host=host,
+        can_create_visible_worker=host == "codex",
+        can_gate_writes=True,
+        can_gate_builds=True,
+        can_gate_reads=False,
+        can_route_existing_worker=host == "codex",
+        can_reuse_worker=host == "codex",
+    )
+
+    if command is None and runtime is not None and is_contextual_approval(text):
+        plan = reduce_orchestration(
+            orchestration_state_from_dict(runtime),
+            UserEvent(kind="user_message", data={"text": text}),
+            capability,
+        )
+        action = map_flow_plan_to_host(plan, capability)
+        if plan.accepted and session_id and action.state_patch:
+            apply_session_runtime_patch(root, session_id, action.state_patch)
+        emit(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": "WishGraph contextual route:\n"
+                    + json.dumps(
+                        {
+                            "accepted": plan.accepted,
+                            "next_action": action.action,
+                            "task_id": plan.task_id,
+                            "user_message": action.user_message,
+                            "stop_after_action": action.stop_after_action,
+                            "denial_reason": plan.denial_reason,
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
+                }
+            }
+        )
+        return 0
+    if command is None:
+        emit({})
+        return 0
+
+    action = command["action"]
+    if action == "start_discussion":
+        if session_id:
+            patch = {
+                "session": {
+                    "session_id": session_id,
+                    "role": "discussion",
+                    "host": host,
+                    "phase": "planning",
+                    "expected_transition": None,
+                }
+            }
+            if runtime is None:
+                write_session_runtime(root, session_id, patch)
+            else:
+                apply_session_runtime_patch(root, session_id, patch)
+        explicit_config = dict(config)
+        explicit_config["session_start_context_mode"] = "discussion_summary"
+        context = project_session_context(root, explicit_config)
+        if context is None:
+            context = (
+                "WishGraph discussion role is active. Project memory is not initialized; "
+                "bootstrap the minimum WishGraph state before planning implementation."
+            )
+        emit(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": context,
+                }
+            }
+        )
+        return 0
+
+    if action == "refresh_project_status":
+        explicit_config = dict(config)
+        explicit_config["session_start_context_mode"] = "discussion_summary"
+        context = project_session_context(root, explicit_config) or (
+            "WishGraph project memory is not initialized. Run the project bootstrap first."
+        )
+        emit(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": context,
+                }
+            }
+        )
+        return 0
+
+    task_id = str(command.get("task_id") or "")
+    if action in {"inspect", "observe", "family"}:
+        state = integration_state(root, config, view="active", task_id=task_id)
+        emit(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": json.dumps(
+                        state.as_dict(), ensure_ascii=False, separators=(",", ":")
+                    ),
+                }
+            }
+        )
+        return 0
+
+    resolved = resolve_task(root, config, task_id)
+    if not resolved.get("ok"):
+        route = resolved
+    else:
+        role = str(((runtime or {}).get("session") or {}).get("role") or "neutral")
+        if role == "discussion":
+            host_action = (
+                "create_visible_worker_task"
+                if host == "codex"
+                else "show_manual_worker_command"
+            )
+        elif role == "worker":
+            host_action = "continue_or_rebind_current_worker"
+        else:
+            host_action = "enter_current_window_as_worker"
+        route = {
+            "ok": True,
+            "command": command,
+            "task": resolved["task"],
+            "host_action": host_action,
+            "manual_command": f"执行 {task_id} 任务" if host != "codex" else "",
+            "stop_after_action": role == "discussion" and host != "codex",
+            "authorization_patch_required": role == "discussion",
+            "required_before_business_work": "execution_preflight_and_worker_claim",
+            "read_boundary": "exact_task_scope_and_explicit_context_only",
+        }
+    emit(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": "WishGraph explicit route:\n"
+                + json.dumps(route, ensure_ascii=False, separators=(",", ":")),
+            }
+        }
+    )
+    return 0
+
+
+def hook_main(event: str, host: str = "unknown") -> int:
     payload = read_hook_input()
     root = find_git_root(Path(payload.get("cwd") or os.getcwd()))
     if root is None:
@@ -622,12 +837,31 @@ def hook_main(event: str) -> int:
                     "session": {
                         "session_id": session_id,
                         "role": "neutral",
-                        "host": str(payload.get("host") or "unknown"),
+                        "host": host,
                         "phase": "planning",
                         "expected_transition": None,
                     }
                 },
             )
+
+    if event == "user-prompt-submit":
+        return user_prompt_submit_main(root, config, payload, host)
+
+    if event == "session-start" and not governance_ready(root, config):
+        emit(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": (
+                        "WishGraph hooks are active in "
+                        f"{config.get('mode', 'warn')} mode, but project memory is not "
+                        "initialized. Say '开始讨论' or 'Start discussion' to bootstrap "
+                        "the minimum project state."
+                    ),
+                }
+            }
+        )
+        return 0
 
     if event == "pre-tool-use":
         tool_input = payload.get("tool_input")
@@ -783,7 +1017,7 @@ def check_main(scope: str) -> int:
     return 1
 
 
-def status_main() -> int:
+def status_main(view: str = "active", task_id: Optional[str] = None) -> int:
     root = find_git_root(Path.cwd())
     if root is None:
         print("WishGraph integration status requires a Git repository.", file=sys.stderr)
@@ -796,7 +1030,12 @@ def status_main() -> int:
     if config is None:
         print("WishGraph hooks are not installed in this repository.", file=sys.stderr)
         return 2
-    print(json.dumps(integration_state(root, config).as_dict(), ensure_ascii=False, indent=2))
+    try:
+        state = integration_state(root, config, view=view, task_id=task_id)
+    except ValueError as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+        return 2
+    print(json.dumps(state.as_dict(), ensure_ascii=False, indent=2))
     return 0
 
 
@@ -813,7 +1052,7 @@ def integration_plan_main(host_capability: str) -> int:
     if config is None:
         print(json.dumps({"ok": False, "error": "wishgraph_not_installed"}))
         return 2
-    state = integration_state(root, config).as_dict()
+    state = integration_state(root, config, view="active").as_dict()
     if not state["auto_integration_eligible"]:
         host_action = state["next_action"]
     elif host_capability in {"background", "active_agent"}:
@@ -1131,13 +1370,40 @@ def next_revision_id(
         return {"ok": False, "error": "invalid_task_id", "requested": parent_task_id}
     if not resolve_task(root, config, parent).get("ok"):
         return {"ok": False, "error": "task_not_found", "task_id": parent}
-    numbers = [
-        revision_id_parts(item["revision_id"])[1]
+    existing = [
+        item
         for item in revision_specs(root, config)
         if item["revision_id"] and item["parent_task_id"] == parent
     ]
+    open_revisions = [
+        item for item in existing if item["status"] in {"pending", "running"}
+    ]
+    if len(open_revisions) == 1:
+        return {
+            "ok": True,
+            "parent_task_id": parent,
+            "revision_id": open_revisions[0]["revision_id"],
+            "reuse_open_revision": True,
+            "revision": open_revisions[0],
+        }
+    if len(open_revisions) > 1:
+        return {
+            "ok": False,
+            "error": "multiple_open_revisions_require_repair",
+            "parent_task_id": parent,
+            "revision_ids": [item["revision_id"] for item in open_revisions],
+        }
+    numbers = [
+        revision_id_parts(item["revision_id"])[1]
+        for item in existing
+    ]
     next_id = f"{parent}-r{max(numbers, default=0) + 1}"
-    return {"ok": True, "parent_task_id": parent, "revision_id": next_id}
+    return {
+        "ok": True,
+        "parent_task_id": parent,
+        "revision_id": next_id,
+        "reuse_open_revision": False,
+    }
 
 
 def resolve_task(root: Path, config: dict[str, Any], task_id: str) -> dict[str, Any]:
@@ -1232,6 +1498,8 @@ def revision_main(action: str, value: str, host: str) -> int:
                         str(claim.get("host_thread_ref"))
                         for claim in inspect_claims(root)
                         if claim.get("effective_lease_status") == "active"
+                        and claim.get("agent_platform", "unknown")
+                        in {"", "unknown", host}
                         and claim.get("host_thread_ref")
                     }
                     previous = sorted(
@@ -1241,6 +1509,7 @@ def revision_main(action: str, value: str, host: str) -> int:
                                 root, revision["parent_task_id"]
                             )
                             if claim.get("lease_status") == "released"
+                            and claim.get("agent_platform") == host
                             and claim.get("host_thread_ref")
                             and str(claim.get("host_thread_ref"))
                             not in busy_worker_refs
@@ -1421,6 +1690,7 @@ def claim_main(args: argparse.Namespace) -> int:
                         attempt=args.attempt,
                         worker_id=args.worker_id,
                         host_thread_ref=args.host_thread_ref or args.session_id,
+                        agent_platform=args.host,
                         allowed_scope=revision["allowed_scope"],
                         validation_plan=revision["validation_plan"],
                         require_clean=not args.allow_dirty,
@@ -1440,6 +1710,7 @@ def claim_main(args: argparse.Namespace) -> int:
                         attempt=task["attempt"],
                         worker_id=args.worker_id,
                         host_thread_ref=args.host_thread_ref or args.session_id,
+                        agent_platform=args.host,
                         allowed_scope=task["allowed_scope"],
                         validation_plan=task["validation_plan"],
                         require_clean=not args.allow_dirty,
@@ -1496,6 +1767,7 @@ def claim_main(args: argparse.Namespace) -> int:
                             else "exclusive"
                         ),
                         host_thread_ref=args.host_thread_ref or args.session_id,
+                        agent_platform=args.host,
                         revision_id=(args.revision_id or None),
                         allowed_scope=task.get("allowed_scope", []),
                         validation_plan=task.get("validation_plan", []),
@@ -1562,11 +1834,22 @@ def claim_main(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for event in ("session-start", "pre-tool-use", "stop", "task-completed"):
-        subparsers.add_parser(event)
+    for event in (
+        "session-start",
+        "user-prompt-submit",
+        "pre-tool-use",
+        "stop",
+        "task-completed",
+    ):
+        event_parser = subparsers.add_parser(event)
+        event_parser.add_argument(
+            "--host", choices=("codex", "claude", "unknown"), default="unknown"
+        )
     check_parser = subparsers.add_parser("check")
     check_parser.add_argument("--scope", choices=("worktree", "staged"), default="worktree")
-    subparsers.add_parser("status")
+    status_parser = subparsers.add_parser("status")
+    status_parser.add_argument("--full", action="store_true")
+    status_parser.add_argument("--task")
     integration_plan_parser = subparsers.add_parser("integration-plan")
     integration_plan_parser.add_argument(
         "--host-capability",
@@ -1666,6 +1949,9 @@ def main() -> int:
     rebind_parser.add_argument("--attempt", type=int, default=1)
     rebind_parser.add_argument("--worker-id", required=True)
     rebind_parser.add_argument("--host-thread-ref")
+    rebind_parser.add_argument(
+        "--host", choices=("codex", "claude", "unknown"), default="unknown"
+    )
     rebind_parser.add_argument("--allow-dirty", action="store_true")
     for claim_action in ("heartbeat", "release", "revoke"):
         parser_for_action = claim_subparsers.add_parser(claim_action)
@@ -1679,7 +1965,7 @@ def main() -> int:
     if args.command == "check":
         return check_main(args.scope)
     if args.command == "status":
-        return status_main()
+        return status_main("full" if args.full else "active", args.task)
     if args.command == "integration-plan":
         return integration_plan_main(args.host_capability)
     if args.command == "flow-plan":
@@ -1698,4 +1984,4 @@ def main() -> int:
         return claim_main(args)
     if args.command == "git-pre-commit":
         return check_main("staged")
-    return hook_main(args.command)
+    return hook_main(args.command, args.host)

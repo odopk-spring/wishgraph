@@ -6,20 +6,32 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.wishgraph/hooks/memory_sync.py\" session-start",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.wishgraph/hooks/memory_sync.py\" session-start --host claude",
             "timeout": 30,
             "statusMessage": "Checking WishGraph handoff state"
           }
         ]
       }
     ],
-    "PreToolUse": [
+    "UserPromptSubmit": [
       {
-        "matcher": "^(Bash|Write|Edit|MultiEdit|NotebookEdit)$",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.wishgraph/hooks/memory_sync.py\" pre-tool-use",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.wishgraph/hooks/memory_sync.py\" user-prompt-submit --host claude",
+            "timeout": 10,
+            "statusMessage": "Routing WishGraph command"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|Write|Edit|MultiEdit|NotebookEdit|mcp__.*__.*(?:write|edit|patch|create|delete|move|rename|update).*)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.wishgraph/hooks/memory_sync.py\" pre-tool-use --host claude",
             "timeout": 30,
             "statusMessage": "Checking WishGraph memory sync"
           }
@@ -31,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.wishgraph/hooks/memory_sync.py\" stop",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.wishgraph/hooks/memory_sync.py\" stop --host claude",
             "timeout": 30,
             "statusMessage": "Verifying WishGraph closeout"
           }
@@ -43,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.wishgraph/hooks/memory_sync.py\" task-completed",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.wishgraph/hooks/memory_sync.py\" task-completed --host claude",
             "timeout": 30,
             "statusMessage": "Verifying WishGraph task closeout"
           }

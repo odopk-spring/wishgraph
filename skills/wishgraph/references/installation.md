@@ -2,6 +2,14 @@
 
 Use this reference only for Skill installation, project-hook setup, environment checks, or setup failures.
 
+## Contents
+
+- Default decision and guided continuation
+- Preflight and cost notice
+- Platform dependency guidance
+- Installation execution
+- Verification
+
 ## Default Decision
 
 Infer the active host from the current agent. Use `codex` for Codex and `claude` for Claude Code. Default an unspecified setup request to safe `warn` hooks. Use strict `enforce --git-hook` only when the user explicitly asks for strict or blocking behavior.
@@ -15,7 +23,7 @@ Make a recommendation before asking. Use this routing:
 Use a compact choice message in the user's language. Include the detected host/system, one-sentence rationale, WishGraph's own size/time, and the recommendation first. Example:
 
 ```text
-我检测到你正在 Codex 中配置一个现有 Git 项目。推荐“安全配置”：安装 Skill 和提醒型 Hooks，不会阻止结束或提交；WishGraph 本身约 0.3 MB，通常不到 1 分钟。
+我检测到你正在 Codex 中配置一个现有 Git 项目。推荐“安全配置”：安装 Skill 和提醒型 Hooks，不会阻止结束或提交；WishGraph Skill 约 0.5 MB，项目 hooks 约 0.3 MB，通常不到 1 分钟。
 
 你可以直接回复“按推荐来”，也可以说“只装 Skill”或“严格配置”。
 ```
@@ -66,8 +74,8 @@ These are intentionally broad estimates; hardware, mirrors, package managers, an
 
 | Component | Typical Added Disk | Typical Time |
 |---|---:|---:|
-| WishGraph Skill | about 0.2 MB | under 1 minute |
-| Project hooks | under 0.1 MB | under 10 seconds |
+| WishGraph Skill | about 0.5 MB | under 1 minute |
+| Project hooks | about 0.3 MB | under 10 seconds |
 | Git package | about 200-500 MB | about 2-10 minutes |
 | Python runtime | about 100-300 MB | about 2-10 minutes |
 | Apple Command Line Tools route for Git | about 1-3 GB | about 5-30 minutes |
@@ -115,7 +123,7 @@ After installation:
 
 1. Read `.wishgraph/config.json` and confirm the selected mode.
 2. Confirm only the current host file was installed: `.codex/hooks.json` or `.claude/settings.json`.
-3. Run `python3 .wishgraph/hooks/memory_sync.py check --scope worktree`, or the detected Windows Python executable.
+3. Confirm the host commands use the exact Python executable recorded in `.wishgraph/config.json`; then run that interpreter with `.wishgraph/hooks/memory_sync.py check --scope worktree`.
 4. Treat a missing governance skeleton as a next setup step, not a dependency failure; safe mode remains non-blocking.
 5. Tell Codex users to trust the repository and review `/hooks`.
 6. Finish with the selected mode, verified host files, dependency status, and exactly one recommended next action. Do not teach hook internals unless asked.

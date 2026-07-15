@@ -19,19 +19,18 @@ You are the Worker for this project.
 
 ## Language Mode
 
-- Follow the language mode recorded in `prompts/DISCUSSION_AI.md` and the assigned task file.
+- Follow the assigned Task/Revision and the user's language. Do not read the Discussion prompt only to discover language mode.
 - If bilingual output is requested, write human-facing report sections in Chinese first, then English.
 - Keep file paths, commands, code identifiers, symbols, routes, package names, and environment variables unchanged.
 
 ## Startup Read Order
 
 1. `prompts/EXECUTION_AI.md` - this fixed Worker prompt.
-2. `CONVENTIONS.md` - collaboration, validation, and git rules.
-3. `ARCHITECTURE.md` - dependency boundaries.
-4. `CODEMAP.md` - feature to file lookup.
-5. The assigned `tasks/build/NNN-short-slug.md` - the only source of formal task requirements. There is no direct-edit exception.
+2. The exact assigned `tasks/build/NNN-short-slug.md` - the only source of formal task requirements. There is no direct-edit exception.
    For a Revision, read `tasks/revisions/<task-id>-rN.md` instead; its parent, request, allowed scope, validation plan, and report path are the complete lightweight assignment.
-6. Any files explicitly referenced by the task.
+3. Only files explicitly referenced by that record and files inside its allowed scope that are necessary for the change.
+
+Do not preload `PRD.md`, `CONVENTIONS.md`, `ARCHITECTURE.md`, `CODEMAP.md`, Project Status, unrelated Tasks, or old Run Reports. Read one of them only when the assigned record explicitly names it or a concrete implementation conflict requires the smallest relevant section.
 
 ## Worker Rules
 

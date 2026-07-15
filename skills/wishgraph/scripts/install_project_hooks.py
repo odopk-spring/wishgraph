@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import shutil
 import stat
 import subprocess
@@ -149,19 +150,62 @@ def install_runtime(target: Path, mode: str, force_assets: bool) -> list[Path]:
         )
     )
     config["mode"] = mode
+    config["python_executable"] = str(Path(sys.executable).resolve())
     write_json_atomic(config_target, config)
     installed.append(config_target)
     return installed
 
 
-def install_host_config(target: Path, host: str) -> Path:
+def _materialize_python_commands(
+    value: Any, python_executable: str, *, claude_powershell: bool = False
+) -> Any:
+    if isinstance(value, dict):
+        rendered = {
+            key: _materialize_python_commands(
+                item, python_executable, claude_powershell=claude_powershell
+            )
+            for key, item in value.items()
+        }
+        if claude_powershell and rendered.get("type") == "command":
+            command = rendered.get("command")
+            if isinstance(command, str) and "memory_sync.py" in command:
+                quoted = python_executable.replace("'", "''")
+                command = command.replace(
+                    shlex.quote(python_executable), f"& '{quoted}'", 1
+                )
+                rendered["command"] = command
+                rendered["shell"] = "powershell"
+        return rendered
+    if isinstance(value, list):
+        return [
+            _materialize_python_commands(
+                item, python_executable, claude_powershell=claude_powershell
+            )
+            for item in value
+        ]
+    if not isinstance(value, str):
+        return value
+    command = value.replace("python3 ", f"{shlex.quote(python_executable)} ", 1)
+    powershell_python = python_executable.replace("'", "''")
+    return command.replace("py -3 ", f"& '{powershell_python}' ", 1)
+
+
+def install_host_config(
+    target: Path, host: str, python_executable: str = sys.executable
+) -> Path:
+    python_executable = str(Path(python_executable).resolve())
     if host == "codex":
         destination = target / ".codex" / "hooks.json"
         source = ASSET_ROOT / "codex-hooks.json"
     else:
         destination = target / ".claude" / "settings.json"
         source = ASSET_ROOT / "claude-settings.json"
-    merged = merge_hook_config(read_json(destination), read_json(source))
+    incoming = _materialize_python_commands(
+        read_json(source),
+        python_executable,
+        claude_powershell=host == "claude" and os.name == "nt",
+    )
+    merged = merge_hook_config(read_json(destination), incoming)
     write_json_atomic(destination, merged)
     return destination
 
@@ -196,17 +240,11 @@ def install_git_hook(target: Path) -> tuple[Optional[Path], Optional[str]]:
             "Chain `.wishgraph/hooks/memory_sync.py git-pre-commit` manually if desired."
         )
     hook_path.parent.mkdir(parents=True, exist_ok=True)
+    python_command = shlex.quote(str(Path(sys.executable).resolve()))
     hook_path.write_text(
         "#!/bin/sh\n"
         "root=$(git rev-parse --show-toplevel) || exit 0\n"
-        "if command -v python3 >/dev/null 2>&1; then\n"
-        "  exec python3 \"$root/.wishgraph/hooks/memory_sync.py\" git-pre-commit\n"
-        "fi\n"
-        "if command -v python >/dev/null 2>&1; then\n"
-        "  exec python \"$root/.wishgraph/hooks/memory_sync.py\" git-pre-commit\n"
-        "fi\n"
-        "echo 'WishGraph pre-commit requires Python 3.' >&2\n"
-        "exit 1\n",
+        f"exec {python_command} \"$root/.wishgraph/hooks/memory_sync.py\" git-pre-commit\n",
         encoding="utf-8",
     )
     hook_path.chmod(hook_path.stat().st_mode | stat.S_IXUSR)
@@ -277,7 +315,9 @@ def main() -> int:
     try:
         installed = install_runtime(target, args.mode, args.force_assets)
         hosts = ("codex", "claude") if args.host == "all" else (args.host,)
-        installed.extend(install_host_config(target, host) for host in hosts)
+        installed.extend(
+            install_host_config(target, host, sys.executable) for host in hosts
+        )
         warning = None
         if args.git_hook:
             hook_path, warning = install_git_hook(target)
@@ -287,7 +327,7 @@ def main() -> int:
         print(f"WishGraph hook installation failed: {exc}", file=sys.stderr)
         return 1
 
-    print("WishGraph project hooks installed or merged:")
+    print("WishGraph hook runtime installed or merged:")
     for path in installed:
         try:
             display = path.relative_to(target)
@@ -299,6 +339,16 @@ def main() -> int:
     if "codex" in hosts:
         print("Codex: trust the project, then review the hook definitions with /hooks.")
     print(f"Mode: {args.mode}")
+    if (
+        (target / "reports" / "PROJECT_STATUS.md").is_file()
+        or (target / "reports" / "DEV_REPORT.md").is_file()
+    ) and (target / "prompts" / "DISCUSSION_AI.md").is_file():
+        print("Next: open the project and say `开始讨论` (or `Start discussion`).")
+    else:
+        print(
+            'Next: ask your agent, "Use $wishgraph to set up this project." '
+            "Hooks remain non-blocking until project memory is initialized."
+        )
     return 0
 
 

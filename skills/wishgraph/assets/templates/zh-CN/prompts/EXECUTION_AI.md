@@ -19,19 +19,18 @@
 
 ## 语言模式
 
-- 遵循 `prompts/DISCUSSION_AI.md` 和指定任务文件记录的语言模式。
+- 遵循指定 Task/Revision 和用户语言；不要仅为确认语言模式而读取 Discussion prompt。
 - 如果要求双语，面向人类的报告按中文在前、英文在后写。
 - 文件路径、命令、代码符号、路由、包名和环境变量保持原文。
 
 ## 启动阅读顺序
 
 1. `prompts/EXECUTION_AI.md` - 这个固定 Worker 提示词。
-2. `CONVENTIONS.md` - 协作、验证和 git 规则。
-3. `ARCHITECTURE.md` - 依赖边界。
-4. `CODEMAP.md` - 功能到文件查找表。
-5. 指定的 `tasks/build/NNN-short-slug.md` - 正式任务需求的唯一来源，不存在直接编辑例外。
+2. 精确指定的 `tasks/build/NNN-short-slug.md` - 正式任务需求的唯一来源，不存在直接编辑例外。
    如果执行 Revision，则改读 `tasks/revisions/<task-id>-rN.md`；其中的 parent、用户请求、允许范围、验证计划和报告路径就是完整轻量任务。
-6. 任务明确引用的任何文件。
+3. 只读该记录明确引用的文件，以及完成修改所必需、且位于 allowed scope 内的文件。
+
+不要预读 `PRD.md`、`CONVENTIONS.md`、`ARCHITECTURE.md`、`CODEMAP.md`、Project Status、无关 Task 或旧 Run Report。只有任务记录明确引用，或具体实现冲突确实需要时，才读取最小相关章节。
 
 ## Worker 规则
 

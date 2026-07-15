@@ -2,11 +2,12 @@
 
 WishGraph hooks 的目标，是机械检查并行 Worker 收尾和单写者集成，同时不要求脚本理解产品语义。
 
-## 为什么使用三个事件
+## 为什么使用这些事件
 
 ```text
 SessionStart -> 执行中立安全检查，不替窗口选择角色
-PreToolUse   -> 阻止外置记忆未同步的 git commit
+UserPromptSubmit -> 路由精确的进入、刷新和 Task 命令
+PreToolUse   -> 门禁受支持的写入/构建和未同步 commit
 Stop         -> Agent 试图提前结束时让它继续完成收尾
 ```
 
@@ -39,7 +40,7 @@ Agent 会识别当前宿主并安装 `warn` 模式 hooks，不需要用户理解
 Agent 不应该只抛出菜单，而是先根据当前项目主动推荐。例如：
 
 ```text
-我检测到你正在为一个首次配置的 Git 项目安装 WishGraph。推荐“安全配置”：提醒遗漏但不阻止结束或提交，WishGraph 本身约 0.3 MB，通常不到 1 分钟。
+我检测到你正在为一个首次配置的 Git 项目安装 WishGraph。推荐“安全配置”：提醒遗漏但不阻止结束或提交，WishGraph Skill 约 0.5 MB，项目 Hooks 约 0.3 MB，通常不到 1 分钟。
 
 回复“按推荐来”即可继续；也可以说“只装 Skill”或“严格配置”。
 ```
@@ -60,7 +61,7 @@ Windows PowerShell 可以使用原生安装器：
 & ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) codex -SetupProject
 ```
 
-安装器会在写入文件前检查 Git、Python 3.9+ 和 Git 仓库。WishGraph Skill 约占 0.2 MB，项目 Hooks 小于 0.1 MB；只有缺少依赖时才提示额外成本。Git 通常约 200-500 MB、2-10 分钟；Python 通常约 100-300 MB、2-10 分钟；macOS 通过 Apple Command Line Tools 安装 Git 时可能约 1-3 GB、5-30 分钟。具体结果取决于系统、镜像和已有依赖。
+安装器会在写入文件前检查 Git、Python 3.9+ 和 Git 仓库。WishGraph Skill 约占 0.5 MB，项目 Hooks 约 0.3 MB；只有缺少依赖时才提示额外成本。Git 通常约 200-500 MB、2-10 分钟；Python 通常约 100-300 MB、2-10 分钟；macOS 通过 Apple Command Line Tools 安装 Git 时可能约 1-3 GB、5-30 分钟。具体结果取决于系统、镜像和已有依赖。
 
 ### 自定义方式
 
@@ -92,6 +93,8 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
 ```
 
 安装器会把公共运行时放进 `.wishgraph/`，并安全合并 Codex 或 Claude Code 的项目级 JSON 配置，不会替换无关的现有 hooks。
+
+安装器会把本次实际使用的 Python 可执行文件写入宿主命令和 `.wishgraph/config.json`，避免后续出现 `python3` 与 `py -3` 指向不同环境的问题。
 
 `memory_sync.py` 现在只是稳定入口，内部拆成四个明确边界：`workflow_state.py` 定义 Session Role、Task Lifecycle、Flow Phase、Expected Transition、事件和计划；`policy.py` 实现纯函数 `reduce(current_state, user_event, host_capability)`；`host_adapter.py` 把唯一下一动作映射为 Codex、Claude Code、CLI 与 Hook 行为；`git_state.py` 保存 Git 事实、session runtime、Worker Claim 和 Discussion-local Integration lease。项目语义真相仍保存在 Markdown 和 Git 中。
 
@@ -145,9 +148,11 @@ Discussion-local Integration 阶段持有绑定 lease，使用 `--no-commit` 合
 python3 .wishgraph/hooks/memory_sync.py check --scope worktree
 python3 .wishgraph/hooks/memory_sync.py check --scope staged
 python3 .wishgraph/hooks/memory_sync.py status
+python3 .wishgraph/hooks/memory_sync.py status --task 012
+python3 .wishgraph/hooks/memory_sync.py status --full
 ```
 
-`status` 输出机器可读的待集成状态、集成类型、准备报告、等待报告、阻塞报告、是否需要用户确认和理由。它读取可见 Git refs 中的不可变报告，不写入共享队列文件。讨论入口和显式刷新会读取这个状态；SessionStart 仅在显式兼容模式下包含它。
+默认 `status` 输出精简 active 视图，只在可见 Git refs 中解析当前候选报告路径。`--task` 精确选择一个 Task，`--full` 才执行历史扫描；任何模式都不写共享队列文件。讨论入口和刷新使用 active 视图；SessionStart 仅在显式兼容模式下包含它。
 
 它还输出 `auto_integration_eligible`，以及 `nothing_to_integrate`、`wait_for_worker`、`auto_integrate`、`await_user_confirmation`、`discuss_blocker`、`compare_candidates` 之一作为 `next_action`。这些是内部路由字段，普通用户只看到 Discussion 和显式 Worker 窗口。
 
@@ -199,7 +204,7 @@ python3 .wishgraph/hooks/memory_sync.py integration-lease acquire \
   --report reports/runs/012-attempt-1.md
 ```
 
-业务文件写入和实现构建／测试必须匹配活跃 Worker Claim；合并、组合验证、共享状态写入和集成提交必须持有 Discussion-local Integration lease。这是强制的 `write/build gate`。完整读取拦截取决于宿主 Hook 能力，因此源码读取只能声明为 `host capability dependent`，不能包装成通用硬门禁。
+受支持的原生写入、可识别的 shell 构建／写入命令，以及名称暴露写入意图的 MCP 工具，都必须匹配活跃 Worker Claim；合并、组合验证、共享状态写入和集成提交必须持有 Discussion-local Integration lease。隐藏副作用的脚本或不透明 MCP 工具无法仅靠名称完整拦截，因此这是宿主工具门禁，不是操作系统 sandbox。完整读取拦截仍只能声明为 `host capability dependent`。
 
 宿主未传 `--authorized-by-user` 时，`claim revoke` 返回 `explicit_user_authorization_required`。停止或拒绝尚未集成的工作会保留 branch/report；重试保留 Task ID 并递增 attempt。已集成历史只能通过新的回滚或 Follow-up Task 替换。
 
@@ -211,7 +216,7 @@ python3 .wishgraph/hooks/memory_sync.py competitive-plan 012 --candidates 2
 
 它提出 `012a`、`012b`、共同的 `comparison_group: 012`、独立 Claim/worktree/report，并规定只选一个胜者。status 只把客观唯一胜者放入 `selected_reports`；平分或 `selection_requires_judgment` 路由到 `compare_candidates`。失败候选不合并，标记为 `rejected` 或 `superseded`。
 
-Legacy `micro` Run Report 继续兼容读取，但绝不授权 Discussion 修改业务代码；继续执行 micro 时也必须放在单独持有 Claim 的 Worker 中，并保留验证、不可变报告、提交、回滚和 Integrate/N/A 证据。新工作应使用正式 Task。
+Legacy `micro` Run Report 继续兼容读取，但不再创建新的 ad-hoc micro 单元。明确局部修正使用 Task Revision，新工作或扩展工作使用正式 Task；两者都不授权 Discussion 修改业务代码。
 
 严格使用 `enforce` 模式时，建议给安装器增加 `--git-hook`，从而覆盖 Agent 以外的提交和生命周期 hook 无法拦截的工具路径。安装器不会覆盖已有 Git pre-commit hook，而是提示如何手动串联。
 

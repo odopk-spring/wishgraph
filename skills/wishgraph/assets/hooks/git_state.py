@@ -15,7 +15,7 @@ from typing import Any, Optional
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "version": 10,
+    "version": 11,
     "mode": "enforce",
     "paths": {
         "prd": "PRD.md",
@@ -213,6 +213,7 @@ def acquire_claim(
     branch: Optional[str] = None,
     worktree: Optional[str] = None,
     host_thread_ref: Optional[str] = None,
+    agent_platform: str = "unknown",
     revision_id: Optional[str] = None,
     allowed_scope: Optional[list[str]] = None,
     validation_plan: Optional[list[str]] = None,
@@ -291,6 +292,7 @@ def acquire_claim(
             "lease_status": "active",
             "execution_mode": execution_mode,
             "host": socket.gethostname(),
+            "agent_platform": agent_platform,
             "host_thread_ref": host_thread_ref,
             "allowed_scope": list(allowed_scope or []),
             "validation_plan": list(validation_plan or []),
@@ -368,6 +370,7 @@ def rebind_worker_claim(
     branch: Optional[str] = None,
     worktree: Optional[str] = None,
     host_thread_ref: Optional[str] = None,
+    agent_platform: str = "unknown",
     allowed_scope: Optional[list[str]] = None,
     validation_plan: Optional[list[str]] = None,
     execution_ownership: str = "worker_claim",
@@ -420,6 +423,7 @@ def rebind_worker_claim(
         branch=branch,
         worktree=worktree,
         host_thread_ref=host_thread_ref,
+        agent_platform=agent_platform,
         revision_id=revision_id,
         allowed_scope=allowed_scope,
         validation_plan=validation_plan,
@@ -911,4 +915,37 @@ def report_contents_across_refs(
             except subprocess.CalledProcessError:
                 continue
             contents[path] = value.decode("utf-8", errors="replace")
+    return contents
+
+
+def report_contents_for_paths_across_refs(
+    root: Path, config: dict[str, Any], paths: set[str]
+) -> dict[str, str]:
+    """Read only known report paths, avoiding recursive history-tree scans."""
+    wanted = {path for path in paths if path}
+    contents: dict[str, str] = {}
+    for path in sorted(wanted):
+        try:
+            contents[path] = (root / path).read_text(encoding="utf-8")
+        except OSError:
+            continue
+    if not wanted or not config.get("scan_worker_refs_for_status", True):
+        return contents
+    try:
+        refs_result = run_git(
+            root,
+            "for-each-ref",
+            "--format=%(refname)",
+            "refs/heads",
+            "refs/remotes",
+        )
+    except subprocess.CalledProcessError:
+        return contents
+    for ref in refs_result.stdout.decode("utf-8", errors="replace").splitlines():
+        if ref.endswith("/HEAD"):
+            continue
+        for path in sorted(wanted - contents.keys()):
+            result = run_git(root, "show", f"{ref}:{path}", check=False)
+            if result.returncode == 0:
+                contents[path] = result.stdout.decode("utf-8", errors="replace")
     return contents

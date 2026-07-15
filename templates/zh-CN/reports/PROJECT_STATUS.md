@@ -1,6 +1,6 @@
 # 项目状态概览
 
-本文件只保存最近一次正式集成后的当前项目快照，不连续追加历史。Discussion-local Integration 在每次集成时重写本文件；详细执行历史保存在 `reports/runs/*.md` 和 Git 中。
+本文件只保存最近一次正式集成后的当前项目快照，不连续追加历史。Discussion-local Integration 在每次集成时重写本文件；详细执行历史保存在 `reports/runs/*.md` 和 Git 中。实时 Worker 进度来自 `memory_sync.py status`，不要把 heartbeat 或临时进度写进本文件。
 
 ## 当前集成
 

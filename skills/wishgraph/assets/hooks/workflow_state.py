@@ -245,7 +245,7 @@ class FlowPlan:
 
 def is_contextual_approval(text: str) -> bool:
     """Return true for a short approval; meaning comes from expected_transition."""
-    return text.strip().lower().rstrip("。.!！") in CONTEXTUAL_APPROVALS
+    return normalized_command_text(text) in CONTEXTUAL_APPROVALS
 
 
 def orchestration_state_from_dict(value: dict[str, Any]) -> OrchestrationState:
@@ -516,9 +516,15 @@ TASK_COMMANDS = {
 }
 
 
+def normalized_command_text(text: str) -> str:
+    candidate = text.strip().lower().strip("\"'“”‘’`").strip()
+    candidate = re.sub(r"[。！？!?；;，,、：:]+$", "", candidate).strip()
+    return candidate.strip("\"'“”‘’`").strip()
+
+
 def parse_task_command(text: str) -> Optional[dict[str, Any]]:
     """Parse one exact natural-language Task command without fuzzy execution."""
-    candidate = text.strip().lower()
+    candidate = normalized_command_text(text)
     competitive = re.fullmatch(
         r"让\s*(?:两个|2\s*个)\s*agent\s*分别执行\s*(\d{3,}[a-z]*)"
         r"(?:号)?(?:任务)?[，,]?\s*最后比较谁做得好",
@@ -565,6 +571,34 @@ def parse_task_command(text: str) -> Optional[dict[str, Any]]:
             "authorizes_execution": action in {"execute", "continue", "retry", "take_over"},
         }
     return None
+
+
+DISCUSSION_ENTRY_COMMANDS = {
+    "开始讨论",
+    "进入讨论",
+    "继续讨论",
+    "start discussion",
+    "enter discussion",
+}
+STATUS_REFRESH_COMMANDS = {
+    "刷新项目状态",
+    "刷新状态",
+    "查看项目状态",
+    "项目状态",
+    "refresh project status",
+    "refresh status",
+    "show project status",
+}
+
+
+def parse_user_prompt(text: str) -> Optional[dict[str, Any]]:
+    """Parse an explicit WishGraph entry command without fuzzy intent guessing."""
+    candidate = normalized_command_text(text)
+    if candidate in DISCUSSION_ENTRY_COMMANDS:
+        return {"action": "start_discussion", "authorizes_execution": False}
+    if candidate in STATUS_REFRESH_COMMANDS:
+        return {"action": "refresh_project_status", "authorizes_execution": False}
+    return parse_task_command(candidate)
 
 
 def positive_attempt(value: Any, errors: list[str]) -> int:

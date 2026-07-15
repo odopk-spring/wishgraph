@@ -2,11 +2,12 @@
 
 WishGraph hooks make parallel worker closeout and single-writer integration enforceable without asking a script to understand product semantics.
 
-## Why three events
+## Why these events
 
 ```text
 SessionStart -> run neutral safety checks without choosing a window role
-PreToolUse   -> block an unsynchronized git commit
+UserPromptSubmit -> route exact entry, refresh, and Task commands
+PreToolUse   -> gate supported writes/builds and unsynchronized commits
 Stop         -> continue an agent that tries to finish before closeout
 ```
 
@@ -52,7 +53,7 @@ Windows PowerShell has a native entry point:
 & ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) codex -SetupProject
 ```
 
-Preflight runs before installation. WishGraph uses about 0.2 MB and project hooks add less than 0.1 MB. Missing Git commonly adds about 200-500 MB and 2-10 minutes; missing Python commonly adds about 100-300 MB and 2-10 minutes. The Apple Command Line Tools route for Git is larger, roughly 1-3 GB and 5-30 minutes. These are broad estimates.
+Preflight runs before installation. The WishGraph Skill uses about 0.5 MB and project hooks about 0.3 MB. Missing Git commonly adds about 200-500 MB and 2-10 minutes; missing Python commonly adds about 100-300 MB and 2-10 minutes. The Apple Command Line Tools route for Git is larger, roughly 1-3 GB and 5-30 minutes. These are broad estimates.
 
 ### Custom option
 
@@ -84,6 +85,8 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
 ```
 
 The installer creates the common runtime under `.wishgraph/` and safely merges project-level Codex or Claude Code JSON configuration. It does not replace unrelated existing hooks.
+
+The installer writes the exact Python executable used during setup into the host commands and `.wishgraph/config.json`, avoiding later `python3` versus `py -3` path drift.
 
 `memory_sync.py` is a stable entrypoint over four explicit boundaries: `workflow_state.py` defines Session Role, Task Lifecycle, Flow Phase, Expected Transition, events, and plans; `policy.py` implements the pure `reduce(current_state, user_event, host_capability)` transition function; `host_adapter.py` maps one authorized next action to Codex, Claude Code, CLI, and Hook behavior; `git_state.py` persists Git facts, session runtime, Worker Claims, and the Discussion-local Integration lease. Semantic project truth remains in Markdown and Git.
 
@@ -137,9 +140,11 @@ Existing legacy ad-hoc reports remain readable, but new business-code work runs 
 python3 .wishgraph/hooks/memory_sync.py check --scope worktree
 python3 .wishgraph/hooks/memory_sync.py check --scope staged
 python3 .wishgraph/hooks/memory_sync.py status
+python3 .wishgraph/hooks/memory_sync.py status --task 012
+python3 .wishgraph/hooks/memory_sync.py status --full
 ```
 
-The status command emits machine-readable pending integration, integration kind, ready reports, waiting reports, blocked reports, confirmation requirement, and reason. It scans immutable reports on visible Git refs without writing a shared queue file. Discussion entry and explicit refresh read this status; SessionStart only includes it in opt-in compatibility mode.
+The default status command emits a compact active view and resolves only current candidate report paths on visible refs. `--task` selects one exact Task; `--full` is the explicit historical scan. No mode writes a shared queue file. Discussion entry and refresh use the active view; SessionStart only includes it in opt-in compatibility mode.
 
 It also emits `auto_integration_eligible` and one of `nothing_to_integrate`, `wait_for_worker`, `auto_integrate`, `await_user_confirmation`, `discuss_blocker`, or `compare_candidates` as `next_action`. These are internal routing fields; normal users should see only Discussion and explicit Worker windows.
 
@@ -191,7 +196,7 @@ python3 .wishgraph/hooks/memory_sync.py integration-lease acquire \
   --report reports/runs/012-attempt-1.md
 ```
 
-Business writes and implementation build/test commands require a live matching Worker Claim. Merge, combined validation, shared-state writes, and the integration commit require the Discussion-local Integration lease. This is the required `write/build gate`. Complete read interception depends on host hooks, so source reads remain `host capability dependent` rather than a claimed universal hard gate.
+Supported native writes, recognized shell build/write commands, and MCP tools with write-like names require a live matching Worker Claim. Merge, combined validation, shared-state writes, and the integration commit require the Discussion-local Integration lease. An opaque script or MCP tool can conceal side effects, so this is a host-tool gate rather than an OS sandbox. Complete read interception remains `host capability dependent`, not a universal hard gate.
 
 `claim revoke` returns `explicit_user_authorization_required` unless the host passes `--authorized-by-user`. Stopping or rejecting unintegrated work preserves its branch/report, then a retry keeps the Task ID and increments the attempt. Integrated history is replaced only through a new rollback or follow-up Task.
 
@@ -203,7 +208,7 @@ python3 .wishgraph/hooks/memory_sync.py competitive-plan 012 --candidates 2
 
 It proposes `012a`, `012b`, shared `comparison_group: 012`, separate Claims/worktrees/reports, and exactly one winner. Status publishes only the unique objective winner in `selected_reports`; a tie or `selection_requires_judgment` routes to `compare_candidates`. Losing candidates remain unmerged and become `rejected` or `superseded`.
 
-Legacy `micro` Run Reports remain readable for compatibility. They never authorize Discussion to edit business code; any continued micro execution still belongs in a separately claimed Worker and retains validation, immutable report, commit, rollback, and Integrate/N/A evidence. New work should use a formal Task.
+Legacy `micro` Run Reports remain readable for compatibility, but no new ad-hoc micro unit is created. A clear correction uses a Task Revision; new or expanded work uses a formal Task. Neither authorizes Discussion to edit business code.
 
 For strict `enforce` mode, add `--git-hook` so commits made outside an agent and tool paths that lifecycle hooks cannot intercept are also checked. The installer refuses to overwrite an existing Git pre-commit hook and prints chaining guidance instead.
 

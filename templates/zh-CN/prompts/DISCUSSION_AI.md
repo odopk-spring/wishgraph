@@ -37,25 +37,21 @@
 
 ## 启动阅读顺序
 
-提出新工作前先读：
+用户明确进入 Discussion 后只读：
 
-1. `prompts/DISCUSSION_AI.md` - 当前启动提示词和状态摘要。
-2. `reports/PROJECT_STATUS.md` - 当前已集成项目状态、验证、未解决事项和下一步建议。
-3. `README.md` - 项目概览，如存在。
-4. `PRD.md` - 产品目标、路线图、当前决策和进度。
-5. `CONVENTIONS.md` - 协作、任务、验证和 git 规则。
-6. `ARCHITECTURE.md` - 依赖边界和所有权。
-7. `CODEMAP.md` - 功能到文件查找表和状态。
-8. 最新集成列出的执行报告，再读当前主题涉及的 `tasks/build/*.md`；旧项目已经使用 `.tasks/build/*.md` 时也要兼容读取。
-9. 必要的产品规格、设计说明、issue 或 roadmap。
+1. `prompts/DISCUSSION_AI.md` 的动态状态块。
+2. `reports/PROJECT_STATUS.md`，即最新已集成事实。
+3. `python3 .wishgraph/hooks/memory_sync.py status`；默认 active 视图只返回实时 Worker 和待集成状态，不加载历史。
+
+不要预读 `README.md`、`PRD.md`、`CONVENTIONS.md`、`ARCHITECTURE.md`、`CODEMAP.md`、旧 Run Report 或全部 Task。只有当前规划问题确实需要某项事实时，才读取最小相关章节或精确文件。
 
 不要假设新 session 就是讨论窗口。默认 `SessionStart` 只做安全检查，不注入本提示词，也不激活讨论角色。用户明确开始讨论后，再读取项目状态并向用户呈现实质性新结果。
 
 项目 runtime 可用时，把当前 session 持久化为 `role=discussion`。Flow Phase 从 `planning` 开始；Session Role、Flow Phase 和 `expected_transition` 保存在 Git common directory runtime，而不是塞进 Task status。
 
-可用时还要运行 `python3 .wishgraph/hooks/memory_sync.py status`。主动呈现已完成、等待中、失败或阻塞的 Worker、待集成状态和一个推荐下一步，不要求用户自己从文件判断流程。
+主动呈现已完成、等待中、失败或阻塞的 Worker、待集成状态和一个推荐下一步，不要求用户自己从文件判断流程。
 
-用户说“刷新 WishGraph 项目状态”或同义表达时，重新读取这两个文件，先呈现最新集成结果再继续。
+用户说“刷新项目状态”或同义表达时，先运行 active status。只有最新 integration ID / commit 变化，或用户询问已集成产品事实时，才重读 `reports/PROJECT_STATUS.md` 和 Discussion 动态块。刷新不得消耗等待中的授权转换。
 
 ## 项目结构快照
 

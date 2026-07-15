@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 from typing import Optional
 
@@ -71,6 +72,192 @@ class RuntimeBoundaryTests(unittest.TestCase):
                 self.assertIn("Bash", matcher)
                 self.assertIn("Write", matcher)
                 self.assertIn("Edit", matcher)
+                self.assertIn("mcp__", matcher)
+                self.assertIn("UserPromptSubmit", config["hooks"])
+
+    def test_user_prompt_parser_handles_entry_commands_and_terminal_punctuation(self) -> None:
+        self.assertEqual(
+            memory_sync.parse_user_prompt("开始讨论。\n")["action"],
+            "start_discussion",
+        )
+        self.assertEqual(
+            memory_sync.parse_user_prompt("“开始讨论‘")["action"],
+            "start_discussion",
+        )
+        self.assertEqual(
+            memory_sync.parse_user_prompt("刷新项目状态！")["action"],
+            "refresh_project_status",
+        )
+        routed = memory_sync.parse_user_prompt("重新执行 012ba 号任务！")
+        self.assertEqual(routed["action"], "retry")
+        self.assertEqual(routed["task_id"], "012ba")
+
+    def test_gate_recognizes_common_build_commands_and_mcp_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            config = json.loads((HOOK_ASSETS / "config.json").read_text())
+            for command in (
+                "swift test",
+                "dotnet build",
+                "cmake --build build",
+                "bazel test //...",
+                "uv run pytest",
+                "bun run build",
+            ):
+                with self.subTest(command=command):
+                    operation = memory_sync.classify_tool_operation(
+                        root,
+                        config,
+                        {"tool_name": "Bash", "tool_input": {"command": command}},
+                    )
+                    self.assertEqual(operation[0], "build_test")
+            mcp = memory_sync.classify_tool_operation(
+                root,
+                config,
+                {
+                    "tool_name": "mcp__filesystem__write_file",
+                    "tool_input": {"path": "src/app.py"},
+                },
+            )
+            self.assertEqual(mcp[0], "business_write")
+
+    def test_skill_entrypoint_is_lean_and_routes_every_reference(self) -> None:
+        skill_path = ROOT / "skills" / "wishgraph" / "SKILL.md"
+        content = skill_path.read_text(encoding="utf-8")
+        lines = content.splitlines()
+        self.assertLessEqual(len(lines), 100)
+        self.assertLess(len(content.encode("utf-8")), 10 * 1024)
+
+        routed = set(re.findall(r"`references/([^`]+\.md)`", content))
+        actual = {
+            path.name
+            for path in (ROOT / "skills" / "wishgraph" / "references").glob("*.md")
+        }
+        self.assertEqual(routed, actual)
+
+    def test_revision_fast_path_loads_one_reference_until_an_exception(self) -> None:
+        skill = (ROOT / "skills" / "wishgraph" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        revision = (
+            ROOT / "skills" / "wishgraph" / "references" / "task-revisions.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "Clear low-risk correction: read only `references/task-revisions.md`; "
+            "expand only through its exception table.",
+            skill,
+        )
+        for expected in (
+            "Do not ask whether to create the Revision Worker",
+            "worker_creation_authorized\": true",
+            "Acquire a fresh Claim",
+            "Runs only the targeted validation",
+            "Every terminal Revision enters `integration_pending` automatically",
+            "## Exception Routing",
+            "Do not load exception references pre-emptively",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, revision)
+
+    def test_non_commit_pretool_gate_never_enumerates_source_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            config = json.loads((HOOK_ASSETS / "config.json").read_text())
+            memory_sync.write_session_runtime(
+                root,
+                "neutral-session",
+                {
+                    "session": {
+                        "session_id": "neutral-session",
+                        "role": "neutral",
+                        "host": "codex",
+                        "phase": "planning",
+                        "expected_transition": None,
+                    }
+                },
+            )
+            claim = memory_sync.acquire_claim(
+                root,
+                "012",
+                1,
+                "worker-session",
+                host_thread_ref="worker-session",
+                allowed_scope=["src/**"],
+                validation_plan=["python3 -m unittest"],
+                require_clean=False,
+            )
+            self.assertTrue(claim["ok"], claim)
+            memory_sync.write_session_runtime(
+                root,
+                "worker-session",
+                {
+                    "session": {
+                        "session_id": "worker-session",
+                        "role": "worker",
+                        "host": "codex",
+                        "phase": "waiting_for_worker",
+                        "expected_transition": {
+                            "kind": "wait_for_worker",
+                            "task_id": "012",
+                        },
+                    },
+                    "task": {
+                        "task_id": "012",
+                        "lifecycle": "running",
+                        "worker_authorized": True,
+                    },
+                },
+            )
+
+            git_state_module = sys.modules["git_state"]
+            original_run_git = git_state_module.run_git
+            original_glob = Path.glob
+            forbidden_git = {"status", "diff", "ls-files", "ls-tree", "for-each-ref"}
+
+            def guarded_git(path: Path, *args: str, **kwargs: object):
+                if args and args[0] in forbidden_git:
+                    raise AssertionError(f"hot path enumerated Git source state: {args}")
+                return original_run_git(path, *args, **kwargs)
+
+            def guarded_glob(path: Path, pattern: str):
+                if "**" in pattern:
+                    raise AssertionError(f"hot path used recursive glob: {pattern}")
+                return original_glob(path, pattern)
+
+            neutral_payload = {
+                "cwd": str(root),
+                "session_id": "neutral-session",
+                "host": "codex",
+                "tool_name": "Write",
+                "tool_input": {"file_path": str(root / "src" / "probe.py")},
+            }
+            worker_payload = {
+                **neutral_payload,
+                "session_id": "worker-session",
+            }
+            with (
+                mock.patch.object(git_state_module, "run_git", side_effect=guarded_git),
+                mock.patch.object(Path, "glob", new=guarded_glob),
+                mock.patch.object(
+                    Path,
+                    "rglob",
+                    side_effect=AssertionError("hot path used Path.rglob"),
+                ),
+                mock.patch.object(
+                    os,
+                    "walk",
+                    side_effect=AssertionError("hot path used os.walk"),
+                ),
+            ):
+                denied = memory_sync.orchestration_gate_plan(root, config, neutral_payload)
+                allowed = memory_sync.orchestration_gate_plan(root, config, worker_payload)
+
+            self.assertIsNotNone(denied)
+            self.assertFalse(denied.accepted)
+            self.assertIsNotNone(allowed)
+            self.assertTrue(allowed.accepted)
 
 
 class OrchestrationStateMachineTests(unittest.TestCase):
@@ -685,6 +872,16 @@ class WorkerReuseRevisionSpecTests(unittest.TestCase):
         self.assertEqual(plan.next_action, "create_lightweight_revision")
         self.assertEqual(plan.revision_id, "012-r1")
         self.assertNotIn("change_set", plan.state_patch["revision"])
+        self.assertTrue(plan.state_patch["revision"]["worker_creation_authorized"])
+        self.assertEqual(
+            plan.state_patch["revision"]["run_report"],
+            "reports/runs/012-r1-attempt-1.md",
+        )
+        self.assertTrue(plan.work_payload["worker_creation_authorized"])
+        self.assertEqual(
+            plan.work_payload["run_report"],
+            "reports/runs/012-r1-attempt-1.md",
+        )
         stored = memory_sync.parse_revision_state(
             "tasks/revisions/012-r1.md",
             (HOOK_ASSETS.parent / "templates" / "TASK_REVISION.md").read_text(
@@ -694,6 +891,38 @@ class WorkerReuseRevisionSpecTests(unittest.TestCase):
         self.assertEqual(stored.revision_id, "012-r1")
         self.assertEqual(stored.parent_task_id, "012")
         self.assertLessEqual(len(stored.allowed_scope), 3)
+
+    def test_revision_reuses_only_the_exact_parent_worker(self) -> None:
+        exact = memory_sync.reduce_orchestration(
+            self.state(
+                task_id="012",
+                lifecycle="completed",
+                expected_kind=None,
+                previous_task_id="012",
+                worker_window_id="worker-window-012",
+                worker_availability="idle",
+                binding_status="released",
+            ),
+            self.event("user_requested_revision", **self.revision_data()),
+            self.capability(route_worker=True, reuse_worker=True),
+        )
+        unbound_history = memory_sync.reduce_orchestration(
+            self.state(
+                task_id="012",
+                lifecycle="completed",
+                expected_kind=None,
+                previous_task_id="",
+                worker_window_id="worker-window-unknown",
+                worker_availability="idle",
+                binding_status="released",
+            ),
+            self.event("user_requested_revision", **self.revision_data()),
+            self.capability(route_worker=True, reuse_worker=True),
+        )
+
+        self.assertEqual(exact.next_action, "route_to_previous_worker")
+        self.assertEqual(exact.target_worker_id, "worker-window-012")
+        self.assertEqual(unbound_history.next_action, "create_lightweight_revision")
 
     def test_revision_08_completion_enters_automatic_integration(self) -> None:
         plan = memory_sync.reduce_orchestration(
@@ -894,6 +1123,7 @@ class WorkerReuseRevisionSpecTests(unittest.TestCase):
                 1,
                 "worker-012",
                 host_thread_ref="visible-worker-012",
+                agent_platform="codex",
                 require_clean=False,
             )
             memory_sync.update_claim(root, claim["claim"]["claim_id"], "release")
@@ -924,6 +1154,7 @@ class WorkerReuseRevisionSpecTests(unittest.TestCase):
                 1,
                 "worker-013",
                 host_thread_ref="visible-worker-012",
+                agent_platform="codex",
                 require_clean=False,
             )
             self.assertTrue(busy["ok"], busy)
@@ -1015,7 +1246,12 @@ class UnbornRepositoryTests(unittest.TestCase):
                 check=True,
             )
 
-            self.assertEqual(json.loads(process.stdout), {})
+            payload = json.loads(process.stdout)
+            self.assertIn("hookSpecificOutput", payload)
+            self.assertIn(
+                "project memory is not initialized",
+                payload["hookSpecificOutput"]["additionalContext"],
+            )
 
 
 class MemorySyncTests(unittest.TestCase):
@@ -1785,7 +2021,8 @@ class MemorySyncTests(unittest.TestCase):
         result = memory_sync.check_sync(self.root, self.config, "worktree")
         self.assertTrue(result.ok, result.errors)
         allocated = memory_sync.next_revision_id(self.root, self.config, "012")
-        self.assertEqual(allocated["revision_id"], "012-r2")
+        self.assertEqual(allocated["revision_id"], "012-r1")
+        self.assertTrue(allocated["reuse_open_revision"])
 
     def test_revision_closeout_uses_revision_report_and_is_auto_eligible(self) -> None:
         self.write(
@@ -2389,6 +2626,66 @@ class MemorySyncTests(unittest.TestCase):
             check=True,
         )
         self.assertEqual(json.loads(process.stdout), {})
+
+    def test_worker_apply_patch_is_bounded_to_claim_scope(self) -> None:
+        acquired = memory_sync.acquire_claim(
+            self.root,
+            "044",
+            1,
+            "worker-scope",
+            allowed_scope=["src/**"],
+            validation_plan=["python3 -m unittest"],
+        )
+        self.assertTrue(acquired["ok"], acquired)
+        memory_sync.write_session_runtime(
+            self.root,
+            "worker-scope",
+            {
+                "session": {
+                    "session_id": "worker-scope",
+                    "role": "worker",
+                    "host": "codex",
+                    "phase": "waiting_for_worker",
+                    "expected_transition": None,
+                },
+                "task": {
+                    "task_id": "044",
+                    "lifecycle": "running",
+                    "worker_authorized": True,
+                },
+            },
+        )
+
+        def invoke(patch: str, tool_name: str = "apply_patch") -> dict[str, object]:
+            process = subprocess.run(
+                [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "pre-tool-use"],
+                cwd=self.root,
+                input=json.dumps(
+                    {
+                        "cwd": str(self.root),
+                        "session_id": "worker-scope",
+                        "tool_name": tool_name,
+                        "tool_input": {"command": patch},
+                    }
+                ),
+                text=True,
+                stdout=subprocess.PIPE,
+                check=True,
+            )
+            return json.loads(process.stdout)
+
+        allowed = invoke("*** Begin Patch\n*** Update File: src/app.py\n*** End Patch")
+        self.assertEqual(allowed, {})
+        outside = invoke("*** Begin Patch\n*** Update File: ../outside.py\n*** End Patch")
+        self.assertEqual(
+            outside["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
+        inside_shell = invoke("touch src/generated.py", tool_name="Bash")
+        self.assertEqual(inside_shell, {})
+        opaque_shell = invoke("touch ../outside.py", tool_name="Bash")
+        self.assertEqual(
+            opaque_shell["hookSpecificOutput"]["permissionDecision"], "deny"
+        )
 
     def test_pre_tool_use_rejects_forged_worker_runtime_without_live_claim(self) -> None:
         memory_sync.write_session_runtime(
@@ -3412,6 +3709,233 @@ class MemorySyncTests(unittest.TestCase):
         self.assertIn('"pending_integration":true', context)
         self.assertIn('"integration_kind":"sequential"', context)
 
+    def test_user_prompt_submit_routes_discussion_refresh_and_exact_task(self) -> None:
+        task_path = "tasks/build/012-route.md"
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                "012-route", status="approved", worker_authorized=True
+            ),
+        )
+        start = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "user-prompt-submit",
+                "--host",
+                "codex",
+            ],
+            cwd=self.root,
+            input=json.dumps(
+                {"cwd": str(self.root), "session_id": "discussion-route", "prompt": "开始讨论。"}
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            check=True,
+        )
+        self.assertIn("WishGraph project update", json.loads(start.stdout)["hookSpecificOutput"]["additionalContext"])
+        runtime = memory_sync.read_session_runtime(self.root, "discussion-route")
+        self.assertEqual(runtime["session"]["role"], "discussion")
+
+        route = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "user-prompt-submit",
+                "--host",
+                "codex",
+            ],
+            cwd=self.root,
+            input=json.dumps(
+                {"cwd": str(self.root), "session_id": "neutral-route", "prompt": "执行 012 号任务！"}
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            check=True,
+        )
+        context = json.loads(route.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn('"host_action":"enter_current_window_as_worker"', context)
+        self.assertIn('"task_id":"012"', context)
+
+        memory_sync.apply_session_runtime_patch(
+            self.root,
+            "discussion-route",
+            {
+                "session": {
+                    "expected_transition": {
+                        "kind": "approve_worker_launch",
+                        "task_id": "012",
+                    }
+                }
+            },
+        )
+        subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "user-prompt-submit",
+                "--host",
+                "codex",
+            ],
+            cwd=self.root,
+            input=json.dumps(
+                {"cwd": str(self.root), "session_id": "discussion-route", "prompt": "刷新项目状态"}
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            check=True,
+        )
+        refreshed = memory_sync.read_session_runtime(self.root, "discussion-route")
+        self.assertEqual(
+            refreshed["session"]["expected_transition"]["kind"],
+            "approve_worker_launch",
+        )
+
+    def test_active_status_is_compact_and_full_status_keeps_history(self) -> None:
+        for task_id, status in (("041", "integrated"), ("042", "approved")):
+            self.write(
+                f"tasks/build/{task_id}-status.md",
+                self.structured_task(
+                    task_id,
+                    status=status,
+                    worker_authorized=True,
+                ),
+            )
+        policy_module = sys.modules["policy"]
+        with mock.patch.object(
+            policy_module,
+            "report_contents_across_refs",
+            side_effect=AssertionError("active status scanned historical report trees"),
+        ):
+            active = memory_sync.integration_state(
+                self.root, self.config, view="active"
+            ).as_dict()
+        self.assertEqual(active["view"], "active")
+        self.assertEqual([unit["task_id"] for unit in active["work_units"]], ["042"])
+        full = memory_sync.integration_state(
+            self.root, self.config, view="full"
+        ).as_dict()
+        self.assertIn("041", [unit["task_id"] for unit in full["work_units"]])
+        exact = memory_sync.integration_state(
+            self.root, self.config, view="active", task_id="041"
+        ).as_dict()
+        self.assertEqual(exact["task_filter"], "041")
+        self.assertEqual([unit["task_id"] for unit in exact["work_units"]], ["041"])
+        cli_full = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "status",
+                "--full",
+            ],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            check=True,
+        )
+        self.assertEqual(json.loads(cli_full.stdout)["view"], "full")
+        cli_task = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "status",
+                "--task",
+                "041",
+            ],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            check=True,
+        )
+        self.assertEqual(json.loads(cli_task.stdout)["task_filter"], "041")
+
+    def test_run_report_integrate_proposal_cannot_be_dropped_by_project_status(self) -> None:
+        report_path = "reports/runs/043-semantic-sync.md"
+        self.write("src/semantic.py", "print('detail changed')\n")
+        self.write(
+            report_path,
+            self.run_report(
+                "043-semantic-sync",
+                {"PRD.md": ("Integrate", "The visible product decision changed")},
+            ),
+        )
+        self.write("prompts/DISCUSSION_AI.md", self.discussion("integration/043"))
+        self.write("reports/PROJECT_STATUS.md", self.overview([report_path]))
+        rejected = memory_sync.check_sync(self.root, self.config, "worktree")
+        self.assertFalse(rejected.ok)
+        self.assertTrue(
+            any("Run Report marked it Integrate" in error for error in rejected.errors),
+            rejected.errors,
+        )
+
+        self.write("PRD.md", "# PRD\n\n- Decision: updated detail\n")
+        self.write(
+            "reports/PROJECT_STATUS.md",
+            self.overview(
+                [report_path],
+                {"PRD.md": ("Updated", "Applied the changed product decision")},
+            ),
+        )
+        accepted = memory_sync.check_sync(self.root, self.config, "worktree")
+        self.assertTrue(accepted.ok, accepted.errors)
+
+    def test_claim_platform_prevents_cross_host_worker_reuse(self) -> None:
+        self.write(
+            "tasks/build/012-parent.md",
+            self.structured_task("012", status="completed", worker_authorized=True),
+        )
+        self.write(
+            "tasks/revisions/012-r1.md",
+            (HOOK_ASSETS.parent / "templates" / "TASK_REVISION.md").read_text(encoding="utf-8"),
+        )
+        claim = memory_sync.acquire_claim(
+            self.root,
+            "012",
+            1,
+            "claude-worker",
+            host_thread_ref="claude-session-012",
+            agent_platform="claude",
+            require_clean=False,
+        )
+        self.assertEqual(claim["claim"]["agent_platform"], "claude")
+        memory_sync.update_claim(self.root, claim["claim"]["claim_id"], "release")
+        routed = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "revision",
+                "route",
+                "012-r1",
+                "--host",
+                "codex",
+            ],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            check=True,
+        )
+        action = json.loads(routed.stdout)["host_action"]
+        self.assertEqual(action["action"], "create_visible_revision_worker")
+        self.assertNotIn("target_worker_id", action)
+
+    def test_next_revision_reuses_one_open_record_before_allocating_another(self) -> None:
+        self.write(
+            "tasks/build/012-parent.md",
+            self.structured_task("012", status="completed", worker_authorized=True),
+        )
+        template = (HOOK_ASSETS.parent / "templates" / "TASK_REVISION.md").read_text(encoding="utf-8")
+        self.write("tasks/revisions/012-r1.md", template)
+        reused = memory_sync.next_revision_id(self.root, self.config, "012")
+        self.assertTrue(reused["reuse_open_revision"])
+        self.assertEqual(reused["revision_id"], "012-r1")
+        self.write(
+            "tasks/revisions/012-r1.md",
+            template.replace('"status": "pending"', '"status": "integrated"'),
+        )
+        allocated = memory_sync.next_revision_id(self.root, self.config, "012")
+        self.assertFalse(allocated["reuse_open_revision"])
+        self.assertEqual(allocated["revision_id"], "012-r2")
+
 
 class InstallerTests(unittest.TestCase):
     def test_installer_rejects_non_git_directory_before_writing(self) -> None:
@@ -3507,6 +4031,12 @@ class InstallerTests(unittest.TestCase):
             ]
             self.assertIn("echo existing", commands)
             self.assertTrue(any("memory_sync.py" in command for command in commands))
+            wishgraph_commands = [
+                command for command in commands if "memory_sync.py" in command
+            ]
+            self.assertTrue(
+                all(str(Path(sys.executable).resolve()) in command for command in wishgraph_commands)
+            )
             for runtime_name in (
                 "memory_sync.py",
                 "git_state.py",
@@ -3530,8 +4060,11 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(json.loads(status.stdout)["kind"], "integration_status")
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
-            self.assertEqual(config["version"], 10)
+            self.assertEqual(config["version"], 11)
             self.assertEqual(config["session_start_context_mode"], "safety_only")
+            self.assertEqual(
+                config["python_executable"], str(Path(sys.executable).resolve())
+            )
             self.assertEqual(config["paths"]["run_report_glob"], "reports/runs/*.md")
             self.assertEqual(
                 config["paths"]["project_status"], "reports/PROJECT_STATUS.md"
@@ -3612,7 +4145,7 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertEqual(process.returncode, 0, process.stderr)
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
-            self.assertEqual(config["version"], 10)
+            self.assertEqual(config["version"], 11)
             self.assertEqual(config["session_start_context_mode"], "safety_only")
             self.assertEqual(config["session_summary_max_chars"], 1234)
             self.assertTrue(config["scan_worker_refs_for_status"])
@@ -3649,7 +4182,7 @@ class OneCommandInstallerTests(unittest.TestCase):
                 stderr=subprocess.PIPE,
             )
             self.assertEqual(process.returncode, 0, process.stderr)
-            self.assertIn("about 0.2 MB", process.stdout)
+            self.assertIn("about 0.5 MB", process.stdout)
             self.assertIn("Prerequisite check passed", process.stdout)
             self.assertFalse((root / "codex-home").exists())
             self.assertFalse((project / ".wishgraph").exists())
@@ -3824,7 +4357,7 @@ class OneCommandInstallerTests(unittest.TestCase):
             "winget install --id Git.Git",
             "winget install 9NQ7512CXL7T",
             "py list --format=exe",
-            "about 0.2 MB",
+            "about 0.5 MB",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, content)
@@ -3836,10 +4369,12 @@ class OneCommandInstallerTests(unittest.TestCase):
         installation = (
             ROOT / "skills" / "wishgraph" / "references" / "installation.md"
         ).read_text(encoding="utf-8")
-        self.assertIn("proactively recommend", skill)
-        self.assertIn("four-stage conversation", skill)
-        self.assertIn("按推荐来", skill)
-        self.assertIn("exact short reply that will resume setup", skill)
+        self.assertIn("Installation, prerequisites", skill)
+        self.assertNotIn("Natural-Language Installation", skill)
+        self.assertIn("Make a recommendation before asking", installation)
+        self.assertIn("four visible stages", installation)
+        self.assertIn("按推荐来", installation)
+        self.assertIn("exact resume phrase", installation)
         self.assertIn("选择", installation)
         self.assertIn("已安装 Python", installation)
 
@@ -3872,21 +4407,18 @@ class OneCommandInstallerTests(unittest.TestCase):
             / "skills"
             / "wishgraph"
             / "references"
-            / "worker-window-launch.md"
+            / "worker-execution.md"
         ).read_text(encoding="utf-8")
         chinese_prompt = (
             ROOT / "templates" / "zh-CN" / "prompts" / "DISCUSSION_AI.md"
         ).read_text(encoding="utf-8")
         for expected in (
-            "Window / Role / Phase / Host Action",
             "approve_worker_launch",
-            "automatic_thread",
             "waiting_for_user_launch",
             "执行 <task-id> 任务",
-            "visible, user-owned, inspectable, and controllable",
+            "user-visible, inspectable, controllable Worker",
             "<task-id> · <short title> · WG Worker",
-            "No Discussion-executes fallback",
-            "Integration is a Discussion-local phase",
+            "Never substitute a hidden subagent or let Discussion implement the Task",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, reference)
@@ -3924,7 +4456,8 @@ class OneCommandInstallerTests(unittest.TestCase):
             ROOT / "skills" / "wishgraph" / "references" / "memory-sync-hooks.md"
         ).read_text(encoding="utf-8")
         self.assertIn("Hooks do not start agents", runtime)
-        self.assertIn("never start them", reference)
+        self.assertIn("do not write semantic project memory", reference)
+        self.assertIn("launch Workers", reference)
         self.assertNotIn("subprocess.Popen", runtime)
 
 
@@ -4032,6 +4565,7 @@ class TemplateMirrorTests(unittest.TestCase):
             "skills/wishgraph/assets/templates/INTEGRATION_AI.md",
             "skills/wishgraph/assets/templates/zh-CN/prompts/INTEGRATION_AI.md",
             "skills/wishgraph/references/memory-sync-hooks.md",
+            "skills/wishgraph/references/project-bootstrap.md",
             "skills/wishgraph/scripts/install_project_hooks.py",
             "templates/prompts/INTEGRATION_AI.md",
             "templates/zh-CN/prompts/INTEGRATION_AI.md",

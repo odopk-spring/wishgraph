@@ -30,22 +30,13 @@ WishGraph supports Chinese, English, and bilingual handoff. To request bilingual
 Please use bilingual Chinese and English output for user-facing prompts and summaries. Keep file paths, commands, and code identifiers unchanged.
 ```
 
-Manual materials are also available in both languages:
-
-- Templates: `templates/` and `templates/zh-CN/`
-- Adapters: `adapters/`
-- Docs: `docs/`
-
-Ask it:
+For an existing repository, the recommended native-lite request is:
 
 ```text
-If this is a new or vague project, first run the WishGraph intake prompt, then grill it into a PRD one decision at a time.
-If this is an existing repository, first read the repository, then discuss the project goal with me.
-Create or update the PRD, architecture outline, CODEMAP, conventions, discussion prompt, execution prompt, first task spec, and Dev Report template.
-Do not change business code yet.
+复用仓库已有的 README、产品、架构、规范、Task 和验证文件。只补齐进入 Discussion/Worker 和当前 Project Status 所缺的最小 WishGraph 状态；Task、Revision 和报告目录在首次需要时再创建。不要修改业务代码。
 ```
 
-The first useful output should be a project frame, not code.
+For a blank project, ask WishGraph to run the intake below and create the fuller graph as it becomes useful. The first output should be a project frame, not code.
 
 For a blank project, the first intake prompt should be:
 
@@ -84,7 +75,7 @@ Before restructuring or implementation, discuss enough to produce a rough but us
 - Current progress.
 - Immediate next task.
 
-Record this in `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, and `prompts/DISCUSSION_AI.md`.
+Record this in authoritative native project files when they already exist. Create `PRD.md`, `ARCHITECTURE.md`, or `CODEMAP.md` only when no existing source owns that truth; always keep the concise Discussion entry and Project Status discoverable from the root README.
 
 Also record the project language mode in `prompts/DISCUSSION_AI.md`, so future Discussion and Worker windows preserve the same Chinese, English, or bilingual style.
 
@@ -92,11 +83,11 @@ The first pass does not need to be perfect. It only needs to be concrete enough 
 
 Use a grill-first pattern: one question at a time, with a recommended default. The discussion AI should keep asking until it can write a useful PRD and a bounded first implementation task.
 
-## 2. Create The External Memory Files
+## 2. Map Or Create External Memory
 
 WishGraph works because the project, not the chat window, stores state.
 
-Minimum files:
+Blank projects may grow into the full graph below. Existing projects reuse equivalent native files and create Task, Revision, template, and report directories lazily:
 
 - `PRD.md`: product goals, scope, roadmap, and current decisions.
 - `ARCHITECTURE.md`: structure, dependency boundaries, and ownership.
@@ -109,7 +100,7 @@ Minimum files:
 - `tasks/build/001-bootstrap-project.md`: first-use bootstrap task when the project starts from a vague idea.
 - `reports/RUN_REPORT.md`: template for one immutable report per worker execution.
 - `reports/runs/<work-unit-id>.md`: worker-specific validation and integration proposals.
-- `reports/PROJECT_STATUS.md`: current integrated Project Status; it is a rewritten snapshot, not a history log.
+- `reports/PROJECT_STATUS.md`: current integrated Project Status; it is a rewritten snapshot, not a history or live heartbeat log. Live Worker progress comes from the active status command.
 
 New Task Specs, Run Reports, and Project Status snapshots contain small versioned JSON blocks for lifecycle facts. Keep product meaning, evidence, risks, and decisions in normal Markdown; do not move semantic project truth into the structured block.
 
@@ -140,19 +131,19 @@ python3 skills/wishgraph/scripts/install_project_hooks.py \
   --mode warn
 ```
 
-The hooks check three boundaries: pending state at session start, staged memory before an agent runs `git commit`, and worktree memory before an agent stops. Start in `warn`; switch `.wishgraph/config.json` to `enforce` after one successful closeout. Codex users must trust the project and review the new definitions with `/hooks`.
+The hooks route exact natural-language entry commands, check pending state at session start, gate supported write/build tools before use, check staged memory before `git commit`, and check worktree memory before an agent stops. Start in `warn`; switch `.wishgraph/config.json` to `enforce` after one successful closeout. Codex users must trust the project and review the new definitions with `/hooks`.
 
 To switch in one command, re-run the top-level installer with `--setup-project --strict`. Strict mode also requests a Git pre-commit fallback and will not overwrite an existing Git hook.
 
-Hooks do not write PRD, architecture, CODEMAP, Project Status, or handoff prose. Workers record Integrate or N/A in task-scoped Run Reports; the Discussion-local Integration lease holder applies shared updates and records Updated or N/A in `reports/PROJECT_STATUS.md`.
+Hooks do not write PRD, architecture, CODEMAP, Project Status, or handoff prose. Workers record Integrate or N/A in task-scoped Run Reports; the Discussion-local Integration lease holder applies shared updates and records Updated or N/A in `reports/PROJECT_STATUS.md`. A selected `Integrate` proposal mechanically requires `Updated` plus the corresponding file in the integration diff, so a small PRD decision change cannot be silently recorded as N/A.
 
-The read-only command `python3 .wishgraph/hooks/memory_sync.py status` joins Task Specs, Run Reports, and Project Status into `work_units`, then reports ready, waiting, and blocked workers, integration kind, confirmation requirement, and reason. Hooks do not start Workers or create Integration windows.
+The read-only command `python3 .wishgraph/hooks/memory_sync.py status` defaults to a compact active view and reads only current candidate reports across refs. Use `status --task 012` for one exact Task and `status --full` only for historical diagnosis. Hooks do not start hidden Workers or create Integration windows.
 
 ## 3. Use The Foreground Discussion Workflow
 
 ### Discussion AI Window
 
-Open any normal window and say `开始讨论` / `Start discussion`. WishGraph then reads the discussion prompt and current project status in that visible window. New windows remain neutral by default; SessionStart only surfaces safety problems and does not silently choose a role. Say `刷新项目状态` / `Refresh project state` to reload current state without opening another window.
+Open any normal window and say `开始讨论` / `Start discussion`. The prompt hook enters Discussion and loads only the compact handoff, current integrated snapshot, and active status. New windows remain neutral by default. Say `刷新项目状态` / `Refresh project status` to refresh active state; detailed PRD, architecture, CODEMAP, old reports, and unrelated Tasks are loaded only when the current question requires them.
 
 Use it to:
 
