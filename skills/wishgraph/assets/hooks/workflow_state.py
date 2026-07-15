@@ -518,7 +518,7 @@ TASK_COMMANDS = {
 
 def normalized_command_text(text: str) -> str:
     candidate = text.strip().lower().strip("\"'“”‘’`").strip()
-    candidate = re.sub(r"[。！？!?；;，,、：:]+$", "", candidate).strip()
+    candidate = re.sub(r"[。.!！？?；;，,、：:…]+$", "", candidate).strip()
     return candidate.strip("\"'“”‘’`").strip()
 
 
@@ -573,32 +573,69 @@ def parse_task_command(text: str) -> Optional[dict[str, Any]]:
     return None
 
 
+LOW_RISK_LEADING_POLITENESS_RE = re.compile(
+    r"^(?:(?:请帮我|麻烦帮我|请问|劳烦你|劳烦|请你|麻烦你|请|麻烦|帮我|能否|可否|可以|"
+    r"please\s+help\s+me|please|could\s+you|can\s+you)\s*)+",
+    re.IGNORECASE,
+)
+LOW_RISK_TRAILING_POLITENESS_RE = re.compile(
+    r"(?:\s*[,，、]?\s*(?:谢谢你|谢谢|拜托了?|好吗|可以吗|行吗|吗|呢|吧|please))+$",
+    re.IGNORECASE,
+)
+
+
+def normalized_low_risk_command_text(text: str) -> str:
+    """Normalize bounded read-only entry commands without loosening authority."""
+    candidate = text.strip().casefold()
+    candidate = candidate.strip("\"'“”‘’`").strip()
+    candidate = re.sub(r"\s+", " ", candidate)
+    candidate = re.sub(r"[。.!！？?；;，,、：:…]+$", "", candidate).strip()
+    candidate = LOW_RISK_LEADING_POLITENESS_RE.sub("", candidate).strip()
+    candidate = LOW_RISK_TRAILING_POLITENESS_RE.sub("", candidate).strip()
+    candidate = re.sub(r"[。！？!?；;，,、：:]+$", "", candidate).strip()
+    candidate = candidate.replace("一下", "")
+    return re.sub(r"\s+", "", candidate.strip("\"'“”‘’`").strip())
+
+
 DISCUSSION_ENTRY_COMMANDS = {
     "开始讨论",
     "进入讨论",
+    "进入讨论模式",
+    "开启讨论",
+    "开启讨论模式",
+    "回到讨论",
+    "回到讨论模式",
+    "回到discussion",
     "继续讨论",
-    "start discussion",
-    "enter discussion",
+    "继续讨论模式",
+    "startdiscussion",
+    "enterdiscussion",
+    "resumediscussion",
+    "returntodiscussion",
+    "backtodiscussion",
 }
 STATUS_REFRESH_COMMANDS = {
     "刷新项目状态",
     "刷新状态",
     "查看项目状态",
     "项目状态",
-    "refresh project status",
-    "refresh status",
-    "show project status",
+    "重新加载项目状态",
+    "重载项目状态",
+    "refreshprojectstatus",
+    "refreshstatus",
+    "showprojectstatus",
+    "reloadprojectstatus",
 }
 
 
 def parse_user_prompt(text: str) -> Optional[dict[str, Any]]:
-    """Parse an explicit WishGraph entry command without fuzzy intent guessing."""
-    candidate = normalized_command_text(text)
+    """Parse bounded low-risk aliases, then exact authority-bearing commands."""
+    candidate = normalized_low_risk_command_text(text)
     if candidate in DISCUSSION_ENTRY_COMMANDS:
         return {"action": "start_discussion", "authorizes_execution": False}
     if candidate in STATUS_REFRESH_COMMANDS:
         return {"action": "refresh_project_status", "authorizes_execution": False}
-    return parse_task_command(candidate)
+    return parse_task_command(text)
 
 
 def positive_attempt(value: Any, errors: list[str]) -> int:

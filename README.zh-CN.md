@@ -9,43 +9,58 @@
 ![Claude Code](https://img.shields.io/badge/agent-Claude%20Code-172033)
 ![许可证](https://img.shields.io/badge/license-PolyForm%20Noncommercial-14A878)
 
-**为 AI 编程 Agent 提供文件化项目治理。** WishGraph 把用户意图转换成可审计的规格、任务、执行证据和共享项目状态，让项目跨越不同 Agent 与对话持续推进，而不是依赖聊天窗口记忆。
+**为 AI 编程 Agent 提供持久的项目记忆和执行边界。**
 
-![讨论、Worker、集成、再讨论](docs/assets/wishgraph-simple-loop-zh.svg)
+WishGraph 把产品意图、架构、任务范围、执行证据和最新项目状态保存在仓库中。Codex 与 Claude Code 可以从精简、共享的项目事实继续工作，不必把聊天记录或每次遍历完整源码树当作项目记忆。
 
-WishGraph 同时提供可安装的 Codex / Claude Code Skill、项目模板和可选 Hooks。用户负责方向与判断；Agent 把意图翻译成有边界的工作，并将执行后的项目事实写回持久文件。
+![讨论、可见 Worker、集成、再讨论](docs/assets/wishgraph-simple-loop-zh.svg)
 
-[立即上手](#60-秒配置) · [查看工作流程](#工作原理) · [浏览文档](docs/README.md) · [阅读方法论](docs/wishgraph-method.md)
+[60 秒开始](#60-秒开始) · [理解工作流程](#一个项目三类职责) · [浏览文档](docs/README.md) · [English](README.md)
 
-## 为什么需要 WishGraph
+> WishGraph 按项目选择启用。全局安装 Skill 只表示它随时可用；用户没有明确启用的项目仍按普通 Agent 项目运行。
 
-复杂 AI 协作项目的问题经常发生在两次编码之间：范围逐渐漂移，早期决定消失，Agent 猜测文件位置，已经完成的修改也没有更新共享项目状态。
+## 实际使用是什么样
 
-WishGraph 将五类事实显式保存：
+项目启用 WishGraph 后，日常入口只有几条简短的自然语言命令：
 
-- **意图：** 项目要完成什么，哪些内容不在范围内。
-- **结构：** 模块、契约与文件分别负责什么。
-- **任务：** 每个正式执行单元都有一个可见 Task Spec。
-- **证据：** 验证结果与不可变 Run Report。
-- **当前状态：** 下一次讨论或下一个 Agent 可直接读取的压缩快照。
+```text
+开始讨论。
+执行 012 号任务。
+刷新项目状态。
+```
 
-## 60 秒配置
+- **开始讨论**：读取精简的当前状态入口，进入规划和讨论。
+- **执行 012 号任务**：为准确匹配的 Task 启动或路由一个已经授权、用户可见的 Worker。
+- **刷新项目状态**：读取当前快照和相关终态报告，默认不遍历完整源码树。
+
+“把这个按钮换成暖灰色”这类目标明确、风险较低的小改动会成为原 Task 的轻量 Revision。Worker 窗口释放旧 Task 并获取新 Claim 后也可以继续执行下一个任务。小修订保持轻量，同时仍保留验证和记录。
+
+## 60 秒开始
 
 ### Codex
 
-让 Codex 安装 Skill：
+先让 Codex 安装 Skill：
 
 ```text
 Use $skill-installer to install https://github.com/odopk-spring/wishgraph/tree/main/skills/wishgraph
 ```
 
-也可以一次安装 Skill 和安全、非阻塞的项目 Hooks：
+然后打开目标项目，依次输入：
+
+```text
+在当前项目使用 WishGraph。
+开始讨论。
+```
+
+也可以在终端一次安装 Skill 和安全模式的项目 Hooks：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- codex --setup-project
 ```
 
 ### Claude Code
+
+在目标项目中执行下面的命令，再输入“开始讨论”：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- claude-user --setup-project
@@ -57,93 +72,77 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 & ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) codex -SetupProject
 ```
 
-安全配置默认使用 `warn`，不会阻止提交。正确完成一次任务收尾后，可在 Bash 使用 `--strict`，或在 PowerShell 使用 `-Strict` 开启严格检查。完整引导和其他安装目标见 [Getting Started](GETTING_STARTED.md)。
+安全配置默认使用 `warn` 模式，不会阻止提交。完整跑通一次工作循环后，可以在 Bash 使用 `--strict`，或在 PowerShell 使用 `-Strict` 开启严格检查。其他安装目标和恢复步骤见 [Getting Started](GETTING_STARTED.md)。
 
-全局安装 Skill 只表示 WishGraph 可用，不会让每个文件夹自动启用。首次让某个项目加入 WishGraph 时，需要明确说：
+## 一个项目，三类职责
 
-```text
-在当前项目使用 WishGraph。
-```
+| 职责 | 运行位置 | 负责内容 |
+| --- | --- | --- |
+| **Discussion** | 用户长期使用的讨论窗口 | 澄清意图、创建有边界的 Task Spec、路由 Worker、集成结果并呈现决定；不在这里实现业务代码。 |
+| **Worker** | 独立、用户可见的执行窗口 | 认领一个 Task 或 Revision，只修改允许的范围，完成验证并写入不可变 Run Report。 |
+| **Integration** | Discussion 内部的临时阶段 | 评估终态报告、运行组合验证、更新共享项目状态；只有遇到实质产品决定或风险时才询问用户。 |
 
-安全配置完成后，再用一条独立命令进入流程：
+Integration 是流程阶段，不是隐藏 Agent，也不会创建第四个窗口。如果 Worker 完成时 Discussion 没有运行，WishGraph 会保存 `integration_pending`；用户下次开始讨论或刷新项目状态时，流程继续评估结果。
 
-```text
-开始讨论。
-执行 012 号任务。
-刷新项目状态。
-```
+宿主支持时，Codex 可以把任务路由到可见 Worker。当前 Claude Code 适配器采用一行明确的交接命令，例如“执行 012 号任务”，不会把手动启动描述成已经自动创建了 Worker。
 
-命令行的 `--setup-project` 等价于显式启用项目。没有选择启用的项目仍按普通 Agent 项目工作，其中的“开始讨论”不会开启 WishGraph。
+## 人与 Agent 共享的文件
 
-## 工作原理
-
-![WishGraph 工作循环](docs/assets/wishgraph-workflow-loop-zh.svg)
-
-1. **Discussion** 澄清意图、边界和成功标准，写出边界明确的 Task Spec，然后等待用户明确授权启动 Worker。
-2. **Worker** 获得授权后才会启动；它在独立 branch 或 worktree 中认领准确 Task，完成最小范围修改、运行验证，并写入不可变 Run Report。
-3. **Discussion-local Integration** 评估每个 Worker 终态。安全结果持有绑定 lease 自动集成；遇到实质风险时，才回到 Discussion 询问具体决定。
-
-正常使用时，用户只会看到一个长期存在的 Discussion 窗口，以及按任务显式创建、用户可见的 Worker 窗口。Integration 只是 Discussion 内部的临时阶段，既不是独立窗口，也不是后台 Integrator。若 Worker 完成时 Discussion 不活跃，WishGraph 会记录 `integration_pending`，并在用户下次进入或刷新 Discussion 时继续评估。Hooks 只负责暴露和约束状态，不启动 Worker、不合并代码，也不编造项目含义。
-
-Worker 窗口完成当前 Task 并释放执行占用后，可以重新绑定下一个 Task；新的 scope 和验证计划会随新 Claim 一起加载，不会沿用旧任务权限。对已有结果提出的明确、低风险、小范围反馈使用 `012-r1` 这类轻量 Task Revision，系统把它路由给相关 Worker，记录针对性验证和独立报告，安全完成后自动集成，不重新生成完整 Task Spec。
-
-## 项目状态图谱
-
-| 文件 | 保存的内容 |
+| 入口 | 用途 |
 | --- | --- |
-| `PRD.md` | 目标、范围、路线图与当前产品决定 |
-| `ARCHITECTURE.md` | 系统边界、依赖关系与职责归属 |
-| `CODEMAP.md` | 功能和契约到源文件的映射 |
-| `CONVENTIONS.md` | 协作、验证与 Git 规则 |
-| `tasks/build/*.md` | 自包含、带版本状态的执行规格 |
-| `tasks/revisions/*.md` | 与原 Task 关联的轻量修订，例如 `012-r1` |
-| `reports/runs/*.md` | 每个执行单元的不可变证据 |
-| `reports/PROJECT_STATUS.md` | 最新的集成后项目快照 |
-| `prompts/*.md` | Discussion、Worker 与 Discussion-local Integration 的稳定交接入口 |
+| `PRD.md` | 当前目标、范围、路线图和产品决定 |
+| `ARCHITECTURE.md` + `CODEMAP.md` | 系统边界，以及功能到源文件的映射 |
+| `CONVENTIONS.md` | 协作、验证和 Git 规则 |
+| `tasks/build/*.md` | 有明确边界的正式 Task |
+| `tasks/revisions/*.md` | 与原 Task 关联的小修订，例如 `012-r1` |
+| `reports/runs/*.md` | Worker 的不可变执行证据 |
+| `reports/PROJECT_STATUS.md` | 最新集成快照，也是人类最快的项目入口 |
 
-项目语义保留在便于人阅读的 Markdown 中。小型、带版本的 JSON 块只记录 Task 状态、授权、验证和集成状态等机械事实。
+便于人阅读的项目语义保存在 Markdown 中。小型、带版本的 JSON 块只记录授权、Claim、验证和集成状态等机械事实。最新状态文件始终重写为当前快照；执行历史保留在不可变报告中，不会不断堆进状态首页。
 
-## 安全边界
+## 内置维护能力
 
-- 没有人类显式授权就不会启动 Worker。
-- 默认执行模式下，同一 Task attempt 只能有一个 active Worker Claim。
-- Claim 在共享同一本地 Git common directory 的 worktree 间原子生效，但不是跨机器分布式锁。
-- 安全串行结果和通过机械门禁的 `parallel_independent` 结果可以自动集成；高风险、冲突、竞争或含糊的结果才会回到 Discussion 询问具体决定。
-- Run Report 不可变；绑定当前工作的 Discussion-local Integration lease 保证共享状态只有一个写入者。
-- 项目方向和最终判断始终由人负责。
+项目启用后，Skill 会把下面的请求路由到边界明确的维护动作：
 
-## 按目标选择入口
+| 请求 | 结果 |
+| --- | --- |
+| `检查 WishGraph 状态` | 只读检查已安装的运行时和宿主适配文件 |
+| `更新这个项目的 WishGraph` | 通过文件指纹确认来源，安全升级并支持失败回滚 |
+| `修复当前宿主的 WishGraph Hooks` | 只修复当前宿主，保留其他工具的 Hooks |
+
+Doctor 检查的是项目文件，不能证明宿主已经信任或启用了这些 Hooks。Codex 用户可通过 `/hooks` 复核；Claude Code 的实际行为与已安装文件不一致时，可查看 `/hooks` 或 `/doctor`。
+
+## 安全边界与当前限制
+
+- Worker 需要用户明确授权，并持有绑定 Task、session、branch、worktree、scope 和验证计划的有效 Claim。
+- 写入和构建门禁覆盖宿主支持的原生工具与可识别命令。源码读取能否拦截取决于宿主能力；Hooks 也不是操作系统沙箱。
+- Claim 在共享同一本地 Git common directory 的 worktree 之间原子生效，但不是跨机器的分布式锁。
+- 安全结果可以直接进入集成，不再询问“是否开始集成”。冲突、公共 API 变化、新产品决定、证据缺失等实质风险会回到 Discussion，询问具体选择。
+- Hooks 负责暴露和约束流程状态，不会自行启动 Worker、合并代码或决定产品含义。
+
+WishGraph 当前是 **v0.1 public beta**。Skill 已通过校验，安装和运行时生命周期已有自动化测试，Codex 与 Claude Code 路径也有明确文档。进入稳定 v1 之前，仍需要更多真实项目和宿主版本验证。
+
+## 浏览仓库
 
 | 目标 | 从这里开始 |
 | --- | --- |
-| 在项目里试用 WishGraph | [Getting Started](GETTING_STARTED.md) |
-| 理解方法论 | [WishGraph 方法论](docs/wishgraph-method.md) |
-| 理解流程控制 | [编排状态机](docs/orchestration-state-machine.md) |
-| 查看 Hooks 协议 | [外置记忆 Hooks](docs/memory-sync-hooks.zh-CN.md) |
+| 跟随引导完成配置 | [Getting Started](GETTING_STARTED.md) |
+| 理解方法和核心概念 | [WishGraph 方法论](docs/wishgraph-method.md) |
+| 查看状态机与角色边界 | [编排状态机](docs/orchestration-state-machine.md) |
+| 查看 Hooks 协议和宿主限制 | [外置记忆 Hooks](docs/memory-sync-hooks.zh-CN.md) |
 | 适配 Claude Code | [Claude Code 中文适配器](adapters/claude-code/README.zh-CN.md) |
-| 适配其他 Agent | [通用中文适配器](adapters/generic/README.zh-CN.md) |
 | 手动浏览模板 | [Templates](templates/README.md) |
-
-## 仓库结构
 
 ```text
 skills/wishgraph/   可安装 Skill 与内置运行时
 templates/          英文和中文项目记忆模板
 adapters/           Claude Code 与通用 Agent 适配说明
-docs/               方法论、协议与工作流文档
+docs/               方法、协议与工作流程文档
 scripts/            Bash 和 PowerShell 安装器
 tests/              运行时与安装器回归测试
 ```
 
-## 语言支持
-
-WishGraph 支持英文、简体中文和双语项目记忆。GitHub 默认入口为英文；当前中文首页、[`templates/zh-CN`](templates/zh-CN)、中文适配器和中文文档构成平行的中文入口。命令、路径、代码标识符和结构化状态保持语言无关。
-
-## 当前状态与限制
-
-WishGraph 当前是 **v0.1 public beta**。Skill 校验、全新安装与运行时生命周期已经有自动化覆盖，但仍需要更多真实项目反馈、更广泛的宿主验证，以及对 Discussion / Worker / Discussion-local Integration 流程体验的继续打磨。
-
-WishGraph 是项目治理层，不是自动软件工厂。它不能替代产品决定、代码审查、CI 或分布式协调。
+WishGraph 支持英文、简体中文和双语项目记忆。命令、路径、标识符和结构化状态保持语言无关。
 
 ## 许可证
 

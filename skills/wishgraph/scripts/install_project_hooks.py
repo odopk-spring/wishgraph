@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import stat
@@ -18,6 +20,14 @@ from typing import Any, Optional
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 ASSET_ROOT = SKILL_ROOT / "assets" / "hooks"
+RUNTIME_FILES = (
+    "memory_sync.py",
+    "git_state.py",
+    "workflow_state.py",
+    "policy.py",
+    "host_adapter.py",
+)
+RUNTIME_MANIFEST_NAME = "runtime-manifest.json"
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -48,6 +58,49 @@ def write_json_atomic(path: Path, value: dict[str, Any]) -> None:
         raise
 
 
+def write_bytes_atomic(path: Path, data: bytes, mode: Optional[int] = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(handle, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if mode is not None:
+            os.chmod(temp_name, mode)
+        os.replace(temp_name, path)
+    except Exception:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+        raise
+
+
+def snapshot_files(paths: list[Path]) -> dict[Path, tuple[bool, bytes, int]]:
+    snapshot: dict[Path, tuple[bool, bytes, int]] = {}
+    for path in paths:
+        if path.is_file():
+            snapshot[path] = (True, path.read_bytes(), stat.S_IMODE(path.stat().st_mode))
+        else:
+            snapshot[path] = (False, b"", 0)
+    return snapshot
+
+
+def restore_snapshot(snapshot: dict[Path, tuple[bool, bytes, int]]) -> None:
+    failures: list[str] = []
+    for path, (existed, data, mode) in snapshot.items():
+        try:
+            if existed:
+                write_bytes_atomic(path, data, mode)
+            elif path.exists():
+                path.unlink()
+        except OSError as exc:
+            failures.append(f"{path}: {exc}")
+    if failures:
+        raise OSError("WishGraph rollback failed: " + "; ".join(failures))
+
+
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     merged = dict(base)
     for key, value in override.items():
@@ -58,14 +111,377 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
     return merged
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def validate_runtime_manifest(value: dict[str, Any], *, source: str) -> dict[str, Any]:
+    if value.get("schema_version") != 1:
+        raise ValueError(f"{source} must use runtime manifest schema_version 1")
+    version = value.get("runtime_version")
+    files = value.get("files")
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        raise ValueError(f"{source} runtime_version must be a positive integer")
+    if not isinstance(files, dict) or set(files) != set(RUNTIME_FILES):
+        raise ValueError(f"{source} files must list exactly the generated runtime files")
+    if any(
+        not isinstance(name, str)
+        or not isinstance(digest, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", digest)
+        for name, digest in files.items()
+    ):
+        raise ValueError(f"{source} contains an invalid SHA-256 fingerprint")
+    known_versions = value.get("known_versions", {})
+    if not isinstance(known_versions, dict):
+        raise ValueError(f"{source} known_versions must be a JSON object")
+    for known_version, fingerprints in known_versions.items():
+        if not str(known_version).isdigit() or not isinstance(fingerprints, dict):
+            raise ValueError(f"{source} contains an invalid known runtime version")
+        if set(fingerprints) != set(RUNTIME_FILES) or any(
+            not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            for digest in fingerprints.values()
+        ):
+            raise ValueError(f"{source} contains invalid known-version fingerprints")
+    return value
+
+
+def bundled_runtime_manifest() -> dict[str, Any]:
+    path = ASSET_ROOT / RUNTIME_MANIFEST_NAME
+    manifest = validate_runtime_manifest(read_json(path), source=str(path))
+    actual = {name: sha256_file(ASSET_ROOT / name) for name in RUNTIME_FILES}
+    if actual != manifest["files"]:
+        raise ValueError("Bundled WishGraph runtime files do not match runtime-manifest.json")
+    return manifest
+
+
+def installed_runtime_hashes(target: Path) -> dict[str, str]:
+    hook_dir = target / ".wishgraph" / "hooks"
+    return {
+        name: sha256_file(hook_dir / name) if (hook_dir / name).is_file() else ""
+        for name in RUNTIME_FILES
+    }
+
+
+def fingerprints_match(actual: dict[str, str], expected: Any) -> bool:
+    return isinstance(expected, dict) and all(
+        actual.get(name) == expected.get(name) for name in RUNTIME_FILES
+    )
+
+
+def runtime_diagnosis(target: Path) -> dict[str, Any]:
+    hook_dir = target / ".wishgraph" / "hooks"
+    try:
+        bundled_manifest = bundled_runtime_manifest()
+    except ValueError as exc:
+        return {
+            "state": "bundled_invalid",
+            "safe_to_upgrade": False,
+            "error": str(exc),
+            "files": {},
+        }
+    bundled_version = int(bundled_manifest["runtime_version"])
+    actual_hashes = installed_runtime_hashes(target)
+    files: dict[str, dict[str, Any]] = {}
+    for name in RUNTIME_FILES:
+        installed = hook_dir / name
+        installed_hash = actual_hashes[name]
+        bundled_hash = bundled_manifest["files"][name]
+        files[name] = {
+            "installed": installed.is_file(),
+            "matches_bundled": installed_hash == bundled_hash,
+            "installed_sha256": installed_hash,
+            "bundled_sha256": bundled_hash,
+        }
+    installed_count = sum(1 for item in files.values() if item["installed"])
+    installed_manifest_path = hook_dir / RUNTIME_MANIFEST_NAME
+    installed_manifest: dict[str, Any] = {}
+    installed_manifest_error = ""
+    if installed_manifest_path.is_file():
+        try:
+            installed_manifest = validate_runtime_manifest(
+                read_json(installed_manifest_path), source=str(installed_manifest_path)
+            )
+        except ValueError as exc:
+            installed_manifest_error = str(exc)
+
+    installed_version: Optional[int] = None
+    if installed_manifest:
+        installed_version = int(installed_manifest["runtime_version"])
+    installed_manifest_matches = bool(installed_manifest) and fingerprints_match(
+        actual_hashes, installed_manifest.get("files")
+    )
+    current_matches = fingerprints_match(actual_hashes, bundled_manifest["files"])
+    known_version = ""
+    for version, fingerprints in bundled_manifest.get("known_versions", {}).items():
+        if fingerprints_match(actual_hashes, fingerprints):
+            known_version = str(version)
+            break
+
+    if installed_count == 0:
+        state = "missing"
+        safe_to_upgrade = False
+    elif installed_count != len(RUNTIME_FILES):
+        state = "incomplete"
+        safe_to_upgrade = False
+    elif current_matches:
+        if installed_manifest_matches and installed_version == bundled_version:
+            state = "current"
+            safe_to_upgrade = False
+        else:
+            state = "metadata_missing"
+            safe_to_upgrade = True
+            installed_version = bundled_version
+    elif known_version:
+        installed_version = int(known_version)
+        if installed_version < bundled_version:
+            state = "upgrade_available"
+            safe_to_upgrade = True
+        elif installed_version > bundled_version:
+            state = "newer_than_bundled"
+            safe_to_upgrade = False
+        else:
+            state = "version_conflict"
+            safe_to_upgrade = False
+    elif (
+        installed_manifest_matches
+        and installed_version is not None
+        and installed_version > bundled_version
+    ):
+        state = "newer_than_bundled"
+        safe_to_upgrade = False
+    else:
+        state = "modified"
+        safe_to_upgrade = False
+    return {
+        "state": state,
+        "safe_to_upgrade": safe_to_upgrade,
+        "bundled_runtime_version": bundled_version,
+        "installed_runtime_version": installed_version,
+        "installed_manifest": {
+            "path": str(installed_manifest_path),
+            "present": installed_manifest_path.is_file(),
+            "valid": bool(installed_manifest),
+            "matches_installed_files": installed_manifest_matches,
+            "error": installed_manifest_error,
+        },
+        "missing_files": [
+            name for name, item in files.items() if not item["installed"]
+        ],
+        "non_bundled_files": [
+            name
+            for name, item in files.items()
+            if item["installed"] and not item["matches_bundled"]
+        ],
+        "files": files,
+    }
+
+
+def contains_wishgraph_handler(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(contains_wishgraph_handler(item) for item in value.values())
+    if isinstance(value, list):
+        return any(contains_wishgraph_handler(item) for item in value)
+    return isinstance(value, str) and ".wishgraph/hooks/memory_sync.py" in value.replace(
+        "\\", "/"
+    )
+
+
+def host_config_path(target: Path, host: str) -> Path:
+    if host == "codex":
+        return target / ".codex" / "hooks.json"
+    return target / ".claude" / "settings.json"
+
+
+def host_asset_path(host: str) -> Path:
+    return ASSET_ROOT / ("codex-hooks.json" if host == "codex" else "claude-settings.json")
+
+
+def expected_host_groups(host: str, python_executable: str) -> dict[str, set[str]]:
+    incoming = _materialize_python_commands(
+        read_json(host_asset_path(host)),
+        python_executable,
+        claude_powershell=host == "claude" and os.name == "nt",
+    )
+    return {
+        event: {
+            json.dumps(group, sort_keys=True, separators=(",", ":")) for group in groups
+        }
+        for event, groups in incoming.get("hooks", {}).items()
+        if isinstance(groups, list)
+    }
+
+
+def host_adapter_diagnosis(
+    target: Path, host: str, python_executable: str
+) -> dict[str, Any]:
+    path = host_config_path(target, host)
+    if not path.is_file():
+        return {"host": host, "path": str(path), "state": "missing"}
+    try:
+        existing = read_json(path)
+    except ValueError as exc:
+        return {
+            "host": host,
+            "path": str(path),
+            "state": "invalid",
+            "detail": str(exc),
+        }
+    if not contains_wishgraph_handler(existing):
+        return {"host": host, "path": str(path), "state": "missing"}
+    expected = expected_host_groups(host, python_executable)
+    hooks = existing.get("hooks") if isinstance(existing.get("hooks"), dict) else {}
+    missing_events: list[str] = []
+    unexpected_events: list[str] = []
+    for event, fingerprints in expected.items():
+        current = hooks.get(event, []) if isinstance(hooks, dict) else []
+        current_fingerprints = {
+            json.dumps(group, sort_keys=True, separators=(",", ":"))
+            for group in current
+            if isinstance(group, dict)
+        }
+        if not fingerprints.issubset(current_fingerprints):
+            missing_events.append(event)
+    for event, groups in hooks.items():
+        if not isinstance(groups, list):
+            continue
+        expected_fingerprints = expected.get(event, set())
+        if any(
+            isinstance(group, dict)
+            and contains_wishgraph_handler(group)
+            and json.dumps(group, sort_keys=True, separators=(",", ":"))
+            not in expected_fingerprints
+            for group in groups
+        ):
+            unexpected_events.append(event)
+    outdated_events = sorted(set(missing_events + unexpected_events))
+    return {
+        "host": host,
+        "path": str(path),
+        "state": "current" if not outdated_events else "outdated",
+        "missing_or_outdated_events": outdated_events,
+    }
+
+
+def configured_python_diagnosis(config: dict[str, Any]) -> dict[str, Any]:
+    configured = str(config.get("python_executable") or "")
+    if not configured:
+        return {"path": "", "state": "missing_from_config"}
+    path = Path(configured).expanduser()
+    if not path.is_file() or not os.access(path, os.X_OK):
+        return {"path": configured, "state": "unavailable"}
+    return {"path": str(path.resolve()), "state": "available"}
+
+
+def doctor_report(target: Path, selected_host: str) -> dict[str, Any]:
+    config_path = target / ".wishgraph" / "config.json"
+    config: dict[str, Any] = {}
+    config_state = "missing"
+    config_error = ""
+    if config_path.is_file():
+        try:
+            config = read_json(config_path)
+            config_state = "active" if config.get("mode") in {"warn", "enforce"} else "off"
+        except ValueError as exc:
+            config_state = "invalid"
+            config_error = str(exc)
+
+    runtime = runtime_diagnosis(target)
+    python_info = configured_python_diagnosis(config)
+    python_executable = (
+        python_info["path"] if python_info["state"] == "available" else sys.executable
+    )
+    hosts = ("codex", "claude") if selected_host == "all" else (selected_host,)
+    host_adapters = {
+        host: host_adapter_diagnosis(target, host, python_executable) for host in hosts
+    }
+    governance_ready = (
+        (target / "reports" / "PROJECT_STATUS.md").is_file()
+        or (target / "reports" / "DEV_REPORT.md").is_file()
+    ) and (target / "prompts" / "DISCUSSION_AI.md").is_file()
+
+    if config_state == "missing":
+        next_action = "use_wishgraph"
+    elif config_state == "invalid":
+        next_action = "repair_project_config"
+    elif config_state == "off":
+        next_action = "enable_wishgraph"
+    elif runtime["state"] in {"upgrade_available", "metadata_missing"}:
+        next_action = "upgrade_project_runtime"
+    elif runtime["state"] == "missing":
+        next_action = "install_project_runtime"
+    elif runtime["state"] == "bundled_invalid":
+        next_action = "repair_skill_installation"
+    elif runtime["state"] == "newer_than_bundled":
+        next_action = "update_global_wishgraph_skill"
+    elif runtime["state"] != "current":
+        next_action = "review_runtime_changes"
+    elif any(item["state"] != "current" for item in host_adapters.values()):
+        next_action = "repair_current_host_adapter"
+    elif not governance_ready:
+        next_action = "bootstrap_project_memory"
+    else:
+        next_action = "start_discussion"
+
+    healthy = (
+        config_state == "active"
+        and runtime["state"] == "current"
+        and python_info["state"] == "available"
+        and all(item["state"] == "current" for item in host_adapters.values())
+    )
+    return {
+        "schema_version": 1,
+        "kind": "wishgraph_doctor",
+        "healthy": healthy,
+        "project_root": str(target),
+        "activation": {
+            "state": config_state,
+            "mode": config.get("mode", ""),
+            "config_version": config.get("version"),
+            "configured_runtime_version": config.get("runtime_version"),
+            "path": str(config_path),
+            "error": config_error,
+        },
+        "runtime": runtime,
+        "python": python_info,
+        "host_adapters": host_adapters,
+        "governance_ready": governance_ready,
+        "next_action": next_action,
+    }
+
+
+def print_doctor_report(report: dict[str, Any], json_output: bool) -> None:
+    if json_output:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return
+    activation = report["activation"]
+    host_summary = ", ".join(
+        f"{host}={value['state']}" for host, value in report["host_adapters"].items()
+    )
+    print("WishGraph doctor")
+    print(f"- Project: {report['project_root']}")
+    print(f"- Activation: {activation['state']} ({activation['mode'] or 'N/A'})")
+    runtime = report["runtime"]
+    installed_version = runtime.get("installed_runtime_version") or "unknown"
+    bundled_version = runtime.get("bundled_runtime_version") or "unknown"
+    print(
+        f"- Runtime: {runtime['state']} "
+        f"(installed={installed_version}, bundled={bundled_version})"
+    )
+    print(f"- Python: {report['python']['state']}")
+    print(f"- Host adapters: {host_summary or 'not checked'}")
+    print(f"- Next: {report['next_action']}")
+
+
 def merge_hook_config(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
     merged = dict(existing)
     existing_hooks = merged.setdefault("hooks", {})
     if not isinstance(existing_hooks, dict):
         raise ValueError("Existing top-level hooks value must be a JSON object")
-    incoming_hooks = incoming.get("hooks", {})
-    for event, groups in incoming_hooks.items():
-        current = existing_hooks.setdefault(event, [])
+    for event, current in existing_hooks.items():
         if not isinstance(current, list):
             raise ValueError(f"Existing hooks.{event} value must be a JSON array")
         preserved: list[Any] = []
@@ -87,6 +503,12 @@ def merge_hook_config(existing: dict[str, Any], incoming: dict[str, Any]) -> dic
                 preserved_group["hooks"] = remaining_handlers
                 preserved.append(preserved_group)
         current[:] = preserved
+
+    incoming_hooks = incoming.get("hooks", {})
+    for event, groups in incoming_hooks.items():
+        current = existing_hooks.setdefault(event, [])
+        if not isinstance(current, list):
+            raise ValueError(f"Existing hooks.{event} value must be a JSON array")
         fingerprints = {
             json.dumps(group, sort_keys=True, separators=(",", ":")) for group in current
         }
@@ -98,34 +520,9 @@ def merge_hook_config(existing: dict[str, Any], incoming: dict[str, Any]) -> dic
     return merged
 
 
-def install_runtime(target: Path, mode: str, force_assets: bool) -> list[Path]:
-    installed: list[Path] = []
-    target_hook_dir = target / ".wishgraph" / "hooks"
-    target_hook_dir.mkdir(parents=True, exist_ok=True)
-    for asset_name in (
-        "memory_sync.py",
-        "git_state.py",
-        "workflow_state.py",
-        "policy.py",
-        "host_adapter.py",
-    ):
-        runtime_target = target_hook_dir / asset_name
-        if runtime_target.exists() and not force_assets:
-            current = runtime_target.read_bytes()
-            incoming = (ASSET_ROOT / asset_name).read_bytes()
-            if current != incoming:
-                raise FileExistsError(
-                    f"{runtime_target} already exists and differs; re-run with --force-assets"
-                )
-        else:
-            shutil.copy2(ASSET_ROOT / asset_name, runtime_target)
-            if asset_name == "memory_sync.py":
-                runtime_target.chmod(runtime_target.stat().st_mode | stat.S_IXUSR)
-            installed.append(runtime_target)
-
-    config_target = target / ".wishgraph" / "config.json"
-    default_config = read_json(ASSET_ROOT / "config.json")
-    existing_config = read_json(config_target) if config_target.exists() else {}
+def migrate_project_config(
+    default_config: dict[str, Any], existing_config: dict[str, Any]
+) -> dict[str, Any]:
     if "session_start_context_mode" not in existing_config:
         legacy_injection = existing_config.get("inject_project_summary_on_session_start")
         if isinstance(legacy_injection, bool):
@@ -143,16 +540,116 @@ def install_runtime(target: Path, mode: str, force_assets: bool) -> list[Path]:
         existing_config["paths"] = migrated_paths
     config = deep_merge(default_config, existing_config)
     config["version"] = default_config["version"]
+    config["runtime_version"] = default_config["runtime_version"]
     config["required_impact_rows"] = list(
         dict.fromkeys(
             list(default_config.get("required_impact_rows", []))
             + list(existing_config.get("required_impact_rows", []))
         )
     )
-    config["mode"] = mode
-    config["python_executable"] = str(Path(sys.executable).resolve())
-    write_json_atomic(config_target, config)
-    installed.append(config_target)
+    return config
+
+
+def runtime_target_paths(target: Path) -> list[Path]:
+    hook_dir = target / ".wishgraph" / "hooks"
+    return [
+        *(hook_dir / name for name in RUNTIME_FILES),
+        hook_dir / RUNTIME_MANIFEST_NAME,
+        target / ".wishgraph" / "config.json",
+    ]
+
+
+def write_bundled_runtime(target: Path, *, include_files: bool) -> list[Path]:
+    written: list[Path] = []
+    hook_dir = target / ".wishgraph" / "hooks"
+    if include_files:
+        for asset_name in RUNTIME_FILES:
+            source = ASSET_ROOT / asset_name
+            destination = hook_dir / asset_name
+            mode = stat.S_IMODE(source.stat().st_mode)
+            if asset_name == "memory_sync.py":
+                mode |= stat.S_IXUSR
+            write_bytes_atomic(destination, source.read_bytes(), mode)
+            written.append(destination)
+    manifest_source = ASSET_ROOT / RUNTIME_MANIFEST_NAME
+    manifest_target = hook_dir / RUNTIME_MANIFEST_NAME
+    write_bytes_atomic(
+        manifest_target,
+        manifest_source.read_bytes(),
+        stat.S_IMODE(manifest_source.stat().st_mode),
+    )
+    written.append(manifest_target)
+    return written
+
+
+def cleanup_empty_runtime_directories(target: Path) -> None:
+    for path in (target / ".wishgraph" / "hooks", target / ".wishgraph"):
+        try:
+            path.rmdir()
+        except OSError:
+            pass
+
+
+def install_runtime(
+    target: Path,
+    mode: str,
+    force_assets: bool,
+    *,
+    upgrade: bool = False,
+) -> list[Path]:
+    diagnosis = runtime_diagnosis(target)
+    state = diagnosis["state"]
+    if state == "bundled_invalid":
+        raise ValueError(diagnosis.get("error", "Bundled runtime is invalid"))
+    if upgrade and state == "missing":
+        raise FileNotFoundError(
+            "WishGraph is not installed in this project; activate it before upgrading"
+        )
+    if upgrade and not (target / ".wishgraph" / "config.json").is_file():
+        raise FileNotFoundError(
+            "WishGraph project config is missing; activate this project before upgrading"
+        )
+    unsafe_states = {"incomplete", "modified", "newer_than_bundled", "version_conflict"}
+    if state in unsafe_states and not force_assets:
+        affected = diagnosis.get("missing_files", []) + diagnosis.get(
+            "non_bundled_files", []
+        )
+        detail = f" Affected files: {', '.join(dict.fromkeys(affected))}." if affected else ""
+        raise FileExistsError(
+            f"Installed WishGraph runtime is {state}; local or unknown files were preserved. "
+            f"Review them before using --force-assets.{detail}"
+        )
+
+    target_paths = runtime_target_paths(target)
+    snapshot = snapshot_files(target_paths)
+    installed: list[Path] = []
+    config_target = target / ".wishgraph" / "config.json"
+    try:
+        include_files = state in {"missing", "upgrade_available"} or force_assets
+        if include_files or state == "metadata_missing":
+            installed.extend(
+                write_bundled_runtime(target, include_files=include_files)
+            )
+
+        default_config = read_json(ASSET_ROOT / "config.json")
+        existing_config = read_json(config_target) if config_target.exists() else {}
+        config = migrate_project_config(default_config, existing_config)
+        if upgrade and existing_config.get("mode") in {"off", "warn", "enforce"}:
+            config["mode"] = existing_config["mode"]
+        else:
+            config["mode"] = mode
+        config["python_executable"] = str(Path(sys.executable).resolve())
+        write_json_atomic(config_target, config)
+        installed.append(config_target)
+    except Exception as exc:
+        try:
+            restore_snapshot(snapshot)
+            cleanup_empty_runtime_directories(target)
+        except Exception as rollback_exc:
+            raise OSError(
+                f"WishGraph runtime update failed ({exc}) and rollback failed: {rollback_exc}"
+            ) from rollback_exc
+        raise
     return installed
 
 
@@ -208,6 +705,57 @@ def install_host_config(
     merged = merge_hook_config(read_json(destination), incoming)
     write_json_atomic(destination, merged)
     return destination
+
+
+def repair_host_adapter(target: Path, host: str) -> dict[str, Any]:
+    if host not in {"codex", "claude"}:
+        raise ValueError("Choose exactly one current host: codex or claude")
+    config_path = target / ".wishgraph" / "config.json"
+    config = read_json(config_path)
+    if config.get("mode") not in {"warn", "enforce"}:
+        raise ValueError("WishGraph must be active before repairing a host adapter")
+    runtime = runtime_diagnosis(target)
+    if runtime["state"] != "current":
+        raise ValueError(
+            f"Project runtime is {runtime['state']}; make it current before repairing hooks"
+        )
+
+    python_info = configured_python_diagnosis(config)
+    python_executable = (
+        python_info["path"]
+        if python_info["state"] == "available"
+        else str(Path(sys.executable).resolve())
+    )
+    before = host_adapter_diagnosis(target, host, python_executable)
+    adapter_path = host_config_path(target, host)
+    tracked = [adapter_path, config_path]
+    snapshot = snapshot_files(tracked)
+    changed: list[Path] = []
+    try:
+        if python_info["state"] != "available":
+            config["python_executable"] = python_executable
+            write_json_atomic(config_path, config)
+            changed.append(config_path)
+        if before["state"] != "current":
+            changed.append(install_host_config(target, host, python_executable))
+    except Exception as exc:
+        try:
+            restore_snapshot(snapshot)
+        except Exception as rollback_exc:
+            raise OSError(
+                f"WishGraph host repair failed ({exc}) and rollback failed: {rollback_exc}"
+            ) from rollback_exc
+        raise
+    after = host_adapter_diagnosis(target, host, python_executable)
+    return {
+        "ok": after["state"] == "current",
+        "kind": "wishgraph_host_repair",
+        "host": host,
+        "project_root": str(target),
+        "before": before,
+        "after": after,
+        "changed": [str(path.relative_to(target)) for path in changed],
+    }
 
 
 def git_root(target: Path) -> Optional[Path]:
@@ -276,6 +824,28 @@ def main() -> int:
         action="store_true",
         help="Also install an opt-in Git pre-commit hook when none exists",
     )
+    maintenance = parser.add_mutually_exclusive_group()
+    maintenance.add_argument(
+        "--doctor",
+        action="store_true",
+        help="Inspect project activation, runtime, Python, and host adapters without writing",
+    )
+    maintenance.add_argument(
+        "--upgrade",
+        action="store_true",
+        help="Safely upgrade a recognized project-local WishGraph runtime",
+    )
+    maintenance.add_argument(
+        "--repair-host-adapter",
+        action="store_true",
+        help="Repair only the selected active Codex or Claude Code adapter",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="Emit machine-readable JSON for diagnostic or maintenance actions",
+    )
     args = parser.parse_args()
 
     if sys.version_info < (3, 9):
@@ -309,8 +879,112 @@ def main() -> int:
         )
         return 3
     if repository_root != target:
-        print(f"Using detected Git repository root: {repository_root}")
+        message = f"Using detected Git repository root: {repository_root}"
+        print(message, file=sys.stderr if args.json_output else sys.stdout)
         target = repository_root
+
+    if args.doctor:
+        print_doctor_report(doctor_report(target, args.host), args.json_output)
+        return 0
+
+    if args.upgrade:
+        before = runtime_diagnosis(target)
+        try:
+            installed = install_runtime(
+                target,
+                args.mode,
+                args.force_assets,
+                upgrade=True,
+            )
+        except (OSError, ValueError, FileExistsError) as exc:
+            if args.json_output:
+                print(
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "kind": "wishgraph_upgrade",
+                            "error": str(exc),
+                            "before": before,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+            else:
+                print(f"WishGraph runtime upgrade stopped: {exc}", file=sys.stderr)
+            return 4
+        after = runtime_diagnosis(target)
+        changed = []
+        for path in installed:
+            try:
+                changed.append(str(path.relative_to(target)))
+            except ValueError:
+                changed.append(str(path))
+        result = {
+            "ok": after["state"] == "current",
+            "kind": "wishgraph_upgrade",
+            "project_root": str(target),
+            "before": before,
+            "after": after,
+            "changed": changed,
+        }
+        if args.json_output:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        else:
+            print(
+                "WishGraph project runtime is current "
+                f"(v{after.get('bundled_runtime_version', 'unknown')})."
+            )
+            for path in changed:
+                print(f"- {path}")
+        return 0 if result["ok"] else 1
+
+    if args.repair_host_adapter:
+        if args.host == "all":
+            message = "Choose the current host with --host codex or --host claude"
+            if args.json_output:
+                print(
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "kind": "wishgraph_host_repair",
+                            "error": message,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+            else:
+                print(message, file=sys.stderr)
+            return 2
+        try:
+            result = repair_host_adapter(target, args.host)
+        except (OSError, ValueError, FileExistsError) as exc:
+            if args.json_output:
+                print(
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "kind": "wishgraph_host_repair",
+                            "host": args.host,
+                            "error": str(exc),
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+            else:
+                print(f"WishGraph host repair stopped: {exc}", file=sys.stderr)
+            return 4
+        if args.json_output:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        else:
+            print(
+                f"WishGraph {args.host} adapter is {result['after']['state']}."
+            )
+            for path in result["changed"]:
+                print(f"- {path}")
+        return 0 if result["ok"] else 1
 
     try:
         installed = install_runtime(target, args.mode, args.force_assets)

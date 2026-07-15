@@ -5,6 +5,7 @@ Use this reference for roles, lifecycle states, flow phases, exact commands, con
 ## Contents
 
 - State dimensions
+- Command recognition risk classes
 - Authorization parsing
 - Task identity and lifecycle
 - Core transitions
@@ -25,6 +26,22 @@ active   = mode: warn or mode: enforce
 - In an inactive project, generic `开始讨论`, `刷新项目状态`, and `执行 NNN 任务` text must not become WishGraph events.
 - Global Skill availability, a governance-looking repository, or pre-existing project documents do not imply activation.
 - This gate reads only the exact config path. It never scans the repository to guess whether WishGraph should be active.
+
+## Command Recognition Risk Classes
+
+Use bounded tolerance only where a false positive cannot authorize implementation or mutate Task ownership.
+
+### Low-Risk Entry And Refresh
+
+`start_discussion` and `refresh_project_status` may normalize English case, whitespace, surrounding quotes, terminal punctuation, and a small allowlist of polite wrappers. Match the normalized result against a finite alias set using full-string equality.
+
+Examples include `进入讨论模式`, `回到 Discussion`, and `请刷新一下项目状态`. A conversational or compound sentence such as `我们讨论一下颜色` or `刷新项目状态并执行 012` must not match. Never use substring search, semantic similarity, or arbitrary intent inference in the Hook.
+
+### Exact Task And Authority Commands
+
+Task-scoped commands retain exact action and exact structured ID matching. Do not apply the low-risk politeness normalizer to `执行`, `继续执行`, `停止`, `重新执行`, `接管`, or their English forms. Read-only Task inspection also keeps exact ID matching so `012`, `012b`, and `012ba` cannot collide.
+
+When no exact command exists, produce no Hook event or authority. The Agent may ask what the user intended. For execution authority, it must request a canonical command such as `执行 012 任务`; it cannot convert a paraphrase into approval.
 
 ## State Dimensions
 
@@ -152,6 +169,8 @@ Stop Discussion execution after a manual fallback. Never append an offer to impl
 - Two pending Tasks make a short approval ambiguous.
 - First activation and Discussion entry are separate explicit events.
 - Inactive projects ignore generic WishGraph-shaped entry phrases.
+- Low-risk aliases require full normalized equality; conversational and compound prose stays unmatched.
+- High-risk commands never inherit low-risk politeness stripping.
 - Exact ID parsing prevents prefix collisions.
 - Discussion business writes and implementation builds are denied.
 - Worker entry requires approval, dependency checks, correct branch/worktree, and a fresh Claim.

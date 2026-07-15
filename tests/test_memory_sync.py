@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import concurrent.futures
+import hashlib
 import importlib.util
 import json
 import os
@@ -33,7 +34,17 @@ def load_runtime_module():
     return module
 
 
+def load_installer_module():
+    spec = importlib.util.spec_from_file_location("wishgraph_installer", INSTALLER)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 memory_sync = load_runtime_module()
+installer_module = load_installer_module()
 
 
 class RuntimeBoundaryTests(unittest.TestCase):
@@ -75,29 +86,64 @@ class RuntimeBoundaryTests(unittest.TestCase):
                 self.assertIn("mcp__", matcher)
                 self.assertIn("UserPromptSubmit", config["hooks"])
 
-    def test_user_prompt_parser_handles_entry_commands_and_terminal_punctuation(self) -> None:
-        self.assertEqual(
-            memory_sync.parse_user_prompt("开始讨论。\n")["action"],
-            "start_discussion",
-        )
-        self.assertEqual(
-            memory_sync.parse_user_prompt("“开始讨论‘")["action"],
-            "start_discussion",
-        )
-        self.assertEqual(
-            memory_sync.parse_user_prompt("刷新项目状态！")["action"],
-            "refresh_project_status",
-        )
+    def test_low_risk_prompt_parser_accepts_bounded_aliases_and_politeness(self) -> None:
+        cases = {
+            "开始讨论。\n": "start_discussion",
+            "“开始讨论‘": "start_discussion",
+            "进入讨论模式": "start_discussion",
+            "回到 Discussion": "start_discussion",
+            "请   回到   DISCUSSION，谢谢！": "start_discussion",
+            "请问可以进入讨论模式吗？": "start_discussion",
+            "Start   Discussion, please.": "start_discussion",
+            "刷新项目状态！": "refresh_project_status",
+            "麻烦帮我刷新一下项目状态，谢谢！": "refresh_project_status",
+            "Please refresh PROJECT status.": "refresh_project_status",
+        }
+        for prompt, action in cases.items():
+            with self.subTest(prompt=prompt):
+                parsed = memory_sync.parse_user_prompt(prompt)
+                self.assertIsNotNone(parsed)
+                assert parsed is not None
+                self.assertEqual(parsed["action"], action)
+                self.assertFalse(parsed["authorizes_execution"])
+
+    def test_low_risk_prompt_parser_rejects_conversational_or_compound_text(self) -> None:
+        for prompt in (
+            "我们讨论一下颜色",
+            "请讨论一下颜色",
+            "进入讨论模式后执行 012",
+            "刷新项目状态并执行 012",
+            "回到 Discussion 看看",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assertIsNone(memory_sync.parse_user_prompt(prompt))
+
+    def test_authority_bearing_task_commands_remain_strict(self) -> None:
         routed = memory_sync.parse_user_prompt("重新执行 012ba 号任务！")
+        self.assertIsNotNone(routed)
+        assert routed is not None
         self.assertEqual(routed["action"], "retry")
         self.assertEqual(routed["task_id"], "012ba")
+        self.assertTrue(routed["authorizes_execution"])
+
+        for prompt in (
+            "执行任务",
+            "执行任务 012",
+            "请执行 012 任务",
+            "执行 012 任务吧",
+            "执行 012 和 013 任务",
+            "执行 12 任务",
+            "我们执行 012 任务",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assertIsNone(memory_sync.parse_user_prompt(prompt))
 
     def test_entry_commands_require_explicit_project_activation(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
             subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
 
-            def submit(session_id: str) -> dict[str, object]:
+            def submit(session_id: str, prompt: str) -> dict[str, object]:
                 process = subprocess.run(
                     [
                         sys.executable,
@@ -111,7 +157,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
                         {
                             "cwd": str(root),
                             "session_id": session_id,
-                            "prompt": "开始讨论",
+                            "prompt": prompt,
                         }
                     ),
                     text=True,
@@ -121,7 +167,16 @@ class RuntimeBoundaryTests(unittest.TestCase):
                 )
                 return json.loads(process.stdout)
 
-            self.assertEqual(submit("missing-config"), {})
+            prompts = (
+                "开始讨论",
+                "进入讨论模式",
+                "回到 Discussion",
+                "请刷新一下项目状态",
+                "执行 012 任务",
+            )
+            for index, prompt in enumerate(prompts):
+                with self.subTest(state="missing-config", prompt=prompt):
+                    self.assertEqual(submit(f"missing-config-{index}", prompt), {})
             self.assertFalse((root / ".git" / "wishgraph" / "sessions").exists())
 
             config = json.loads((HOOK_ASSETS / "config.json").read_text())
@@ -130,7 +185,9 @@ class RuntimeBoundaryTests(unittest.TestCase):
             (root / ".wishgraph" / "config.json").write_text(
                 json.dumps(config), encoding="utf-8"
             )
-            self.assertEqual(submit("explicitly-off"), {})
+            for index, prompt in enumerate(prompts):
+                with self.subTest(state="explicitly-off", prompt=prompt):
+                    self.assertEqual(submit(f"explicitly-off-{index}", prompt), {})
             self.assertFalse((root / ".git" / "wishgraph" / "sessions").exists())
 
     def test_gate_recognizes_common_build_commands_and_mcp_writes(self) -> None:
@@ -3775,7 +3832,11 @@ class MemorySyncTests(unittest.TestCase):
             ],
             cwd=self.root,
             input=json.dumps(
-                {"cwd": str(self.root), "session_id": "discussion-route", "prompt": "开始讨论。"}
+                {
+                    "cwd": str(self.root),
+                    "session_id": "discussion-route",
+                    "prompt": "请进入讨论模式。",
+                }
             ),
             text=True,
             stdout=subprocess.PIPE,
@@ -3827,7 +3888,11 @@ class MemorySyncTests(unittest.TestCase):
             ],
             cwd=self.root,
             input=json.dumps(
-                {"cwd": str(self.root), "session_id": "discussion-route", "prompt": "刷新项目状态"}
+                {
+                    "cwd": str(self.root),
+                    "session_id": "discussion-route",
+                    "prompt": "麻烦刷新一下项目状态，谢谢！",
+                }
             ),
             text=True,
             stdout=subprocess.PIPE,
@@ -3986,6 +4051,388 @@ class MemorySyncTests(unittest.TestCase):
 
 
 class InstallerTests(unittest.TestCase):
+    def install_project_runtime(self, root: Path, *, mode: str = "warn") -> None:
+        process = subprocess.run(
+            [
+                sys.executable,
+                str(INSTALLER),
+                "--target",
+                str(root),
+                "--host",
+                "codex",
+                "--mode",
+                mode,
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(process.returncode, 0, process.stderr)
+
+    def mark_runtime_as_generated_version(self, root: Path, version: int) -> None:
+        hook_dir = root / ".wishgraph" / "hooks"
+        workflow = hook_dir / "workflow_state.py"
+        workflow.write_text("# generated WishGraph runtime fixture\n", encoding="utf-8")
+        files = {
+            name: hashlib.sha256((hook_dir / name).read_bytes()).hexdigest()
+            for name in installer_module.RUNTIME_FILES
+        }
+        (hook_dir / "runtime-manifest.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "runtime_version": version,
+                    "files": files,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        config_path = root / ".wishgraph" / "config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["runtime_version"] = version
+        config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+
+    def test_doctor_is_read_only_for_an_unconfigured_project(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            before = subprocess.run(
+                ["git", "-C", str(root), "status", "--porcelain"],
+                text=True,
+                stdout=subprocess.PIPE,
+                check=True,
+            ).stdout
+            process = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALLER),
+                    "--target",
+                    str(root),
+                    "--host",
+                    "codex",
+                    "--doctor",
+                    "--json",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(process.returncode, 0, process.stderr)
+            payload = json.loads(process.stdout)
+            self.assertEqual(payload["kind"], "wishgraph_doctor")
+            self.assertEqual(payload["activation"]["state"], "missing")
+            self.assertEqual(payload["runtime"]["state"], "missing")
+            self.assertEqual(payload["host_adapters"]["codex"]["state"], "missing")
+            self.assertEqual(payload["next_action"], "use_wishgraph")
+            after = subprocess.run(
+                ["git", "-C", str(root), "status", "--porcelain"],
+                text=True,
+                stdout=subprocess.PIPE,
+                check=True,
+            ).stdout
+            self.assertEqual(after, before)
+            self.assertFalse((root / ".wishgraph").exists())
+
+    def test_doctor_reports_a_current_installed_host(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            installed = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALLER),
+                    "--target",
+                    str(root),
+                    "--host",
+                    "codex",
+                    "--mode",
+                    "warn",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(installed.returncode, 0, installed.stderr)
+            process = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALLER),
+                    "--target",
+                    str(root),
+                    "--host",
+                    "codex",
+                    "--doctor",
+                    "--json",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+            payload = json.loads(process.stdout)
+            self.assertTrue(payload["healthy"])
+            self.assertEqual(payload["activation"]["state"], "active")
+            self.assertEqual(payload["runtime"]["state"], "current")
+            self.assertEqual(payload["python"]["state"], "available")
+            self.assertEqual(payload["host_adapters"]["codex"]["state"], "current")
+            self.assertEqual(payload["next_action"], "bootstrap_project_memory")
+
+    def test_safe_upgrade_repairs_current_runtime_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            self.install_project_runtime(root, mode="enforce")
+            (root / ".wishgraph" / "hooks" / "runtime-manifest.json").unlink()
+            config_path = root / ".wishgraph" / "config.json"
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            config["runtime_version"] = 11
+            config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+
+            before = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALLER),
+                    "--target",
+                    str(root),
+                    "--host",
+                    "codex",
+                    "--doctor",
+                    "--json",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+            before_payload = json.loads(before.stdout)
+            self.assertEqual(before_payload["runtime"]["state"], "metadata_missing")
+            self.assertTrue(before_payload["runtime"]["safe_to_upgrade"])
+
+            upgraded = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALLER),
+                    "--target",
+                    str(root),
+                    "--upgrade",
+                    "--json",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
+            payload = json.loads(upgraded.stdout)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["after"]["state"], "current")
+            self.assertEqual(payload["after"]["installed_runtime_version"], 12)
+            config = json.loads(
+                (root / ".wishgraph" / "config.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(config["mode"], "enforce")
+            self.assertEqual(config["runtime_version"], 12)
+
+    def test_safe_upgrade_replaces_only_a_bundled_known_old_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            self.install_project_runtime(root)
+            self.mark_runtime_as_generated_version(root, 11)
+            untrusted = installer_module.runtime_diagnosis(root)
+            self.assertEqual(untrusted["state"], "modified")
+            self.assertFalse(untrusted["safe_to_upgrade"])
+            actual = installer_module.installed_runtime_hashes(root)
+            manifest = json.loads(
+                json.dumps(installer_module.bundled_runtime_manifest())
+            )
+            manifest.setdefault("known_versions", {})["11"] = actual
+
+            with mock.patch.object(
+                installer_module,
+                "bundled_runtime_manifest",
+                return_value=manifest,
+            ):
+                before = installer_module.runtime_diagnosis(root)
+                self.assertEqual(before["state"], "upgrade_available")
+                self.assertTrue(before["safe_to_upgrade"])
+                installer_module.install_runtime(root, "warn", False, upgrade=True)
+
+            self.assertEqual(installer_module.runtime_diagnosis(root)["state"], "current")
+
+    def test_upgrade_preserves_a_locally_modified_runtime_without_force(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            self.install_project_runtime(root)
+            policy_path = root / ".wishgraph" / "hooks" / "policy.py"
+            policy_path.write_text(
+                policy_path.read_text(encoding="utf-8") + "# local customization\n",
+                encoding="utf-8",
+            )
+            before = policy_path.read_bytes()
+
+            process = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALLER),
+                    "--target",
+                    str(root),
+                    "--upgrade",
+                    "--json",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(process.returncode, 4)
+            payload = json.loads(process.stdout)
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["before"]["state"], "modified")
+            self.assertEqual(policy_path.read_bytes(), before)
+
+    def test_upgrade_rolls_back_all_runtime_files_after_an_interrupted_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            self.install_project_runtime(root)
+            self.mark_runtime_as_generated_version(root, 11)
+            tracked = installer_module.runtime_target_paths(root)
+            before = {
+                path: (path.exists(), path.read_bytes() if path.exists() else b"")
+                for path in tracked
+            }
+            original_write = installer_module.write_bytes_atomic
+            failure_injected = False
+
+            def fail_once(path, data, mode=None):
+                nonlocal failure_injected
+                if path.name == "workflow_state.py" and not failure_injected:
+                    failure_injected = True
+                    raise OSError("injected write interruption")
+                return original_write(path, data, mode)
+
+            with mock.patch.object(
+                installer_module, "write_bytes_atomic", side_effect=fail_once
+            ):
+                with self.assertRaisesRegex(OSError, "injected write interruption"):
+                    installer_module.install_runtime(
+                        root, "warn", True, upgrade=True
+                    )
+
+            after = {
+                path: (path.exists(), path.read_bytes() if path.exists() else b"")
+                for path in tracked
+            }
+            self.assertEqual(after, before)
+
+    def test_host_repair_updates_only_selected_host_and_preserves_other_hooks(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            self.install_project_runtime(root)
+            codex_path = root / ".codex" / "hooks.json"
+            codex_before = codex_path.read_bytes()
+            claude_path = root / ".claude" / "settings.json"
+            claude_path.parent.mkdir()
+            claude_path.write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "Stop": [
+                                {
+                                    "hooks": [
+                                        {"type": "command", "command": "echo keep-me"},
+                                        {
+                                            "type": "command",
+                                            "command": "python3 .wishgraph/hooks/memory_sync.py old-hook",
+                                        },
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            process = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALLER),
+                    "--target",
+                    str(root),
+                    "--host",
+                    "claude",
+                    "--repair-host-adapter",
+                    "--json",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(process.returncode, 0, process.stderr)
+            payload = json.loads(process.stdout)
+            self.assertEqual(payload["host"], "claude")
+            self.assertEqual(payload["before"]["state"], "outdated")
+            self.assertEqual(payload["after"]["state"], "current")
+            self.assertEqual(codex_path.read_bytes(), codex_before)
+            merged = json.loads(claude_path.read_text(encoding="utf-8"))
+            stop_commands = [
+                hook.get("command", "")
+                for group in merged["hooks"]["Stop"]
+                for hook in group.get("hooks", [])
+            ]
+            self.assertIn("echo keep-me", stop_commands)
+            self.assertFalse(any("old-hook" in command for command in stop_commands))
+
+            before_rerun = claude_path.read_bytes()
+            rerun = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALLER),
+                    "--target",
+                    str(root),
+                    "--host",
+                    "claude",
+                    "--repair-host-adapter",
+                    "--json",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+            self.assertEqual(json.loads(rerun.stdout)["changed"], [])
+            self.assertEqual(claude_path.read_bytes(), before_rerun)
+
+    def test_host_repair_requires_one_explicit_current_host(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            self.install_project_runtime(root)
+            codex_before = (root / ".codex" / "hooks.json").read_bytes()
+            process = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALLER),
+                    "--target",
+                    str(root),
+                    "--host",
+                    "all",
+                    "--repair-host-adapter",
+                    "--json",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(process.returncode, 2)
+            self.assertFalse(json.loads(process.stdout)["ok"])
+            self.assertEqual((root / ".codex" / "hooks.json").read_bytes(), codex_before)
+            self.assertFalse((root / ".claude").exists())
+
     def test_installer_rejects_non_git_directory_before_writing(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -4109,6 +4556,10 @@ class InstallerTests(unittest.TestCase):
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["version"], 11)
+            self.assertEqual(config["runtime_version"], 12)
+            self.assertTrue(
+                (root / ".wishgraph" / "hooks" / "runtime-manifest.json").is_file()
+            )
             self.assertEqual(config["session_start_context_mode"], "safety_only")
             self.assertEqual(
                 config["python_executable"], str(Path(sys.executable).resolve())

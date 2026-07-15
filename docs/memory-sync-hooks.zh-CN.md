@@ -96,6 +96,8 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
 
 安装器会把本次实际使用的 Python 可执行文件写入宿主命令和 `.wishgraph/config.json`，避免后续出现 `python3` 与 `py -3` 指向不同环境的问题。
 
+对已启用项目，Skill 内的安装器还提供三个有界维护动作：`--doctor --json` 只读取固定路径并输出健康状态；`--upgrade --json` 可以为当前文件补齐缺失元数据，或原子替换内置已知版本的生成运行时，失败时自动回滚；`--repair-host-adapter --host codex|claude --json` 只修复所选当前宿主并保留其他 Hook。未知或本地修改过的运行时会停止并交给用户检查，不会直接覆盖。
+
 `memory_sync.py` 现在只是稳定入口，内部拆成四个明确边界：`workflow_state.py` 定义 Session Role、Task Lifecycle、Flow Phase、Expected Transition、事件和计划；`policy.py` 实现纯函数 `reduce(current_state, user_event, host_capability)`；`host_adapter.py` 把唯一下一动作映射为 Codex、Claude Code、CLI 与 Hook 行为；`git_state.py` 保存 Git 事实、session runtime、Worker Claim 和 Discussion-local Integration lease。项目语义真相仍保存在 Markdown 和 Git 中。
 
 建议先用 `warn`。完成一次 Task-backed Worker 收尾和一次 Discussion-local Integration 后，再把 `.wishgraph/config.json` 改成 `enforce`。

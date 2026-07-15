@@ -28,7 +28,9 @@ git_state.py        Git facts, Claims, sessions, and Integration leases
 
 ### UserPromptSubmit
 
-Only after `.wishgraph/config.json` enables the project, normalize terminal punctuation and route explicit entry commands such as `开始讨论`, `刷新项目状态`, and exact `执行 012 任务`. Missing config and `mode: off` are silent no-op states; `开始讨论` never installs or enables WishGraph. A neutral execution window receives the exact Task route and must acquire its Claim before business work. A Discussion window routes a visible Worker; Claude Code and failed automatic routing expose only the exact one-line command. Short approvals are accepted only through one persisted `expected_transition`.
+Only after `.wishgraph/config.json` enables the project, route explicit entry commands. Low-risk Discussion entry and status refresh may normalize case, whitespace, terminal punctuation, and a bounded allowlist of polite wrappers before exact alias lookup. Task execution, stop, retry, takeover, and exact IDs remain strict and never receive that normalization. Missing config and `mode: off` are silent no-op states; `开始讨论` never installs or enables WishGraph. A neutral execution window receives the exact Task route and must acquire its Claim before business work. A Discussion window routes a visible Worker; Claude Code and failed automatic routing expose only the exact one-line command. Short approvals are accepted only through one persisted `expected_transition`.
+
+When the Hook cannot resolve the whole prompt to one allowed command, it emits no route and does not mutate session state. The original prompt continues to the Agent. The Agent may ask whether the user wants Discussion or refresh, but an ambiguous execution request must be answered with a request for the exact command, such as `执行 012 任务`; Agent interpretation cannot manufacture authorization.
 
 ### SessionStart
 
@@ -63,11 +65,14 @@ Claude Code may also expose `TaskCompleted`; keep it as a host adapter event rat
 .wishgraph/hooks/workflow_state.py
 .wishgraph/hooks/policy.py
 .wishgraph/hooks/host_adapter.py
+.wishgraph/hooks/runtime-manifest.json
 .codex/hooks.json        # Codex
 .claude/settings.json    # Claude Code
 ```
 
-The installer merges host JSON and preserves unrelated hook groups. It refuses to overwrite a locally modified generated runtime unless `--force-assets` is explicit. Codex users must trust the repository and review `/hooks`.
+The runtime manifest records one generated runtime version and SHA-256 fingerprints for all five runtime files. Doctor compares only those fixed paths. The installer merges host JSON, removes obsolete WishGraph handlers, preserves unrelated hook groups, and refuses to overwrite a locally modified generated runtime unless `--force-assets` is explicit. Codex users must trust the repository and review `/hooks`.
+
+Updating the global Codex or Claude Skill refreshes the bundled runtime for future installs, but does not rewrite an existing project's `.wishgraph/hooks/` copy. The safe upgrade command repairs missing metadata for current bundled files or replaces a bundled-known generated version, and rolls back all runtime/config writes on failure. Unknown, incomplete, newer, or locally modified copies stop for review; `--force-assets` remains a deliberate human override.
 
 The two host files are thin adapters over the same `.wishgraph/hooks/` runtime. A Worker Claim records both the machine hostname and `agent_platform`; an idle thread is reusable only by the same agent platform. Switching between Codex and Claude keeps repository truth, Tasks, reports, Claims, and status portable, but never sends a Codex route to a Claude thread ID or vice versa.
 
@@ -91,6 +96,9 @@ New projects use `tasks/build/*.md`, `tasks/revisions/*.md`, and `reports/PROJEC
 Run from the project root:
 
 ```bash
+python3 PATH_TO_SKILL/scripts/install_project_hooks.py --target . --host codex --doctor --json
+python3 PATH_TO_SKILL/scripts/install_project_hooks.py --target . --upgrade --json
+python3 PATH_TO_SKILL/scripts/install_project_hooks.py --target . --host codex --repair-host-adapter --json
 python3 .wishgraph/hooks/memory_sync.py check --scope worktree
 python3 .wishgraph/hooks/memory_sync.py check --scope staged
 python3 .wishgraph/hooks/memory_sync.py status
@@ -158,6 +166,8 @@ Do not put wall-clock assertions in ordinary unit tests. If absolute p95 fails b
 ## Failure And Recovery
 
 - Invalid configuration: report the specific field and stop semantic claims.
+- Missing or outdated current-host adapter: repair only that host after Doctor confirms a current runtime.
+- Recognized older runtime: use the atomic safe upgrade; a failed write restores the previous runtime, manifest, and config.
 - Modified generated runtime: compare before using `--force-assets`; preserve intentional local changes.
 - Incorrect repository rule: switch to `warn` while repairing configuration rather than fabricating reports.
 - Missing or malformed structured block: repair the durable record; do not silently fall back when a block is present but invalid.

@@ -141,6 +141,8 @@ Hooks do not write PRD, architecture, CODEMAP, Project Status, or handoff prose.
 
 The read-only command `python3 .wishgraph/hooks/memory_sync.py status` defaults to a compact active view and reads only current candidate reports across refs. Use `status --task 012` for one exact Task and `status --full` only for historical diagnosis. Hooks do not start hidden Workers or create Integration windows.
 
+For maintenance, users should not need to remember flags. Say `检查 WishGraph 状态` for a fixed-path, read-only Doctor; `更新这个项目的 WishGraph` for an atomic safe upgrade; or `修复当前宿主的 WishGraph Hooks` after moving between Codex and Claude Code. A safe upgrade repairs current files with missing metadata or replaces only a bundled-known generated version. Local modifications are preserved for review, failed writes roll back, and host repair changes only the selected current-host JSON while retaining unrelated handlers.
+
 ## 3. Use The Foreground Discussion Workflow
 
 ### Discussion AI Window

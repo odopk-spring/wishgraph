@@ -9,6 +9,7 @@ Use this reference only for Skill installation, project-hook setup, environment 
 - Preflight and cost notice
 - Platform dependency guidance
 - Installation execution
+- Health checks, safe upgrade, and current-host recovery
 - Verification
 
 ## Explicit Project Opt-In
@@ -127,6 +128,42 @@ python3 scripts/install_project_hooks.py --target PROJECT_ROOT --host claude --m
 Use `--mode enforce --git-hook` for an explicitly selected strict setup. The installer detects the repository root and preserves unrelated hook configuration.
 
 For first-time macOS or Linux installation, the repository bootstrap script supports `--check`, `--setup-project`, and `--strict`. For Windows, use `scripts/install-wishgraph.ps1` with `-Check`, `-SetupProject`, and `-Strict`.
+
+## Health, Upgrade, And Current-Host Recovery
+
+Normal users may say `检查 WishGraph 状态`, `更新这个项目的 WishGraph`, or `修复当前宿主的 WishGraph Hooks`. Keep flags internal unless the user asks for them.
+
+Run Doctor first for an existing project. It reads only fixed WishGraph configuration, the five runtime files, the selected host adapter, the configured Python executable, and minimal governance entry files. It does not scan business source or write anything:
+
+```bash
+python3 scripts/install_project_hooks.py --target PROJECT_ROOT --host codex --doctor --json
+python3 scripts/install_project_hooks.py --target PROJECT_ROOT --host claude --doctor --json
+```
+
+Use `next_action` as the route:
+
+- `use_wishgraph`: the project is inactive; require explicit activation.
+- `upgrade_project_runtime`: current bundled files only need metadata repair, or the installed fingerprints match a bundled known version, so a safe upgrade may continue.
+- `review_runtime_changes`: preserve incomplete, unknown, or locally modified runtime files and ask before `--force-assets`.
+- `repair_current_host_adapter`: repair only the host in the current window.
+- `bootstrap_project_memory` or `start_discussion`: continue normal setup or entry.
+
+Safe project upgrade is atomic and preserves the configured `mode`. It snapshots the five runtime files, runtime manifest, and project config in memory; a failed write restores the snapshot and leaves no backup files:
+
+```bash
+python3 scripts/install_project_hooks.py --target PROJECT_ROOT --upgrade --json
+```
+
+Do not use `--force-assets` automatically. It is an explicit override for a human-reviewed local customization, incomplete install, version conflict, or intentional downgrade. Updating a global Skill changes only the bundled source; project-local runtimes are upgraded separately.
+
+When the runtime is current but the active host adapter is missing or outdated, repair that host only. The merge removes obsolete WishGraph handlers, preserves unrelated handlers, and is idempotent:
+
+```bash
+python3 scripts/install_project_hooks.py --target PROJECT_ROOT --host codex --repair-host-adapter --json
+python3 scripts/install_project_hooks.py --target PROJECT_ROOT --host claude --repair-host-adapter --json
+```
+
+Never pass `--host all` for automatic recovery. Switching hosts keeps project truth portable, but each host receives its own project adapter only when it is the current requested host.
 
 ## Verification
 
