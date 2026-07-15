@@ -59,14 +59,21 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 
 安全配置默认使用 `warn`，不会阻止提交。正确完成一次任务收尾后，可在 Bash 使用 `--strict`，或在 PowerShell 使用 `-Strict` 开启严格检查。完整引导和其他安装目标见 [Getting Started](GETTING_STARTED.md)。
 
-安装后直接使用自然语言：
+全局安装 Skill 只表示 WishGraph 可用，不会让每个文件夹自动启用。首次让某个项目加入 WishGraph 时，需要明确说：
+
+```text
+在当前项目使用 WishGraph。
+```
+
+安全配置完成后，再用一条独立命令进入流程：
 
 ```text
 开始讨论。
-为当前项目安全配置 WishGraph。
 执行 012 号任务。
 刷新项目状态。
 ```
+
+命令行的 `--setup-project` 等价于显式启用项目。没有选择启用的项目仍按普通 Agent 项目工作，其中的“开始讨论”不会开启 WishGraph。
 
 ## 工作原理
 

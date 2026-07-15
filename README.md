@@ -59,14 +59,21 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 
 Safe setup starts in `warn` mode and does not block commits. After one successful closeout, enable strict checks with `--strict` on Bash or `-Strict` on PowerShell. See [Getting Started](GETTING_STARTED.md) for the guided flow and other installation targets.
 
-Once installed, start with natural language:
+Global Skill installation only makes WishGraph available. It does not activate WishGraph in every folder. The first time you opt a project in, explicitly say:
+
+```text
+Use WishGraph for this project.
+```
+
+After safe setup finishes, enter the workflow with a separate command:
 
 ```text
 Start discussion.
-Set up WishGraph for this project in safe mode.
 Execute task 012.
 Refresh project status.
 ```
+
+Using `--setup-project` is the command-line equivalent of explicit project activation. Projects you do not opt in remain ordinary agent projects, and `Start discussion` does not enable WishGraph there.
 
 ## How it works
 

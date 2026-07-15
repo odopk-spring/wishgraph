@@ -4,13 +4,15 @@ Use this guide when introducing WishGraph to an existing project or starting a n
 
 ## 0. Recommended First Conversation
 
-Start in a Discussion window, not a Worker window.
+First opt the current project into WishGraph; project activation and Discussion entry are separate actions. A global installation alone never activates every folder.
 
 For the lowest-friction setup, say:
 
 ```text
-使用 $wishgraph 为当前项目做安全配置。请自动检测系统、Agent、Git 和 Python；缺少依赖时先告诉我安装方式、预计空间和时间，不要直接安装系统依赖。
+在当前项目使用 WishGraph。
 ```
+
+This explicit request authorizes the recommended non-blocking safe setup. After verification, the agent remains neutral and asks for exactly one next command: `开始讨论` / `Start discussion`. Saying `开始讨论` in an unconfigured project does not enable WishGraph or create project files.
 
 WishGraph defaults to non-blocking safe hooks. If the user says "只安装 Skill" it skips hooks; if the user says "严格配置" it enables blocking hooks and the Git pre-commit fallback. If the request is unclear, the agent asks only one choice question.
 
@@ -143,7 +145,7 @@ The read-only command `python3 .wishgraph/hooks/memory_sync.py status` defaults 
 
 ### Discussion AI Window
 
-Open any normal window and say `开始讨论` / `Start discussion`. The prompt hook enters Discussion and loads only the compact handoff, current integrated snapshot, and active status. New windows remain neutral by default. Say `刷新项目状态` / `Refresh project status` to refresh active state; detailed PRD, architecture, CODEMAP, old reports, and unrelated Tasks are loaded only when the current question requires them.
+After the project has been explicitly enabled, open any normal window and say `开始讨论` / `Start discussion`. The prompt hook enters Discussion and loads only the compact handoff, current integrated snapshot, and active status. New windows remain neutral by default. In projects without an active `.wishgraph/config.json`, the same phrase remains ordinary conversation. Say `刷新项目状态` / `Refresh project status` to refresh active state; detailed PRD, architecture, CODEMAP, old reports, and unrelated Tasks are loaded only when the current question requires them.
 
 Use it to:
 

@@ -1,6 +1,6 @@
 # Discussion AI Start Prompt
 
-In a neutral window, say "Start discussion" (or an equivalent phrase). WishGraph should then load this file and enter the visible Discussion role. Copying the prompt manually is only a host fallback.
+This project must first be explicitly enabled with `Use WishGraph` or an equivalent request. Activation leaves the window neutral. In a later neutral window event, say "Start discussion" (or an equivalent phrase); WishGraph then loads this file and enters the visible Discussion role. Copying the prompt manually is only a host fallback.
 
 This prompt is mutable discussion state. Discussion maintains its concise dynamic handoff during planning and after human review; the Discussion-local Integration phase refreshes the same block after absorbing Worker results. Workers never edit it.
 

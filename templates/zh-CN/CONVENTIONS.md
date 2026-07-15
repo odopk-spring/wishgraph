@@ -10,7 +10,7 @@
 
 职责：
 
-- 新窗口默认中立。只有用户明确说“开始讨论”“开启讨论”或同义表达后，才加载 `prompts/DISCUSSION_AI.md` 并进入讨论角色。
+- 当前项目必须先被显式启用；首次启用后窗口仍保持中立。只有用户随后明确说“开始讨论”“开启讨论”或同义表达，才加载 `prompts/DISCUSSION_AI.md` 并进入讨论角色。
 - 提问前先读项目文档。
 - 授权 Worker 重构架构或实现功能前，先建立或更新 `PRD.md`。
 - 新项目或模糊项目先做 intake：一次问一个关键决策，每次给推荐默认值，再写实现任务。
@@ -112,7 +112,8 @@ Worker 在自己的不可变执行报告中提出共享记忆影响；持有 lea
 - 安装 hooks 后，结束或提交前运行 `python3 .wishgraph/hooks/memory_sync.py check --scope worktree`。
 - Worker 单次执行报告使用 `Integrate` 或 `N/A`；项目状态概览使用 `Updated` 或 `N/A`。
 - Session runtime、Worker Claim 和 Integration lease 保存在 Git common directory，不写入业务文件。
-- 默认 SessionStart 只做安全检查，不自动注入讨论交接或激活角色；持续运行窗口通过“刷新项目状态”显式刷新。
+- 全局安装 Skill 不代表当前项目已经启用。只有 `.wishgraph/config.json` 的 `mode` 为 `warn` 或 `enforce` 才表示项目已显式加入；缺少配置或 `mode: off` 时，通用入口短语不触发 WishGraph。
+- 已启用项目的新窗口默认中立。SessionStart 只做安全检查，不自动注入讨论交接或激活角色；首次启用不会在同一步进入 Discussion，持续运行窗口通过“刷新项目状态”显式刷新。
 - Hooks 可以输出待集成状态、集成类型、准备／等待／阻塞报告、是否需要确认和理由；不得决定是否并行、启动 Agent、合并代码、编写语义记忆或代替人类 Review。
 
 ## 验证

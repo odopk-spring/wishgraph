@@ -28,7 +28,7 @@ git_state.py        Git facts, Claims, sessions, and Integration leases
 
 ### UserPromptSubmit
 
-Normalize terminal punctuation and route only explicit entry commands such as `开始讨论`, `刷新项目状态`, and exact `执行 012 任务`. A neutral execution window receives the exact Task route and must acquire its Claim before business work. A Discussion window routes a visible Worker; Claude Code and failed automatic routing expose only the exact one-line command. Short approvals are accepted only through one persisted `expected_transition`.
+Only after `.wishgraph/config.json` enables the project, normalize terminal punctuation and route explicit entry commands such as `开始讨论`, `刷新项目状态`, and exact `执行 012 任务`. Missing config and `mode: off` are silent no-op states; `开始讨论` never installs or enables WishGraph. A neutral execution window receives the exact Task route and must acquire its Claim before business work. A Discussion window routes a visible Worker; Claude Code and failed automatic routing expose only the exact one-line command. Short approvals are accepted only through one persisted `expected_transition`.
 
 ### SessionStart
 

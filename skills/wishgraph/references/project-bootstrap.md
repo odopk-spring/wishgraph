@@ -19,7 +19,7 @@ Map existing artifacts to product intent, architecture boundaries, feature-to-co
 
 Default existing repositories to **native-lite** adoption. Reuse their README, product spec, architecture notes, code map, conventions, issue/task system, and validation commands. Create a WishGraph file only when no native source can carry that truth without ambiguity.
 
-The first usable entry should stay human-visible and small: add a short WishGraph section to the existing root README with links to Project Status and the three commands `开始讨论`, `刷新项目状态`, and `执行 NNN 任务`. Do not create a second landing-page document. If no README exists, create one concise README rather than a WishGraph-specific manual.
+The first usable entry should stay human-visible and small: add a short WishGraph section to the existing root README stating that the project has explicitly opted in, with links to Project Status and the three post-activation commands `开始讨论`, `刷新项目状态`, and `执行 NNN 任务`. Do not create a second landing-page document. If no README exists, create one concise README rather than a WishGraph-specific manual.
 
 ## Language Mode
 

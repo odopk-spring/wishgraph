@@ -11,6 +11,21 @@ Use this reference for roles, lifecycle states, flow phases, exact commands, con
 - Host action boundary
 - Acceptance invariants
 
+## Project Activation Gate
+
+Evaluate project activation before Session Role or command parsing:
+
+```text
+inactive = missing .wishgraph/config.json or mode: off
+active   = mode: warn or mode: enforce
+```
+
+- `use_wishgraph` must come from a user request that explicitly names WishGraph. It may start safe project setup, but successful setup leaves the session `neutral`.
+- `start_discussion` is accepted only for an active project and changes `neutral -> discussion`.
+- In an inactive project, generic `开始讨论`, `刷新项目状态`, and `执行 NNN 任务` text must not become WishGraph events.
+- Global Skill availability, a governance-looking repository, or pre-existing project documents do not imply activation.
+- This gate reads only the exact config path. It never scans the repository to guess whether WishGraph should be active.
+
 ## State Dimensions
 
 Keep four orthogonal dimensions. Do not overload Task status with session or routing meaning.
@@ -135,6 +150,8 @@ Stop Discussion execution after a manual fallback. Never append an offer to impl
 ## Acceptance Invariants
 
 - Two pending Tasks make a short approval ambiguous.
+- First activation and Discussion entry are separate explicit events.
+- Inactive projects ignore generic WishGraph-shaped entry phrases.
 - Exact ID parsing prevents prefix collisions.
 - Discussion business writes and implementation builds are denied.
 - Worker entry requires approval, dependency checks, correct branch/worktree, and a fresh Claim.

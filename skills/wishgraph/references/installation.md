@@ -5,16 +5,27 @@ Use this reference only for Skill installation, project-hook setup, environment 
 ## Contents
 
 - Default decision and guided continuation
+- Explicit project opt-in
 - Preflight and cost notice
 - Platform dependency guidance
 - Installation execution
 - Verification
 
+## Explicit Project Opt-In
+
+Global Skill installation means WishGraph is available, not active in every folder. A project is enabled only when its Git root contains a readable `.wishgraph/config.json` whose `mode` is `warn` or `enforce`.
+
+- In a project with no config or `mode: off`, generic phrases such as `开始讨论`, `刷新项目状态`, and `执行 012 任务` are ordinary user requests. Do not bootstrap WishGraph, load its References, or create files from those phrases.
+- `使用 WishGraph`, `为这个项目启用 WishGraph`, `Use WishGraph`, or an equally explicit request naming WishGraph authorizes the recommended safe project setup unless the user names another mode.
+- Command-line `--setup-project` or `-SetupProject` is also explicit project activation.
+- After activation succeeds, keep the current session `neutral` and give exactly one next action: `开始讨论` / `Start discussion`.
+- A later `开始讨论` event enters Discussion only while the project remains enabled. It never enables an inactive project by itself.
+
 ## Default Decision
 
 Infer the active host from the current agent. Use `codex` for Codex and `claude` for Claude Code. Default an unspecified setup request to safe `warn` hooks. Use strict `enforce --git-hook` only when the user explicitly asks for strict or blocking behavior.
 
-Make a recommendation before asking. Use this routing:
+Make a recommendation before asking, except that an explicit `使用 WishGraph` / `Use WishGraph` activation request already selects the recommended safe setup. Use this routing:
 
 - Recommend **safe setup** for a first active project, an unfamiliar repository, or any repository that has not completed a WishGraph closeout.
 - Recommend **Skill only** when there is no target project, the user is only evaluating WishGraph, or they explicitly do not want project files.
@@ -126,4 +137,4 @@ After installation:
 3. Confirm the host commands use the exact Python executable recorded in `.wishgraph/config.json`; then run that interpreter with `.wishgraph/hooks/memory_sync.py check --scope worktree`.
 4. Treat a missing governance skeleton as a next setup step, not a dependency failure; safe mode remains non-blocking.
 5. Tell Codex users to trust the repository and review `/hooks`.
-6. Finish with the selected mode, verified host files, dependency status, and exactly one recommended next action. Do not teach hook internals unless asked.
+6. Finish with the selected mode, verified host files, dependency status, and exactly one recommended next action: `开始讨论` / `Start discussion`. Do not enter Discussion in the activation turn and do not teach hook internals unless asked.

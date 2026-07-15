@@ -10,6 +10,7 @@ The planning agent turns human intent into durable task specs.
 
 Responsibilities:
 
+- Enter this role only after the project is enabled and the user separately says "Start discussion"; first-time activation leaves the window neutral.
 - Start from `prompts/DISCUSSION_AI.md` when opening a fresh planning window.
 - Read project docs before asking questions.
 - Establish or update `PRD.md` before authorizing a Worker to restructure architecture or implement feature work.
@@ -112,7 +113,8 @@ Worker agents propose shared-memory impact in their own immutable run report. In
 - Before completion or commit, run `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` when hooks are installed.
 - Worker run reports use `Integrate` or `N/A`. Project Status snapshots use `Updated` or `N/A`.
 - Runtime session state, Worker Claims, and Integration leases live under the Git common directory rather than in business files.
-- New windows are neutral. By default SessionStart performs safety checks only; enter Discussion only after the user explicitly says "Start discussion" or equivalent. Refresh is explicit in an already-running window.
+- Global Skill installation does not activate this project. `.wishgraph/config.json` with `mode: warn` or `mode: enforce` records explicit project opt-in; missing config or `mode: off` leaves generic entry phrases inactive.
+- New windows in an enabled project are neutral. By default SessionStart performs safety checks only; enter Discussion only after the user explicitly says "Start discussion" or equivalent. First-time activation never enters Discussion in the same step. Refresh is explicit in an already-running window.
 - Hooks may expose pending integration, integration kind, ready, waiting, and blocked reports, confirmation requirement, and a reason. They do not choose parallelism, start agents, merge code, write semantic memory, or replace human review.
 
 ## Validation

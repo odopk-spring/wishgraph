@@ -1,6 +1,6 @@
 ---
 name: wishgraph
-description: Create and maintain file-backed governance for AI-assisted software projects. Use when Codex must turn vague intent into durable PRDs, architecture, code maps, bounded Task Specs, visible Worker execution, validation evidence, immutable Run Reports, Discussion-local integration, cross-session handoff, causal debugging, WishGraph Skill and hook installation, or route commands such as 开始讨论, 刷新项目状态, and 执行 NNN 任务 in Chinese, English, or bilingual projects.
+description: Create and maintain file-backed governance for AI-assisted software projects. Use when the user explicitly names WishGraph for installation or project activation, or when the current Git project already has an active .wishgraph/config.json and needs durable PRDs, architecture, code maps, bounded Task Specs, visible Worker execution, validation evidence, immutable Run Reports, Discussion-local integration, cross-session handoff, causal debugging, or WishGraph commands in Chinese, English, or bilingual projects.
 ---
 
 # WishGraph
@@ -15,6 +15,15 @@ Wish -> Spec -> Task -> Worker -> Validation -> Run Report -> Integration -> Rev
 
 Keep uncertainty, authority, evidence, and current project truth in repository files so work can
 continue without chat history.
+
+## Project Activation
+
+- Treat global Skill installation as availability, never project activation.
+- Before routing generic entry phrases, read only the current Git root's `.wishgraph/config.json`.
+- WishGraph is active only when that file exists and `mode` is `warn` or `enforce`; missing config or `mode: off` means inactive.
+- In an inactive project, do not reinterpret `开始讨论`, `刷新项目状态`, or `执行 NNN 任务` as WishGraph commands. Do not read References, create project files, or install hooks.
+- Only an explicit request naming WishGraph, such as `使用 WishGraph` or `Use WishGraph`, may begin first-time project setup.
+- First-time activation completes setup but keeps the window `neutral`. Require a later explicit `开始讨论` / `Start discussion` event to enter Discussion.
 
 ## Role Boundaries
 

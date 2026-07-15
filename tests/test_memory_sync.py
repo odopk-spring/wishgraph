@@ -92,6 +92,47 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertEqual(routed["action"], "retry")
         self.assertEqual(routed["task_id"], "012ba")
 
+    def test_entry_commands_require_explicit_project_activation(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+
+            def submit(session_id: str) -> dict[str, object]:
+                process = subprocess.run(
+                    [
+                        sys.executable,
+                        str(HOOK_ASSETS / "memory_sync.py"),
+                        "user-prompt-submit",
+                        "--host",
+                        "codex",
+                    ],
+                    cwd=root,
+                    input=json.dumps(
+                        {
+                            "cwd": str(root),
+                            "session_id": session_id,
+                            "prompt": "开始讨论",
+                        }
+                    ),
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=True,
+                )
+                return json.loads(process.stdout)
+
+            self.assertEqual(submit("missing-config"), {})
+            self.assertFalse((root / ".git" / "wishgraph" / "sessions").exists())
+
+            config = json.loads((HOOK_ASSETS / "config.json").read_text())
+            config["mode"] = "off"
+            (root / ".wishgraph").mkdir()
+            (root / ".wishgraph" / "config.json").write_text(
+                json.dumps(config), encoding="utf-8"
+            )
+            self.assertEqual(submit("explicitly-off"), {})
+            self.assertFalse((root / ".git" / "wishgraph" / "sessions").exists())
+
     def test_gate_recognizes_common_build_commands_and_mcp_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -134,6 +175,13 @@ class RuntimeBoundaryTests(unittest.TestCase):
             for path in (ROOT / "skills" / "wishgraph" / "references").glob("*.md")
         }
         self.assertEqual(routed, actual)
+        for expected in (
+            "Treat global Skill installation as availability, never project activation.",
+            "missing config or `mode: off` means inactive",
+            "Require a later explicit `开始讨论` / `Start discussion` event",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, content)
 
     def test_revision_fast_path_loads_one_reference_until_an_exception(self) -> None:
         skill = (ROOT / "skills" / "wishgraph" / "SKILL.md").read_text(
