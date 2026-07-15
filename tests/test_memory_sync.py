@@ -4074,7 +4074,7 @@ class InstallerTests(unittest.TestCase):
         workflow = hook_dir / "workflow_state.py"
         workflow.write_text("# generated WishGraph runtime fixture\n", encoding="utf-8")
         files = {
-            name: hashlib.sha256((hook_dir / name).read_bytes()).hexdigest()
+            name: installer_module.sha256_file(hook_dir / name)
             for name in installer_module.RUNTIME_FILES
         }
         (hook_dir / "runtime-manifest.json").write_text(
@@ -4134,6 +4134,26 @@ class InstallerTests(unittest.TestCase):
             ).stdout
             self.assertEqual(after, before)
             self.assertFalse((root / ".wishgraph").exists())
+
+    def test_runtime_manifest_accepts_windows_crlf_without_masking_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            asset_root = Path(tempdir) / "hooks"
+            shutil.copytree(HOOK_ASSETS, asset_root)
+            for name in installer_module.RUNTIME_FILES:
+                path = asset_root / name
+                lf_data = path.read_bytes().replace(b"\r\n", b"\n")
+                path.write_bytes(lf_data.replace(b"\n", b"\r\n"))
+
+            with mock.patch.object(installer_module, "ASSET_ROOT", asset_root):
+                manifest = installer_module.bundled_runtime_manifest()
+                self.assertEqual(manifest["runtime_version"], 12)
+
+                policy_path = asset_root / "policy.py"
+                policy_path.write_bytes(policy_path.read_bytes() + b"# changed\r\n")
+                with self.assertRaisesRegex(
+                    ValueError, "do not match runtime-manifest"
+                ):
+                    installer_module.bundled_runtime_manifest()
 
     def test_doctor_reports_a_current_installed_host(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:

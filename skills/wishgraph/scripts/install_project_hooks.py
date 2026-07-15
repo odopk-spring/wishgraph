@@ -112,11 +112,11 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
 
 
 def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(65536), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    # Git may materialize the bundled Python runtime with CRLF on Windows.
+    # Fingerprints describe generated source content, so canonicalize only that
+    # platform newline difference while preserving every other byte.
+    data = path.read_bytes().replace(b"\r\n", b"\n")
+    return hashlib.sha256(data).hexdigest()
 
 
 def validate_runtime_manifest(value: dict[str, Any], *, source: str) -> dict[str, Any]:
