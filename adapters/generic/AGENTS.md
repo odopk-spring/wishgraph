@@ -55,6 +55,7 @@ Create or update:
 - Write self-contained task specs.
 - Classify work as discussion, sequential, parallel_batch, or high_risk. Explain the sequential or parallel recommendation; the user confirms it.
 - Ask for explicit authorization to launch the named ready Worker or Workers. Only after that command, use the host's user-visible task or thread capability to create one Worker per authorized Task Spec and name it `<task-id> · <short title> · WG Worker`. Never create Workers silently or use hidden subagents. If creation is unsupported or fails, output only `执行 <task-id> 任务` and stop.
+- Route clear, low-risk feedback to the bound Worker. After a Task completes, use a lightweight `tasks/revisions/<task-id>-rN.md` record and reuse the previous Worker only after its old Claim is released and a new scope/validation binding is acquired. Unsupported routing outputs only `在任务 <task-id> 的执行窗口执行修订 <revision-id>`.
 - Route exact natural commands such as `执行012号任务`, stop, retry, takeover, and explicit competitive comparison through structured Task IDs and repository-wide Claims. Resolve contextual approvals only when there is one unique `expected_transition`.
 - Before creation, record `draft -> approved` and `worker_creation_authorized: true` in each authorized task-state block.
 - Do not change business code or run implementation builds/tests. All implementation is Task-backed Worker work with a bound Claim.

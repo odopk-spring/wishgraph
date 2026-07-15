@@ -78,6 +78,8 @@ Refresh project status.
 
 The normal user experience is one long-lived Discussion window plus explicit, user-visible Worker windows. Integration is a temporary phase inside Discussion, never a separate window or background Integrator. If Discussion is inactive when a Worker finishes, WishGraph persists `integration_pending` and resumes evaluation on the next Discussion start or refresh. Hooks expose and enforce state, but they do not start Workers, merge code, or invent project meaning.
 
+A Worker window can be reused for later work after it releases the current Task and binds a fresh Claim with the next Task's scope and validation plan. Clear, low-risk feedback to an existing result uses a lightweight Task Revision such as `012-r1`; WishGraph routes it to the relevant Worker, records targeted validation and a separate report, then integrates it safely without recreating a full Task Spec.
+
 ## The project state graph
 
 | File | What it keeps |
@@ -87,6 +89,7 @@ The normal user experience is one long-lived Discussion window plus explicit, us
 | `CODEMAP.md` | Features and contracts mapped to source files |
 | `CONVENTIONS.md` | Collaboration, validation, and Git rules |
 | `tasks/build/*.md` | Self-contained, versioned execution specs |
+| `tasks/revisions/*.md` | Lightweight, parent-linked corrections such as `012-r1` |
 | `reports/runs/*.md` | Immutable evidence from each execution unit |
 | `reports/PROJECT_STATUS.md` | The latest integrated project snapshot |
 | `prompts/*.md` | Stable handoffs for Discussion and Worker, plus the Discussion-local Integration phase |

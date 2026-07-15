@@ -42,7 +42,7 @@ This filesystem Claim is atomic across processes and worktrees sharing one local
 
 ## Stop And Competitive Execution
 
-Every business-code write, build, test, or dependency installation is Task-backed Worker work. Discussion has no direct-edit exception: it may update governance state and route a Worker, but it cannot implement even a one-line business change. The Worker still needs a bound Claim, immutable Run Report, validation, and normal integration.
+Every business-code write, build, test, or dependency installation is Worker work backed by a formal Task or an eligible Task Revision. Discussion has no direct-edit exception: it may update governance state and route a Worker, but it cannot implement even a one-line business change. The Worker still needs a bound Claim, immutable Run Report, validation, and normal integration.
 
 On stop, preserve the branch, worktree, Claim, and report evidence long enough to close safely. Before integration, a rejected or abandoned attempt can be released/revoked and retried under the same Task ID with an incremented attempt and new report. After integration, never erase history; create a replacement or rollback follow-up Task. `revoke` requires explicit user authority.
 
@@ -118,6 +118,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
      - `prompts/EXECUTION_AI.md` as the stable launch prompt for execution agents.
      - `prompts/INTEGRATION_AI.md` as the stable prompt for the Discussion-local Integration phase.
      - `tasks/build/NNN-short-slug.md` for visible, self-contained execution specs.
+     - `tasks/revisions/NNN-rN.md` for lightweight, parent-linked corrections after a Task completes.
      - `reports/PROJECT_STATUS.md` for the current integrated project snapshot.
      - `reports/RUN_REPORT.md` as the template for immutable worker reports under `reports/runs/`.
    - Use `assets/templates/` as the file-shape source, but remove generic placeholder content that does not fit the target repo.
@@ -129,6 +130,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - Prefer small atomic tasks. Split any task whose validation, risk, or rollback boundary is unclear.
    - Fill the versioned `wishgraph:task-state` block with task ID, `draft` status, work type, batch ID, unique Run Report path, `worker_creation_authorized: false`, and the integration policy. Use `requires_explicit_user_confirmation` for parallel or high-risk integration.
    - Keep Task Lifecycle separate from Session Role, Flow Phase, and `expected_transition`; persist the latter three in Git-common-dir runtime state.
+   - Do not create a full Task Spec for a clear, low-risk correction to an existing result. Use the Task Revision template only when the request belongs to one parent Task, has a small explicit scope and targeted validation, is independently revertible, and has no API, schema, persistence, migration, dependency, permission, security, privacy, or new-product-decision risk. Otherwise create a formal follow-up Task.
 
 5. **Classify work and obtain the right authority**
    - Use `discussion` while requirements or architecture remain unclear; start no worker or integration.
@@ -141,6 +143,8 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
 6. **Separate Discussion, Worker, and Integration phase boundaries**
    - Discussion grills intent, writes specs, routes Workers, and presents results. It does not write business code or run implementation builds/tests.
    - Worker execution agents use separate branches or worktrees, verify task-state authorization, move `approved -> running -> completed|blocked|incomplete`, implement only the approved spec, and create one immutable `reports/runs/<work-unit-id>.md`.
+   - A Worker window can be reused only after its current work is terminal and its old Claim is released. Rebind must clear old scope and validation, read the next Task or Revision, acquire a fresh bound Claim, and persist the new binding before execution. One window never carries two active work units.
+   - Feedback to a running Task is appended to that Task and its current report. Feedback after completion uses an exact `NNN-rN` Revision record and a separate immutable report; Discussion routes it and never implements it.
    - Workers record `Integrate` or `N/A` proposals and never edit shared project memory.
    - After every Worker terminal event, Discussion enters `integration_pending`, evaluates the result, and either auto-enters its local Integration phase, asks one concrete risk decision, or marks the flow blocked.
    - Discussion-local Integration requires a bound Integration lease. It merges workers with `--no-commit`, reads every new run report, resolves permitted conflicts, updates affected shared memory, rewrites `reports/PROJECT_STATUS.md`, and then refreshes the concise dynamic state in `prompts/DISCUSSION_AI.md`.
@@ -160,6 +164,7 @@ When the user asks to "set up WishGraph", "make this project AI-agent friendly",
    - Read the old `reports/PROJECT_STATUS.md`, preserve current facts and unresolved items, absorb this integration's Run Reports, and rewrite the complete snapshot. Never append integration history; list only reports absorbed this time and leave detail in `reports/runs/*.md` and Git.
    - Fill the versioned `wishgraph:integration-state` JSON block with the integration ID, status, kind, authorization, and exactly the Run Reports absorbed this time. Treat the block as workflow truth and the surrounding Markdown as the human review view.
    - Move each absorbed structured task from `completed` to `integrated`. After the human accepts the result, discussion moves only that task-state block from `integrated` to `reviewed`.
+   - Move each absorbed Task Revision from `completed` to `integrated` and include its result in Project Status. Safe Revision integration never asks whether to begin integration.
    - Keep Project Status within configured line and character limits without deleting unresolved risks, conflicts, or pending decisions.
    - After Project Status is complete, update only the concise dynamic state block in `prompts/DISCUSSION_AI.md`: latest integration ID, discussion focus, result to present, pending decisions, next action, and the Project Status pointer. Discussion AI maintains this block during planning and after human review; Workers never edit it.
    - Run `.wishgraph/hooks/memory_sync.py status` when available and show ready, waiting, and blocked reports plus pending integration and the next action.
@@ -213,6 +218,7 @@ For English or language-neutral projects, use the root files under `assets/templ
 | `assets/templates/EXAMPLE-good-task.md` | Optional example for humans and planning agents |
 | `assets/templates/PROJECT_STATUS.md` | `reports/PROJECT_STATUS.md` |
 | `assets/templates/RUN_REPORT.md` | `reports/RUN_REPORT.md` |
+| `assets/templates/TASK_REVISION.md` | `tasks/revisions/012-r1.md` or the next Revision ID |
 
 Chinese mirror:
 
@@ -230,6 +236,7 @@ Chinese mirror:
 | `assets/templates/zh-CN/tasks/build/EXAMPLE-good-task.md` | Optional example for humans and planning agents |
 | `assets/templates/zh-CN/reports/PROJECT_STATUS.md` | `reports/PROJECT_STATUS.md` |
 | `assets/templates/zh-CN/reports/RUN_REPORT.md` | `reports/RUN_REPORT.md` |
+| `assets/templates/zh-CN/tasks/revisions/TASK_REVISION.md` | `tasks/revisions/012-r1.md` or the next Revision ID |
 
 ## Output Rules
 
@@ -237,7 +244,7 @@ Chinese mirror:
 - Do not include the creator's personal content, social media drafts, or private case-study language when adapting a user's project.
 - Treat project files as external memory. Update them when the state changes.
 - Do not force meaningless memory-file edits. Require an explicit N/A reason when a managed file did not need a change.
-- Do not let business-code work bypass a Task, Worker Claim, validation, immutable Run Report, or memory-impact review.
+- Do not let business-code work bypass a formal Task or eligible Task Revision, Worker Claim, validation, immutable Run Report, or memory-impact review.
 - Do not let worker agents update shared memory. Integrate their reports through the Discussion-local lease holder.
 - Do not let hooks choose parallelism, launch agents, merge code, write semantic project memory, or replace human review.
 - Do not integrate parallel results unless existing Worker authority and every `parallel_independent` mechanical gate are proven; otherwise return to Discussion.

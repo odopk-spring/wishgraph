@@ -101,6 +101,8 @@ reports/runs/<work-unit-id>.md
 
 New Task Specs contain `wishgraph:task-state`, Run Reports contain `wishgraph:run-state`, and Project Status snapshots contain `wishgraph:integration-state`. Hooks check `draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`, including explicit Worker-creation authority and integration policy. Drafts remain editable until approval; execution identity is then fixed except for a new retry report path. Authorization, retry, and review transitions may omit a Worker report only when surrounding task prose is unchanged; `running` is not a valid closeout. Legacy label-based files remain readable; a present but invalid block is an error.
 
+Completed-Task corrections may use `tasks/revisions/<task-id>-rN.md` with a `wishgraph:revision-state` block. This is intentionally smaller than a Task Spec: parent Task, exact request, allowed scope, targeted validation, status, and one immutable report. A Revision report uses `change_class: revision`, the parent `task_id`, and the exact `revision_id`. Any recorded API, schema, persistence, migration, dependency, permission, security, privacy, or product-decision risk requires a formal follow-up Task.
+
 Task Lifecycle is only one state dimension. Session Role (`neutral|discussion|worker`), Flow Phase, and one structured `expected_transition` are stored separately under the Git common directory. A short reply such as `可以` or `执行吧` is actionable only when that transition is unique.
 
 Worker reports use `Integrate` or `N/A` and do not edit shared project memory:
@@ -174,6 +176,10 @@ python3 .wishgraph/hooks/memory_sync.py claim revoke CLAIM_ID
 ```
 
 Acquisition uses an atomic filesystem operation, defaults to one exclusive active Claim per Task, and records attempt, worker, branch, absolute worktree, timestamps, lease status, execution mode, and optional host thread reference. With `--session-id`, Claim acquisition also persists the Worker runtime; persistence failure revokes the new Claim. Heartbeat and release enforce branch/worktree binding; explicit revoke is the takeover control path. Stale detection preserves old records. This coordinates processes and worktrees sharing one local Git common directory; it is not a distributed lock across machines that only share a remote.
+
+A terminal Worker window may be rebound with `claim rebind`. Rebind releases the old Claim before acquiring a new Claim carrying a fresh `task_id`, optional `revision_id`, `allowed_scope`, `validation_plan`, and execution ownership. If new acquisition or runtime persistence fails, the window remains idle/unbound and old authority is not restored. A running old Task is never eligible.
+
+Use `revision next 012` to allocate the next exact Revision ID, `revision resolve 012-r1` to inspect its lightweight record, and `revision route 012-r1 --host codex|claude` to calculate the host action. Codex returns an existing-worker target when a reusable visible Worker is recorded, otherwise a visible Revision Worker action; Claude Code returns only the shortest manual command.
 
 Discussion-local Integration first persists `phase: integrating`, then acquires a lease bound to the session, integration ID, Task IDs, reports, branch, and worktree:
 

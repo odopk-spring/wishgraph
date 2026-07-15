@@ -1,6 +1,6 @@
 # Worker 启动提示词
 
-在 neutral 窗口收到一行命令 `执行 <task-id> 任务` 后使用本文件。精确解析结构化 Task ID，再读取对应 `tasks/build/NNN-short-slug.md`；旧项目可以继续使用 `.tasks/build/`。
+在 neutral 窗口收到一行命令 `执行 <task-id> 任务` 后使用本文件；已有 Worker 收到路由来的 Revision 时也使用本文件。精确解析 Task 或 Revision ID，并读取对应的持久记录。
 
 这个提示词是稳定的。不要把具体任务要求写在这里；任务要求应写在任务文件里。
 
@@ -30,12 +30,15 @@
 3. `ARCHITECTURE.md` - 依赖边界。
 4. `CODEMAP.md` - 功能到文件查找表。
 5. 指定的 `tasks/build/NNN-short-slug.md` - 正式任务需求的唯一来源，不存在直接编辑例外。
+   如果执行 Revision，则改读 `tasks/revisions/<task-id>-rN.md`；其中的 parent、用户请求、允许范围、验证计划和报告路径就是完整轻量任务。
 6. 任务明确引用的任何文件。
 
 ## Worker 规则
 
-- 修改 Task 状态或业务文件前，确认本窗口为 `neutral`，执行准确 preflight，原子获取 Worker Claim，持久化 Session Role `worker`，再把 Task 改为 `running`。核对 Task ID、attempt、branch、绝对 worktree、session/Worker identity 和 Claim 绑定。已有其他 exclusive Claim 时禁止执行。
+- 首次绑定前确认本窗口为 `neutral`，执行准确 preflight，原子获取 Worker Claim，持久化 Session Role `worker`，再把 Task 改为 `running`。重新绑定时，先确认旧工作已进入终态且旧 Claim 已释放，再获取新 Claim。两种情况都要核对 Task/Revision ID、attempt、branch、绝对 worktree、session/Worker identity、scope、验证计划和 Claim 绑定。已有其他 exclusive Claim 时禁止执行。
 - 长任务要持续 heartbeat。只在规定的收尾 / 集成边界释放 Claim；接管必须先显式 revoke，再使用新 attempt 和新报告，不能覆盖其他 Worker 报告。
+- 当前工作进入终态后可以复用本窗口。新 Task 或 Revision 开始前，必须释放旧 Claim、清除旧 scope 与验证计划、读取新记录、获取新 Claim 并持久化新绑定。同一时刻不得保留两个 active 工作单元，也不能只改聊天中的编号。
+- 仍属于 running Task 的反馈追加到当前报告。路由来的 `NNN-rN` 使用独立轻量记录、Claim、针对性验证、不可变报告和提交；一旦超出记录范围或出现显式风险，立即停止。
 - 每个 Worker 或竞争候选使用独立 branch/worktree。当前 worktree 混入其他任务修改或与 Claim 不一致时停止。
 - 保持 patch 最小、可回滚。
 - 使用项目已有模式。

@@ -18,6 +18,7 @@
 - 提出新工作前读取 `reports/PROJECT_STATUS.md`，先向用户呈现新集成结果。
 - 不得在 Discussion 中实现 Worker 工作。业务文件写入、安装依赖、构建、实现测试和 Task 验证都必须由持有绑定 Claim 的独立 Worker 执行。
 - 用户要求“就在当前窗口直接修改”也不能覆盖角色边界；应创建或确认 Task，并路由独立 Worker。
+- 对 running Task 的明确、低风险、小范围反馈，路由给它的 active Worker；对已完成 Task，创建 `tasks/revisions/<task-id>-rN.md` 轻量记录并优先路由给原 Worker。Discussion 永不自行实现 Revision。
 - 把项目记忆保存在文件里，而不是聊天里。
 
 ## 项目身份
@@ -126,6 +127,7 @@ project/
 - 机器编号使用 `012`、`012a`、……、`012z`、`012aa`；slug 只放在文件名。字母是可无限延展的序列，不表达层级；父子和先后关系分别使用 `parent_task_id` 与 `dependencies`。
 - “执行012b”和“执行012b号任务”都只能精确解析到结构化 `task_id == "012b"`，不能前缀匹配 `012ba`，也不能根据文件名猜测。“查看”和“观察”只读；“执行”在安全检查通过后构成明确执行授权。
 - blocked 或 incomplete 重试保留原 Task ID，递增 `attempt`，并创建新的不可变 `reports/runs/<task-id>-attempt-N.md`。只有新的 Follow-up Goal 才分配字母后缀。
+- 已完成 Task 的低风险修正使用 `012-r1` 这类精确 Revision ID；`012-r1` 与 `012-r10` 不得混淆。范围、产品目标、API、schema、持久化、迁移、依赖、权限、安全或隐私发生变化时，升级为正式后续 Task。
 - 同一 ID 出现在多个文件时停止并报告冲突；没有精确匹配时只列出相近有效 ID，不擅自执行。
 - “让两个 Agent 分别执行012，最后比较谁做得好”构成明确 competitive 授权。为候选创建子编号和独立 Claim/worktree/report，只集成一个胜者；客观唯一高分可自动选择，平分或偏好取舍返回本窗口。
 - 停止、重试和接管都保留旧 attempt 与报告；revoke 需要用户明确授权。已经 integrated/reviewed 的结果通过新的回滚或 Follow-up Task 替换，不能破坏性重跑。

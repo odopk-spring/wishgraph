@@ -67,6 +67,12 @@ Use the same one-line `manual_window` fallback. Host limitations never authorize
 
 A neutral window receiving `执行 <task-id> 任务` reads `CONVENTIONS.md`, `prompts/EXECUTION_AI.md`, and the exact Task. It verifies approval, authorization, dependencies, attempt, branch/worktree, and existing Claims; atomically acquires the Worker Claim; changes its role to `worker`; moves the Task to `running`; then implements, validates, reports, and commits.
 
+## Worker Reuse And Task Revision
+
+A visible Worker window may remain open after closeout. It may bind another Task or `NNN-rN` Revision only after the old work is terminal and the old Claim is released. Rebind clears the old scope and validation plan, reads the new durable record, acquires a new Claim bound to the new work unit, and persists the session binding. A running Worker cannot switch Tasks.
+
+Discussion routes clear, low-risk feedback to the active Worker while the parent Task is running. After completion it creates a lightweight `tasks/revisions/<task-id>-rN.md` record and routes it to the previous Worker when the host supports existing-window delivery. Unsupported routing outputs only `在任务 <task-id> 的执行窗口执行修订 <revision-id>` and stops. Discussion never becomes the implementation fallback.
+
 ## Completion And Integration
 
 Every Worker terminal event enters `integration_pending` and triggers integration evaluation. Discussion does not ask whether to start integration.

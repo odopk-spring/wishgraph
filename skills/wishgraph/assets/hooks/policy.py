@@ -5,7 +5,7 @@ from __future__ import annotations
 import fnmatch
 import re
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Optional
 
@@ -13,6 +13,7 @@ from git_state import (
     LEGACY_PROJECT_STATUS_PATH,
     changed_path_statuses,
     changed_paths,
+    configured_revision_glob,
     configured_task_globs,
     inspect_claims,
     matches_any,
@@ -28,11 +29,13 @@ from workflow_state import (
     SCHEMA_VERSION as WORKFLOW_STATE_SCHEMA_VERSION,
     STATE_BLOCK_RE,
     ReportState,
+    RevisionState,
     FlowPlan,
     HostCapability,
     OrchestrationState,
     TaskState,
     UserEvent,
+    canonical_revision_id,
     dynamic_state_block,
     integrated_report_paths,
     markdown_section,
@@ -41,6 +44,7 @@ from workflow_state import (
     parse_labeled_field,
     parse_report_state,
     parse_report_status,
+    parse_revision_state,
     parse_task_command,
     parse_task_state,
     parse_workflow_block,
@@ -140,6 +144,7 @@ def _expected_patch(
     report_id: str = "",
     decision_id: str = "",
     integration_id: str = "",
+    revision_id: str = "",
 ) -> dict[str, str]:
     return {
         "kind": kind,
@@ -147,6 +152,7 @@ def _expected_patch(
         "report_id": report_id,
         "decision_id": decision_id,
         "integration_id": integration_id,
+        "revision_id": revision_id,
     }
 
 
@@ -180,6 +186,56 @@ def _role_denial(task_id: str, reason: str) -> FlowPlan:
     )
 
 
+REVISION_RISK_FIELDS = (
+    "public_api_change",
+    "schema_change",
+    "persistence_change",
+    "migration_change",
+    "dependency_change",
+    "permission_change",
+    "security_impact",
+    "privacy_impact",
+    "new_product_decision",
+)
+
+
+def _revision_is_lightweight(data: dict[str, Any]) -> bool:
+    """Require affirmative scope evidence and explicit negative risk evidence."""
+    required_true = (
+        "request_is_clear",
+        "belongs_to_parent_task",
+        "small_scope",
+        "independently_revertible",
+    )
+    return (
+        all(data.get(name) is True for name in required_true)
+        and all(data.get(name) is False for name in REVISION_RISK_FIELDS)
+        and bool(data.get("allowed_scope"))
+        and bool(data.get("validation_plan"))
+    )
+
+
+def _manual_revision_plan(
+    task_id: str, revision_id: str, reason: str
+) -> FlowPlan:
+    return FlowPlan(
+        accepted=True,
+        next_action="fallback_manual_worker_command",
+        task_id=task_id,
+        revision_id=revision_id,
+        host_route="manual_existing_or_recovery_worker",
+        user_message=f"在任务 {task_id} 的执行窗口执行修订 {revision_id}",
+        stop_after_action=True,
+        denial_reason=reason,
+        state_patch={
+            "session": {
+                "phase": "waiting_for_user_launch",
+                "expected_transition": _expected_patch("route_revision", task_id),
+            }
+        },
+    )
+
+
 def reduce_orchestration(
     current_state: OrchestrationState,
     user_event: UserEvent,
@@ -194,11 +250,330 @@ def reduce_orchestration(
     if user_event.kind in {"refresh", "inspect"}:
         return FlowPlan(accepted=True, next_action="read_status")
 
+    if user_event.kind == "host_revision_route_failed":
+        parent_task_id = str(data.get("parent_task_id") or task_id)
+        revision_id = str(data.get("revision_id") or "")
+        payload = data.get("work_payload")
+        payload = payload if isinstance(payload, dict) else {}
+        if revision_id and host_capability.can_create_visible_worker:
+            return FlowPlan(
+                accepted=True,
+                next_action="create_lightweight_revision",
+                task_id=parent_task_id,
+                revision_id=revision_id,
+                host_route="automatic_thread",
+                work_payload=payload,
+                stop_after_action=True,
+                denial_reason="existing_worker_route_failed",
+            )
+        if revision_id:
+            return _manual_revision_plan(
+                parent_task_id, revision_id, "existing_worker_route_failed"
+            )
+        return FlowPlan(
+            accepted=True,
+            next_action="fallback_manual_worker_command",
+            task_id=parent_task_id,
+            user_message=f"在任务 {parent_task_id} 的执行窗口处理当前反馈",
+            stop_after_action=True,
+            denial_reason="existing_worker_route_failed",
+        )
+
+    if user_event.kind in {"user_requested_revision", "worker_feedback_received"}:
+        parent_task_id = str(data.get("parent_task_id") or task_id)
+        candidates = tuple(
+            str(item) for item in data.get("candidate_parent_task_ids", ()) if item
+        )
+        if len(candidates) > 1 or (candidates and parent_task_id not in candidates):
+            return FlowPlan(
+                accepted=False,
+                next_action="ask_task_choice",
+                task_id=parent_task_id,
+                denial_reason="revision_parent_is_ambiguous",
+            )
+        if task is None or task.task_id != parent_task_id:
+            return FlowPlan(
+                accepted=False,
+                next_action="ask_task_choice",
+                task_id=parent_task_id,
+                denial_reason="revision_parent_task_not_loaded",
+            )
+        if not _revision_is_lightweight(data):
+            return FlowPlan(
+                accepted=True,
+                next_action="request_formal_followup_task",
+                task_id=parent_task_id,
+                stop_after_action=True,
+                denial_reason="revision_exceeds_lightweight_boundary",
+            )
+
+        request = str(data.get("user_request") or "").strip()
+        allowed_scope = [str(item) for item in data.get("allowed_scope", ()) if item]
+        validation_plan = [
+            str(item) for item in data.get("validation_plan", ()) if item
+        ]
+        payload = {
+            "parent_task_id": parent_task_id,
+            "user_request": request,
+            "allowed_scope": allowed_scope,
+            "validation_plan": validation_plan,
+        }
+        runtime = current_state.worker_runtime
+        active_matches = (
+            runtime.active_task_id in {"", parent_task_id}
+            and runtime.binding_status in {"bound", "active", "unbound"}
+        )
+        if task.lifecycle == "running":
+            if not active_matches:
+                return FlowPlan(
+                    accepted=False,
+                    next_action="request_formal_followup_task",
+                    task_id=parent_task_id,
+                    denial_reason="active_worker_is_bound_to_unrelated_task",
+                )
+            if session.role == "worker" and runtime.claim_id:
+                return FlowPlan(
+                    accepted=True,
+                    next_action="append_feedback_to_active_task",
+                    task_id=parent_task_id,
+                    target_worker_id=runtime.host_window_or_thread_id,
+                    work_payload=payload,
+                )
+            if session.role == "discussion":
+                if host_capability.can_route_existing_worker and runtime.host_window_or_thread_id:
+                    return FlowPlan(
+                        accepted=True,
+                        next_action="route_to_active_worker",
+                        task_id=parent_task_id,
+                        target_worker_id=runtime.host_window_or_thread_id,
+                        work_payload=payload,
+                        stop_after_action=True,
+                    )
+                return FlowPlan(
+                    accepted=True,
+                    next_action="fallback_manual_worker_command",
+                    task_id=parent_task_id,
+                    user_message=f"在任务 {parent_task_id} 的执行窗口处理当前反馈",
+                    stop_after_action=True,
+                    denial_reason="host_cannot_route_to_active_worker",
+                )
+
+        if task.lifecycle not in {"completed", "integrated", "reviewed"}:
+            return FlowPlan(
+                accepted=False,
+                next_action="request_formal_followup_task",
+                task_id=parent_task_id,
+                denial_reason="parent_task_is_not_running_or_terminal",
+            )
+        revision_number = int(data.get("next_revision_number") or 1)
+        revision_id = str(data.get("revision_id") or f"{parent_task_id}-r{revision_number}")
+        if not canonical_revision_id(revision_id):
+            return FlowPlan(
+                accepted=False,
+                next_action="request_formal_followup_task",
+                task_id=parent_task_id,
+                denial_reason="revision_id_is_invalid",
+            )
+        payload["revision_id"] = revision_id
+        revision_patch = {
+            "revision": {
+                "revision_id": revision_id,
+                "parent_task_id": parent_task_id,
+                "status": "pending",
+                "user_request": request,
+                "allowed_scope": allowed_scope,
+                "validation_plan": validation_plan,
+            }
+        }
+        reusable_previous = (
+            runtime.previous_task_id in {"", parent_task_id}
+            and runtime.worker_availability in {"idle", "available"}
+            and runtime.binding_status in {"released", "unbound", "idle"}
+        )
+        if (
+            reusable_previous
+            and host_capability.can_route_existing_worker
+            and host_capability.can_reuse_worker
+            and runtime.host_window_or_thread_id
+        ):
+            return FlowPlan(
+                accepted=True,
+                next_action="route_to_previous_worker",
+                task_id=parent_task_id,
+                revision_id=revision_id,
+                target_worker_id=runtime.host_window_or_thread_id,
+                work_payload=payload,
+                state_patch=revision_patch,
+                stop_after_action=True,
+            )
+        if host_capability.can_create_visible_worker:
+            return FlowPlan(
+                accepted=True,
+                next_action="create_lightweight_revision",
+                task_id=parent_task_id,
+                revision_id=revision_id,
+                host_route="automatic_thread",
+                work_payload=payload,
+                state_patch=revision_patch,
+                stop_after_action=True,
+            )
+        plan = _manual_revision_plan(
+            parent_task_id, revision_id, "host_cannot_route_or_create_revision_worker"
+        )
+        return replace(
+            plan,
+            state_patch={**revision_patch, **plan.state_patch},
+            work_payload=payload,
+        )
+
+    if user_event.kind == "task_rebind_requested":
+        runtime = current_state.worker_runtime
+        next_task_id = str(data.get("next_task_id") or "")
+        current_terminal = data.get("current_task_terminal") is True
+        if not current_terminal:
+            return FlowPlan(
+                accepted=False,
+                next_action="deny_worker_rebind",
+                task_id=next_task_id,
+                denial_reason="active_task_must_finish_stop_or_suspend_before_rebind",
+            )
+        if not next_task_id or not data.get("allowed_scope") or not data.get("validation_plan"):
+            return FlowPlan(
+                accepted=False,
+                next_action="deny_worker_rebind",
+                task_id=next_task_id,
+                denial_reason="new_binding_requires_task_scope_and_validation_plan",
+            )
+        return FlowPlan(
+            accepted=True,
+            next_action="rebind_worker",
+            task_id=next_task_id,
+            revision_id=str(data.get("revision_id") or ""),
+            required_claim=True,
+            target_worker_id=runtime.host_window_or_thread_id,
+            work_payload={
+                "session_id": session.session_id,
+                "task_id": next_task_id,
+                "revision_id": str(data.get("revision_id") or ""),
+                "worktree": str(data.get("worktree") or runtime.worktree),
+                "branch": str(data.get("branch") or runtime.branch),
+                "allowed_scope": list(data.get("allowed_scope") or ()),
+                "validation_plan": list(data.get("validation_plan") or ()),
+                "execution_ownership": str(
+                    data.get("execution_ownership") or "worker_claim"
+                ),
+                "old_claim_id": runtime.claim_id or runtime.previous_claim_id,
+                "old_task_status": task.lifecycle if task is not None else "completed",
+            },
+            state_patch={
+                "worker_runtime": {
+                    "claim_id": "",
+                    "previous_claim_id": (
+                        runtime.claim_id or runtime.previous_claim_id
+                    ),
+                    "previous_task_id": runtime.active_task_id or task_id,
+                    "active_task_id": next_task_id,
+                    "active_revision_id": str(data.get("revision_id") or ""),
+                    "binding_status": "binding",
+                    "allowed_scope": list(data.get("allowed_scope") or ()),
+                    "validation_plan": list(data.get("validation_plan") or ()),
+                    "execution_ownership": str(
+                        data.get("execution_ownership") or "worker_claim"
+                    ),
+                }
+            },
+        )
+
+    if user_event.kind == "task_rebind_completed":
+        next_task_id = str(data.get("task_id") or "")
+        claim_id = str(data.get("claim_id") or "")
+        if not next_task_id or not claim_id or data.get("old_claim_released") is not True:
+            return FlowPlan(
+                accepted=False,
+                next_action="deny_worker_rebind",
+                task_id=next_task_id,
+                denial_reason="rebind_completion_requires_released_old_and_acquired_new_claim",
+            )
+        return FlowPlan(
+            accepted=True,
+            next_action="start_rebound_work",
+            task_id=next_task_id,
+            revision_id=str(data.get("revision_id") or ""),
+            required_claim=True,
+            state_patch={
+                "worker_runtime": {
+                    "claim_id": claim_id,
+                    "active_task_id": next_task_id,
+                    "active_revision_id": str(data.get("revision_id") or ""),
+                    "binding_status": "active",
+                    "worker_availability": "busy",
+                }
+            },
+        )
+
+    if user_event.kind in {"revision_completed", "revision_blocked"}:
+        revision_id = str(data.get("revision_id") or "")
+        completed = user_event.kind == "revision_completed"
+        if current_state.worker_runtime.claim_id and data.get("claim_released") is not True:
+            return FlowPlan(
+                accepted=False,
+                next_action="repair_worker_closeout",
+                task_id=task_id,
+                revision_id=revision_id,
+                denial_reason="revision_terminal_requires_released_worker_claim",
+            )
+        return FlowPlan(
+            accepted=completed,
+            next_action=("evaluate_integration" if completed else "repair_worker_closeout"),
+            task_id=task_id,
+            revision_id=revision_id,
+            state_patch={
+                "session": {
+                    "phase": "integration_pending" if completed else "waiting_for_worker",
+                    "expected_transition": (
+                        _expected_patch(
+                            "auto_integrate",
+                            task_id,
+                            report_id=str(data.get("report_id") or ""),
+                            revision_id=revision_id,
+                        )
+                        if completed
+                        else _expected_patch("repair_worker_closeout", task_id)
+                    ),
+                },
+                "revision": {
+                    "revision_id": revision_id,
+                    "parent_task_id": task_id,
+                    "status": "completed" if completed else "blocked",
+                    "run_report": str(data.get("report_id") or ""),
+                },
+                "worker_runtime": {
+                    "claim_id": "",
+                    "previous_claim_id": (
+                        current_state.worker_runtime.claim_id
+                        or current_state.worker_runtime.previous_claim_id
+                    ),
+                    "previous_task_id": task_id,
+                    "active_task_id": "",
+                    "active_revision_id": "",
+                    "worker_availability": "idle",
+                    "binding_status": "released",
+                    "allowed_scope": [],
+                    "validation_plan": [],
+                    "execution_ownership": "",
+                },
+            },
+        )
+
     if user_event.kind == "operation_requested":
         operation = str(data.get("operation") or "")
         operation_scope = str(data.get("operation_scope") or "")
+        runtime = current_state.worker_runtime
         worker_authorized = (
-            session.role == "worker" and bool(current_state.worker_runtime.claim_id)
+            session.role == "worker"
+            and bool(runtime.claim_id)
+            and runtime.active_task_id in {"", task_id}
+            and runtime.binding_status in {"unbound", "bound", "active"}
         )
         integration_authorized = (
             session.role == "discussion"
@@ -218,13 +593,27 @@ def reduce_orchestration(
                     "integrating",
                     "presenting_result",
                 }
-            ) or (worker_authorized and operation_scope == "own_task_state")
+            ) or (
+                worker_authorized
+                and operation_scope in {"own_task_state", "own_revision_state"}
+            )
         elif operation == "business_write":
             allowed = worker_authorized or (
                 integration_authorized and operation_scope == "merge_resolution"
             )
+            requested_paths = [
+                str(path) for path in data.get("requested_paths", ()) if path
+            ]
+            if worker_authorized and runtime.allowed_scope and requested_paths:
+                allowed = all(
+                    any(fnmatch.fnmatch(path, pattern) for pattern in runtime.allowed_scope)
+                    for path in requested_paths
+                )
         elif operation == "build_test":
             allowed = worker_authorized or integration_authorized
+            requested_validation = str(data.get("validation_step") or "")
+            if worker_authorized and runtime.validation_plan and requested_validation:
+                allowed = requested_validation in runtime.validation_plan
         elif operation == "install_dependency":
             allowed = worker_authorized and data.get("task_authorized") is True
         elif operation == "shared_state_write":
@@ -281,6 +670,13 @@ def reduce_orchestration(
                 task_id=task_id,
                 denial_reason="worker_terminal_status_invalid",
             )
+        if current_state.worker_runtime.claim_id and data.get("claim_released") is not True:
+            return FlowPlan(
+                accepted=False,
+                next_action="repair_worker_closeout",
+                task_id=task_id,
+                denial_reason="worker_terminal_requires_released_worker_claim",
+            )
         return FlowPlan(
             accepted=True,
             next_action="evaluate_integration",
@@ -293,6 +689,23 @@ def reduce_orchestration(
                     ),
                 },
                 "task": {"lifecycle": terminal, "run_report": report_id},
+                "worker_runtime": {
+                    "claim_id": "",
+                    "previous_claim_id": (
+                        current_state.worker_runtime.claim_id
+                        or current_state.worker_runtime.previous_claim_id
+                    ),
+                    "previous_task_id": (
+                        current_state.worker_runtime.active_task_id or task_id
+                    ),
+                    "active_task_id": "",
+                    "active_revision_id": "",
+                    "worker_availability": "idle",
+                    "binding_status": "released",
+                    "allowed_scope": [],
+                    "validation_plan": [],
+                    "execution_ownership": "",
+                },
             },
         )
 
@@ -305,8 +718,21 @@ def reduce_orchestration(
                 denial_reason="integration_evaluation_requires_pending_phase",
             )
         outcome = str(data.get("outcome") or "")
+        revision_id = str(
+            data.get("revision_id")
+            or (
+                session.expected_transition.revision_id
+                if session.expected_transition is not None
+                else ""
+            )
+        )
         if outcome == "safe":
-            if task is None or task.lifecycle != "completed":
+            allowed_lifecycles = (
+                {"completed", "integrated", "reviewed"}
+                if revision_id
+                else {"completed"}
+            )
+            if task is None or task.lifecycle not in allowed_lifecycles:
                 return FlowPlan(
                     accepted=False,
                     next_action="repair_worker_closeout",
@@ -329,8 +755,10 @@ def reduce_orchestration(
                 required_integration_lease=True,
                 host_route="discussion_local",
                 state_patch={
-                    "session": {"phase": "integrating", "expected_transition": None}
+                    "session": {"phase": "integrating", "expected_transition": None},
+                    "integration_runtime": {"revision_id": revision_id},
                 },
+                revision_id=revision_id,
             )
         if outcome == "decision_required":
             decision_id = str(data.get("decision_id") or "material-decision")
@@ -415,13 +843,22 @@ def reduce_orchestration(
             data.get("integration_id")
             or current_state.integration_runtime.integration_id
         )
+        revision_id = str(
+            data.get("revision_id")
+            or current_state.integration_runtime.revision_id
+        )
+        allowed_lifecycles = (
+            {"completed", "integrated", "reviewed"}
+            if revision_id
+            else {"completed"}
+        )
         if (
             session.role != "discussion"
             or session.phase != "integrating"
             or not current_state.integration_runtime.lease_id
             or not integration_id
             or task is None
-            or task.lifecycle != "completed"
+            or task.lifecycle not in allowed_lifecycles
         ):
             return FlowPlan(
                 accepted=False,
@@ -429,24 +866,41 @@ def reduce_orchestration(
                 task_id=task_id,
                 denial_reason="integration_completion_requires_bound_active_integration",
             )
+        state_patch = {
+            "session": {
+                "phase": "presenting_result",
+                "expected_transition": _expected_patch(
+                    "accept_result", task_id, integration_id=integration_id
+                ),
+            },
+            "task": {
+                "lifecycle": (
+                    task.lifecycle
+                    if revision_id and task.lifecycle in {"integrated", "reviewed"}
+                    else "integrated"
+                )
+            },
+            "integration_runtime": {
+                "lease_id": "",
+                "integration_id": integration_id,
+                "revision_id": "",
+            },
+        }
+        if revision_id:
+            state_patch["revision"] = {
+                "revision_id": revision_id,
+                "parent_task_id": task_id,
+                "status": "integrated",
+                "run_report": str(data.get("report_id") or task.run_report),
+                "project_status_updated": data.get("project_status_updated") is True,
+            }
         return FlowPlan(
             accepted=True,
             next_action="present_result",
             task_id=task_id,
             required_integration_lease=True,
-            state_patch={
-                "session": {
-                    "phase": "presenting_result",
-                    "expected_transition": _expected_patch(
-                        "accept_result", task_id, integration_id=integration_id
-                    ),
-                },
-                "task": {"lifecycle": "integrated"},
-                "integration_runtime": {
-                    "lease_id": "",
-                    "integration_id": integration_id,
-                },
-            },
+            revision_id=revision_id,
+            state_patch=state_patch,
         )
 
     if user_event.kind != "user_message":
@@ -661,8 +1115,17 @@ def report_state(report_path: str, content: str) -> ReportState:
         errors.append("missing or invalid work type")
     if state.execution_mode not in EXECUTION_MODES:
         errors.append("missing or invalid execution_mode")
-    if state.change_class not in {"formal", "micro"}:
+    if state.change_class not in {"formal", "revision", "micro"}:
         errors.append("missing or invalid change_class")
+    if state.change_class == "revision":
+        if not state.task_id or not state.revision_id:
+            errors.append("revision work requires task_id and revision_id")
+        if not state.risk_flags_known:
+            errors.append("revision work requires every explicit risk flag")
+        elif not state.risk_flags_clear:
+            errors.append("high-risk work cannot use Task Revision")
+        if not state.changed_paths:
+            errors.append("revision work requires explicit changed_paths")
     if state.change_class == "micro":
         if not state.risk_flags_known:
             errors.append("micro work requires every explicit risk flag")
@@ -770,6 +1233,35 @@ def task_state(task_path: str, content: str) -> TaskState:
     return state
 
 
+def revision_state(revision_path: str, content: str) -> RevisionState:
+    state = parse_revision_state(revision_path, content)
+    if state.run_report and not state.run_report.endswith(".md"):
+        state.errors.append("run_report must be a Markdown path")
+    return state
+
+
+def all_revision_states(
+    root: Path, config: dict[str, Any], scope: str = "worktree"
+) -> list[RevisionState]:
+    revisions: list[RevisionState] = []
+    for path in sorted(root.glob(configured_revision_glob(config))):
+        relative = path.relative_to(root).as_posix()
+        content = read_version(root, relative, scope)
+        if content is not None:
+            revisions.append(revision_state(relative, content))
+    return revisions
+
+
+def revision_report_states(
+    root: Path, config: dict[str, Any], scope: str = "worktree"
+) -> dict[str, RevisionState]:
+    return {
+        state.run_report: state
+        for state in all_revision_states(root, config, scope)
+        if state.run_report
+    }
+
+
 def all_task_states(
     root: Path, config: dict[str, Any], scope: str = "worktree"
 ) -> list[TaskState]:
@@ -870,6 +1362,7 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
         if state.status not in {"completed", "done"} or state.safety_errors
     )
     tasks = task_report_states(root, config)
+    revisions = revision_report_states(root, config)
     waiting = sorted(
         path
         for path, task in tasks.items()
@@ -880,6 +1373,16 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
             or (task.state_source == "legacy" and task.status == "draft")
         )
     )
+    waiting.extend(
+        sorted(
+            path
+            for path, revision in revisions.items()
+            if path not in reports
+            and path not in settled
+            and revision.status in {"pending", "running"}
+        )
+    )
+    waiting = sorted(set(waiting))
 
     work_types = {
         state.work_type for state in pending_states if state.work_type in WORK_TYPES
@@ -889,6 +1392,8 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
         for path, state in tasks.items()
         if path in waiting and state.work_type in WORK_TYPES
     )
+    if any(path in waiting for path in revisions):
+        work_types.add("sequential")
     if "high_risk" in work_types:
         kind = "high_risk"
     elif "parallel_batch" in work_types or len(ready) + len(blocked) > 1:
@@ -1083,6 +1588,57 @@ def integration_state(root: Path, config: dict[str, Any]) -> IntegrationState:
             }
         )
 
+    for revision in all_revision_states(root, config):
+        active_claims = [
+            claim
+            for claim in inspect_claims(root, revision.parent_task_id)
+            if claim.get("effective_lease_status") == "active"
+            and claim.get("revision_id") == revision.revision_id
+        ]
+        report = (
+            report_state(revision.run_report, reports[revision.run_report])
+            if revision.run_report in reports
+            else None
+        )
+        if revision.status == "integrated" or revision.run_report in settled:
+            lifecycle = "integrated"
+        elif report is not None:
+            lifecycle = (
+                "completed"
+                if report.status in {"completed", "done"} and not report.safety_errors
+                else "blocked"
+            )
+        elif active_claims:
+            lifecycle = "running"
+        else:
+            lifecycle = revision.status
+        work_units.append(
+            {
+                "revision_path": revision.path,
+                "revision_id": revision.revision_id,
+                "parent_task_id": revision.parent_task_id,
+                "lifecycle_status": lifecycle,
+                "revision_status": revision.status,
+                "work_type": "sequential",
+                "execution_mode": "exclusive",
+                "run_report": revision.run_report,
+                "worker_creation_authorized": revision.worker_creation_authorized,
+                "integration_policy": "inherited_task_approval",
+                "state_source": revision.state_source,
+                "errors": revision.errors,
+                "active_claims": [
+                    {
+                        "claim_id": claim.get("claim_id"),
+                        "worker_id": claim.get("worker_id"),
+                        "branch": claim.get("branch"),
+                        "worktree": claim.get("worktree"),
+                        "updated_at": claim.get("updated_at"),
+                    }
+                    for claim in active_claims
+                ],
+            }
+        )
+
     return IntegrationState(
         pending_integration=pending,
         integration_kind=kind,
@@ -1109,7 +1665,7 @@ def is_substantive(path: str, config: dict[str, Any]) -> bool:
     }
     if path in stateful or any(
         fnmatch.fnmatch(path, pattern) for pattern in configured_task_globs(config)
-    ):
+    ) or fnmatch.fnmatch(path, configured_revision_glob(config)):
         return True
     return Path(path).suffix.lower() not in TEXT_ONLY_SUFFIXES
 
@@ -1288,11 +1844,17 @@ def validate_integration_overview(
             )
 
     tasks = task_report_states(root, config, scope)
+    revisions = revision_report_states(root, config, scope)
     for report_path in run_reports:
         task = tasks.get(report_path)
         if task is not None and task.state_source == "structured" and task.status != "integrated":
             result.errors.append(
                 f"{task.path} must move task status to integrated when absorbing {report_path}"
+            )
+        revision = revisions.get(report_path)
+        if revision is not None and revision.status != "integrated":
+            result.errors.append(
+                f"{revision.path} must move revision status to integrated when absorbing {report_path}"
             )
 
     listed_reports = integrated_report_paths(overview, paths["run_report_glob"])
@@ -1482,6 +2044,82 @@ def validate_task_spec(
     return state
 
 
+REVISION_TRANSITIONS = {
+    "pending": {"running", "completed", "blocked"},
+    "running": {"completed", "blocked"},
+    "blocked": {"running", "completed"},
+    "completed": {"integrated"},
+    "integrated": set(),
+}
+
+
+def validate_revision_spec(
+    root: Path,
+    config: dict[str, Any],
+    scope: str,
+    revision_path: str,
+    result: CheckResult,
+) -> Optional[RevisionState]:
+    content = read_version(root, revision_path, scope)
+    if content is None:
+        result.errors.append(f"Cannot read the {scope} version of {revision_path}")
+        return None
+    state = revision_state(revision_path, content)
+    for error in state.errors:
+        result.errors.append(f"{revision_path} {error}")
+    if state.revision_id and Path(revision_path).stem != state.revision_id:
+        result.errors.append(
+            f"{revision_path} filename must exactly match revision_id {state.revision_id}"
+        )
+    task_by_id = {
+        item.task_id: item for item in all_task_states(root, config, scope) if item.task_id
+    }
+    if state.parent_task_id and state.parent_task_id not in task_by_id:
+        result.errors.append(
+            f"{revision_path} parent_task_id {state.parent_task_id} does not resolve to a Task"
+        )
+    elif state.parent_task_id and task_by_id[state.parent_task_id].status not in {
+        "completed",
+        "integrated",
+        "reviewed",
+    }:
+        result.errors.append(
+            f"{revision_path} parent Task must be completed, integrated, or reviewed"
+        )
+    if state.run_report and not fnmatch.fnmatch(
+        state.run_report, config["paths"]["run_report_glob"]
+    ):
+        result.errors.append(
+            f"{revision_path} run_report must match {config['paths']['run_report_glob']}"
+        )
+    previous_content = read_head_version(root, revision_path)
+    if previous_content is not None:
+        previous = revision_state(revision_path, previous_content)
+        if previous.revision_id != state.revision_id:
+            result.errors.append(f"{revision_path} revision_id is immutable")
+        for name in (
+            "parent_task_id",
+            "user_request",
+            "allowed_scope",
+            "validation_plan",
+            "run_report",
+        ):
+            if getattr(previous, name) != getattr(state, name):
+                result.errors.append(f"{revision_path} {name} is immutable")
+        if previous.status != state.status and state.status not in REVISION_TRANSITIONS.get(
+            previous.status, set()
+        ):
+            result.errors.append(
+                f"{revision_path} has invalid revision transition {previous.status} -> {state.status}"
+            )
+    if state.status in {"completed", "blocked", "integrated"}:
+        if not state.run_report or read_version(root, state.run_report, scope) is None:
+            result.errors.append(
+                f"{revision_path} status {state.status} requires run report {state.run_report or '(missing)'}"
+            )
+    return state
+
+
 def task_state_only_change(
     root: Path, scope: str, task_path: str, state: TaskState
 ) -> bool:
@@ -1561,7 +2199,20 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
         result.errors.append(f"Unable to inspect Git path transitions: {exc}")
         path_statuses = []
     task_globs = configured_task_globs(config)
+    revision_glob = configured_revision_glob(config)
     for status, old_path, new_path in path_statuses:
+        if status == "D" and fnmatch.fnmatch(old_path, revision_glob):
+            result.errors.append(
+                f"Task Revision records cannot be deleted: {old_path}; preserve the audit record"
+            )
+            continue
+        if status.startswith("R") and new_path is not None and fnmatch.fnmatch(
+            old_path, revision_glob
+        ):
+            result.errors.append(
+                f"Task Revision filename is immutable: {old_path} -> {new_path}"
+            )
+            continue
         if status == "D" and any(
             fnmatch.fnmatch(old_path, pattern) for pattern in task_globs
         ):
@@ -1595,6 +2246,16 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
             result.errors.append(
                 f"Duplicate task_id {task_id} is declared by: {', '.join(sorted(duplicate_paths))}"
             )
+    revision_paths_by_id: dict[str, list[str]] = {}
+    for state in all_revision_states(root, config, scope):
+        if state.revision_id:
+            revision_paths_by_id.setdefault(state.revision_id, []).append(state.path)
+    for revision_id, duplicate_paths in sorted(revision_paths_by_id.items()):
+        if len(duplicate_paths) > 1:
+            result.errors.append(
+                f"Duplicate revision_id {revision_id} is declared by: "
+                + ", ".join(sorted(duplicate_paths))
+            )
 
     if not changed:
         return result
@@ -1609,15 +2270,27 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
         if any(fnmatch.fnmatch(path, pattern) for pattern in configured_task_globs(config))
         and not Path(path).name.startswith(("EXAMPLE-", "NNN-"))
     )
+    revision_paths = sorted(
+        path for path in changed if fnmatch.fnmatch(path, revision_glob)
+    )
     validated_tasks: dict[str, TaskState] = {}
     for task_path in task_paths:
         state = validate_task_spec(root, config, scope, task_path, result)
         if state is not None:
             validated_tasks[task_path] = state
-    lifecycle_paths = set(task_paths)
+    validated_revisions: dict[str, RevisionState] = {}
+    for revision_path in revision_paths:
+        state = validate_revision_spec(root, config, scope, revision_path, result)
+        if state is not None:
+            validated_revisions[revision_path] = state
+    lifecycle_paths = set(task_paths) | set(revision_paths)
     if discussion_path in changed:
         lifecycle_paths.add(discussion_path)
-    if task_paths and set(changed) == lifecycle_paths and all(
+    revision_routing_only = bool(revision_paths) and all(
+        state.status in {"pending", "running"}
+        for state in validated_revisions.values()
+    )
+    if (task_paths or revision_routing_only) and set(changed) == lifecycle_paths and all(
         task_path in validated_tasks
         and task_state_only_change(root, scope, task_path, validated_tasks[task_path])
         for task_path in task_paths
@@ -1631,6 +2304,7 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
         for path in changed
         if path not in set(project_status_candidates(config)) | {discussion_path}
         and path not in run_reports
+        and path not in revision_paths
     ]
     result.trigger_paths = trigger_paths
 
@@ -1660,34 +2334,58 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
         validate_run_report(root, config, scope, report_path, result)
 
     tasks_by_report = task_report_states(root, config, scope)
+    revisions_by_report = revision_report_states(root, config, scope)
     for report_path in run_reports:
         task = tasks_by_report.get(report_path)
-        if task is None or task.state_source != "structured":
-            continue
         report_content = read_version(root, report_path, scope)
         if report_content is None:
             continue
         report = report_state(report_path, report_content)
-        if report.task_id and report.task_id != task.task_id:
+        if task is not None and task.state_source == "structured":
+            if report.task_id and report.task_id != task.task_id:
+                result.errors.append(
+                    f"{report_path} task_id {report.task_id} does not match {task.path} task_id {task.task_id}"
+                )
+            if report.attempt != task.attempt:
+                result.errors.append(
+                    f"{report_path} attempt {report.attempt} does not match {task.path} attempt {task.attempt}"
+                )
+            expected_task_status = {
+                "completed": "completed",
+                "done": "completed",
+                "blocked": "blocked",
+                "incomplete": "incomplete",
+                "rejected": "rejected",
+                "abandoned": "abandoned",
+                "superseded": "superseded",
+            }.get(report.status)
+            if expected_task_status and task.status != expected_task_status:
+                result.errors.append(
+                    f"{task.path} must set task status to {expected_task_status} for {report_path}"
+                )
+
+        revision = revisions_by_report.get(report_path)
+        if revision is None:
+            continue
+        if report.revision_id != revision.revision_id:
             result.errors.append(
-                f"{report_path} task_id {report.task_id} does not match {task.path} task_id {task.task_id}"
+                f"{report_path} revision_id {report.revision_id or '(missing)'} does not match "
+                f"{revision.path} revision_id {revision.revision_id}"
             )
-        if report.attempt != task.attempt:
+        if report.task_id != revision.parent_task_id:
             result.errors.append(
-                f"{report_path} attempt {report.attempt} does not match {task.path} attempt {task.attempt}"
+                f"{report_path} task_id {report.task_id or '(missing)'} does not match "
+                f"{revision.path} parent_task_id {revision.parent_task_id}"
             )
-        expected_task_status = {
+        expected_revision_status = {
             "completed": "completed",
             "done": "completed",
             "blocked": "blocked",
-            "incomplete": "incomplete",
-            "rejected": "rejected",
-            "abandoned": "abandoned",
-            "superseded": "superseded",
+            "incomplete": "blocked",
         }.get(report.status)
-        if expected_task_status and task.status != expected_task_status:
+        if expected_revision_status and revision.status != expected_revision_status:
             result.errors.append(
-                f"{task.path} must set task status to {expected_task_status} for {report_path}"
+                f"{revision.path} must set revision status to {expected_revision_status} for {report_path}"
             )
 
     return result

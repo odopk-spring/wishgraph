@@ -15,7 +15,7 @@ from typing import Any, Optional
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "version": 9,
+    "version": 10,
     "mode": "enforce",
     "paths": {
         "prd": "PRD.md",
@@ -29,6 +29,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "run_report_glob": "reports/runs/*.md",
         "task_glob": "tasks/build/*.md",
         "task_globs": ["tasks/build/*.md", ".tasks/build/*.md"],
+        "revision_glob": "tasks/revisions/*.md",
     },
     "required_impact_rows": [
         "PRD.md",
@@ -212,6 +213,10 @@ def acquire_claim(
     branch: Optional[str] = None,
     worktree: Optional[str] = None,
     host_thread_ref: Optional[str] = None,
+    revision_id: Optional[str] = None,
+    allowed_scope: Optional[list[str]] = None,
+    validation_plan: Optional[list[str]] = None,
+    execution_ownership: str = "worker_claim",
     stale_after_seconds: int = 3600,
     require_clean: bool = True,
 ) -> dict[str, Any]:
@@ -274,7 +279,9 @@ def acquire_claim(
             "kind": "worker_claim",
             "claim_id": claim_id,
             "task_id": task_id,
-            "attempt_id": f"{task_id}-attempt-{attempt}",
+            "revision_id": revision_id,
+            "work_unit_id": revision_id or task_id,
+            "attempt_id": f"{revision_id or task_id}-attempt-{attempt}",
             "attempt": attempt,
             "worker_id": worker_id,
             "branch": bound_branch,
@@ -285,6 +292,9 @@ def acquire_claim(
             "execution_mode": execution_mode,
             "host": socket.gethostname(),
             "host_thread_ref": host_thread_ref,
+            "allowed_scope": list(allowed_scope or []),
+            "validation_plan": list(validation_plan or []),
+            "execution_ownership": execution_ownership,
         }
         path = task_dir / f"{claim_id}.json"
         descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
@@ -343,6 +353,142 @@ def update_claim(
             mutex.unlink()
         except OSError:
             pass
+
+
+def rebind_worker_claim(
+    root: Path,
+    *,
+    session_id: str,
+    old_claim_id: str,
+    old_task_status: str,
+    next_task_id: str,
+    attempt: int,
+    worker_id: str,
+    revision_id: Optional[str] = None,
+    branch: Optional[str] = None,
+    worktree: Optional[str] = None,
+    host_thread_ref: Optional[str] = None,
+    allowed_scope: Optional[list[str]] = None,
+    validation_plan: Optional[list[str]] = None,
+    execution_ownership: str = "worker_claim",
+    require_clean: bool = True,
+) -> dict[str, Any]:
+    """Release a terminal binding, then acquire and persist one fresh binding.
+
+    Failure after release leaves the reusable Worker idle; it never restores stale
+    scope or authority from the previous Task.
+    """
+    if old_task_status not in {
+        "completed",
+        "blocked",
+        "incomplete",
+        "stopped",
+        "abandoned",
+        "integrated",
+        "reviewed",
+    }:
+        return {"ok": False, "error": "old_task_not_terminal"}
+    if not allowed_scope or not validation_plan:
+        return {"ok": False, "error": "new_binding_scope_or_validation_missing"}
+
+    old_matches = [
+        claim for claim in inspect_claims(root) if claim.get("claim_id") == old_claim_id
+    ]
+    if len(old_matches) != 1:
+        return {"ok": False, "error": "old_claim_not_found"}
+    old_claim = old_matches[0]
+    if old_claim.get("effective_lease_status") == "active":
+        released = update_claim(
+            root,
+            old_claim_id,
+            "release",
+            branch=old_claim.get("branch"),
+            worktree=old_claim.get("worktree"),
+        )
+        if not released.get("ok"):
+            return released
+    elif old_claim.get("lease_status") == "released":
+        released = {"ok": True, "claim": old_claim}
+    else:
+        return {"ok": False, "error": "old_claim_not_released", "claim": old_claim}
+
+    acquired = acquire_claim(
+        root,
+        next_task_id,
+        attempt,
+        worker_id,
+        branch=branch,
+        worktree=worktree,
+        host_thread_ref=host_thread_ref,
+        revision_id=revision_id,
+        allowed_scope=allowed_scope,
+        validation_plan=validation_plan,
+        execution_ownership=execution_ownership,
+        require_clean=require_clean,
+    )
+    if not acquired.get("ok"):
+        apply_session_runtime_patch(
+            root,
+            session_id,
+            {
+                "worker_runtime": {
+                    "claim_id": "",
+                    "previous_task_id": old_claim.get("task_id", ""),
+                    "previous_claim_id": old_claim_id,
+                    "active_task_id": "",
+                    "active_revision_id": "",
+                    "binding_status": "unbound",
+                    "worker_availability": "idle",
+                    "allowed_scope": [],
+                    "validation_plan": [],
+                    "execution_ownership": "",
+                }
+            },
+        )
+        return {
+            **acquired,
+            "old_claim_released": True,
+            "old_claim": released.get("claim"),
+        }
+
+    new_claim = acquired["claim"]
+    runtime_result = apply_session_runtime_patch(
+        root,
+        session_id,
+        {
+            "worker_runtime": {
+                "claim_id": new_claim["claim_id"],
+                "previous_task_id": old_claim.get("task_id", ""),
+                "previous_claim_id": old_claim_id,
+                "active_task_id": next_task_id,
+                "active_revision_id": revision_id or "",
+                "branch": new_claim["branch"],
+                "worktree": new_claim["worktree"],
+                "host_window_or_thread_id": host_thread_ref or "",
+                "worker_session_id": session_id,
+                "worker_availability": "busy",
+                "binding_status": "active",
+                "allowed_scope": list(allowed_scope),
+                "validation_plan": list(validation_plan),
+                "execution_ownership": execution_ownership,
+            }
+        },
+    )
+    if not runtime_result.get("ok"):
+        update_claim(root, new_claim["claim_id"], "release")
+        return {
+            "ok": False,
+            "error": "new_claim_acquired_but_runtime_persistence_failed",
+            "old_claim_released": True,
+            "new_claim_released": True,
+        }
+    return {
+        "ok": True,
+        "old_claim_released": True,
+        "old_claim": released.get("claim"),
+        "claim": new_claim,
+        "runtime": runtime_result.get("runtime"),
+    }
 
 
 RUNTIME_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -614,6 +760,11 @@ def configured_task_globs(config: dict[str, Any]) -> list[str]:
             pattern for pattern in candidates if isinstance(pattern, str) and pattern
         )
     )
+
+
+def configured_revision_glob(config: dict[str, Any]) -> str:
+    value = config.get("paths", {}).get("revision_glob")
+    return value if isinstance(value, str) and value else "tasks/revisions/*.md"
 
 
 def nul_paths(data: bytes) -> set[str]:

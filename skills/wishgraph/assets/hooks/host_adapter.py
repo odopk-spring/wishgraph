@@ -18,6 +18,7 @@ from git_state import (
     apply_session_runtime_patch,
     acquire_claim,
     acquire_integration_lease,
+    configured_revision_glob,
     configured_task_globs,
     current_branch,
     find_git_root,
@@ -26,6 +27,7 @@ from git_state import (
     inspect_integration_lease,
     read_version,
     read_session_runtime,
+    rebind_worker_claim,
     resolve_project_status_path,
     standard_project_status_conflict,
     update_claim,
@@ -47,13 +49,16 @@ from workflow_state import (
     HostCapability,
     UserEvent,
     canonical_task_id,
+    canonical_revision_id,
     competitive_candidate_ids,
     dynamic_state_block,
     markdown_section,
     parse_task_command,
     parse_task_state,
+    parse_revision_state,
     flow_plan_to_dict,
     orchestration_state_from_dict,
+    revision_id_parts,
     task_id_parts,
 )
 
@@ -65,6 +70,8 @@ class HostAction:
     user_message: str = ""
     stop_after_action: bool = False
     creates_visible_window: bool = False
+    target_worker_id: str = ""
+    work_payload: dict[str, Any] = field(default_factory=dict)
 
 
 def map_flow_plan_to_host(
@@ -103,12 +110,82 @@ def map_flow_plan_to_host(
             stop_after_action=False,
             creates_visible_window=False,
         )
+    if plan.next_action in {"route_to_active_worker", "route_to_previous_worker"}:
+        if capability.can_route_existing_worker and plan.target_worker_id:
+            return HostAction(
+                action="send_to_existing_worker",
+                state_patch=plan.state_patch,
+                stop_after_action=True,
+                target_worker_id=plan.target_worker_id,
+                work_payload=plan.work_payload,
+            )
+        revision_id = plan.revision_id
+        task_id = plan.task_id
+        message = (
+            f"在任务 {task_id} 的执行窗口执行修订 {revision_id}"
+            if revision_id
+            else f"在任务 {task_id} 的执行窗口处理当前反馈"
+        )
+        return HostAction(
+            action="show_manual_worker_command",
+            state_patch=plan.state_patch,
+            user_message=message,
+            stop_after_action=True,
+            work_payload=plan.work_payload,
+        )
+    if plan.next_action == "create_lightweight_revision":
+        if capability.can_create_visible_worker:
+            return HostAction(
+                action="create_visible_revision_worker",
+                state_patch=plan.state_patch,
+                stop_after_action=True,
+                creates_visible_window=True,
+                work_payload=plan.work_payload,
+            )
+        return HostAction(
+            action="show_manual_worker_command",
+            state_patch=plan.state_patch,
+            user_message=(
+                f"在任务 {plan.task_id} 的执行窗口执行修订 {plan.revision_id}"
+            ),
+            stop_after_action=True,
+            work_payload=plan.work_payload,
+        )
+    if plan.next_action == "fallback_manual_worker_command":
+        return HostAction(
+            action="show_manual_worker_command",
+            state_patch=plan.state_patch,
+            user_message=plan.user_message,
+            stop_after_action=True,
+            work_payload=plan.work_payload,
+        )
+    if plan.next_action == "rebind_worker":
+        if capability.can_reuse_worker and plan.target_worker_id:
+            return HostAction(
+                action="rebind_existing_worker",
+                state_patch=plan.state_patch,
+                target_worker_id=plan.target_worker_id,
+                work_payload=plan.work_payload,
+            )
+        return HostAction(
+            action="show_manual_worker_command",
+            state_patch=plan.state_patch,
+            user_message=(
+                f"在任务 {plan.task_id} 的执行窗口执行修订 {plan.revision_id}"
+                if plan.revision_id
+                else f"执行 {plan.task_id} 任务"
+            ),
+            stop_after_action=True,
+            work_payload=plan.work_payload,
+        )
     return HostAction(
         action=plan.next_action,
         state_patch=plan.state_patch,
         user_message=plan.user_message,
         stop_after_action=plan.stop_after_action,
         creates_visible_window=False,
+        target_worker_id=plan.target_worker_id,
+        work_payload=plan.work_payload,
     )
 
 
@@ -322,7 +399,10 @@ def _path_operation(
     task_globs = configured_task_globs(config)
     if all(any(fnmatch.fnmatch(path, glob) for glob in task_globs) for path in relative_paths):
         return "governance_write", "task_paths:" + "\n".join(relative_paths)
-    return "business_write", ""
+    revision_glob = configured_revision_glob(config)
+    if all(fnmatch.fnmatch(path, revision_glob) for path in relative_paths):
+        return "governance_write", "revision_paths:" + "\n".join(relative_paths)
+    return "business_write", "business_paths:" + "\n".join(relative_paths)
 
 
 def classify_tool_operation(
@@ -394,6 +474,16 @@ def orchestration_gate_plan(
                 "branch": active_claims[0].get("branch"),
                 "worktree": active_claims[0].get("worktree"),
                 "host_window_or_thread_id": active_claims[0].get("host_thread_ref"),
+                "active_task_id": active_claims[0].get("task_id"),
+                "active_revision_id": active_claims[0].get("revision_id") or "",
+                "worker_session_id": active_claims[0].get("worker_id"),
+                "worker_availability": "busy",
+                "binding_status": "active",
+                "allowed_scope": active_claims[0].get("allowed_scope", []),
+                "validation_plan": active_claims[0].get("validation_plan", []),
+                "execution_ownership": active_claims[0].get(
+                    "execution_ownership", "worker_claim"
+                ),
             }
     if role == "discussion" and session_value.get("phase") == "integrating":
         lease = inspect_integration_lease(root)
@@ -428,6 +518,31 @@ def orchestration_gate_plan(
             and all(state.task_id == task_id for state in states)
             else "other_task_state"
         )
+    elif operation == "governance_write" and operation_scope.startswith(
+        "revision_paths:"
+    ):
+        requested_paths = operation_scope.removeprefix("revision_paths:").splitlines()
+        states = []
+        for path in requested_paths:
+            content = read_version(root, path, "worktree")
+            if content is None:
+                continue
+            states.append(parse_revision_state(path, content))
+        active_revision_id = str(
+            runtime.get("worker_runtime", {}).get("active_revision_id") or ""
+        )
+        operation_scope = (
+            "own_revision_state"
+            if states
+            and len(states) == len(requested_paths)
+            and task_id
+            and all(state.parent_task_id == task_id for state in states)
+            and (
+                not active_revision_id
+                or all(state.revision_id == active_revision_id for state in states)
+            )
+            else "other_revision_state"
+        )
     state = orchestration_state_from_dict(runtime)
     capability = HostCapability(
         host=state.session.host,
@@ -435,6 +550,13 @@ def orchestration_gate_plan(
         can_gate_writes=True,
         can_gate_builds=True,
         can_gate_reads=config.get("read_gate_mode") == "enforce",
+        can_route_existing_worker=state.session.host == "codex",
+        can_reuse_worker=state.session.host == "codex",
+    )
+    requested_paths = (
+        operation_scope.removeprefix("business_paths:").splitlines()
+        if operation_scope.startswith("business_paths:")
+        else []
     )
     return reduce_orchestration(
         state,
@@ -444,6 +566,7 @@ def orchestration_gate_plan(
                 "operation": operation,
                 "operation_scope": operation_scope,
                 "task_authorized": bool(task_value.get("worker_authorized")),
+                "requested_paths": requested_paths,
             },
         ),
         capability,
@@ -729,6 +852,8 @@ def flow_plan_main(args: argparse.Namespace) -> int:
         can_gate_writes=True,
         can_gate_builds=True,
         can_gate_reads=args.can_gate_reads,
+        can_route_existing_worker=args.can_route_existing_worker,
+        can_reuse_worker=args.can_reuse_worker,
     )
     plan = reduce_orchestration(state, event, capability)
     action = map_flow_plan_to_host(plan, capability)
@@ -743,6 +868,8 @@ def flow_plan_main(args: argparse.Namespace) -> int:
                     "user_message": action.user_message,
                     "stop_after_action": action.stop_after_action,
                     "creates_visible_window": action.creates_visible_window,
+                    "target_worker_id": action.target_worker_id,
+                    "work_payload": action.work_payload,
                 },
             },
             ensure_ascii=False,
@@ -886,6 +1013,12 @@ def task_specs(root: Path, config: dict[str, Any]) -> list[dict[str, Any]]:
             if content is None:
                 continue
             state = parse_task_state(relative, content)
+            change_set = markdown_section(content, "Change Set") or markdown_section(
+                content, "变更范围"
+            )
+            validation = markdown_section(content, "Validation") or markdown_section(
+                content, "验证"
+            )
             specs.append(
                 {
                     "task_id": state.task_id,
@@ -898,9 +1031,113 @@ def task_specs(root: Path, config: dict[str, Any]) -> list[dict[str, Any]]:
                     "comparison_group": state.comparison_group or None,
                     "run_report": state.run_report,
                     "errors": state.errors,
+                    "allowed_scope": _markdown_scope_items(change_set),
+                    "validation_plan": _markdown_list_items(validation),
                 }
             )
     return specs
+
+
+def _markdown_list_items(section: Optional[str]) -> list[str]:
+    if not section:
+        return []
+    items: list[str] = []
+    for line in section.splitlines():
+        match = re.match(r"^\s*(?:[-*]|\d+[.)])\s+(.+?)\s*$", line)
+        if match:
+            item = re.sub(r"^\[[ xX]\]\s*", "", match.group(1).strip())
+            item = item.strip().strip("`")
+            if item:
+                items.append(item)
+    return items
+
+
+def _markdown_scope_items(section: Optional[str]) -> list[str]:
+    """Read list scopes and the Target column used by the standard Task table."""
+    if not section:
+        return []
+    items = _markdown_list_items(section)
+    for line in section.splitlines():
+        if "|" not in line:
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        target = cells[0].strip().strip("`")
+        if (
+            not target
+            or target.lower() in {"target", "目标", "文件"}
+            or not target.strip("-: ")
+        ):
+            continue
+        if target not in items:
+            items.append(target)
+    return items
+
+
+def revision_specs(root: Path, config: dict[str, Any]) -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
+    for path in sorted(root.glob(configured_revision_glob(config))):
+        relative = path.relative_to(root).as_posix()
+        content = read_version(root, relative, "worktree")
+        if content is None:
+            continue
+        state = parse_revision_state(relative, content)
+        specs.append(
+            {
+                "revision_id": state.revision_id,
+                "parent_task_id": state.parent_task_id,
+                "revision_path": relative,
+                "status": state.status,
+                "user_request": state.user_request,
+                "allowed_scope": state.allowed_scope,
+                "validation_plan": state.validation_plan,
+                "run_report": state.run_report,
+                "errors": state.errors,
+            }
+        )
+    return specs
+
+
+def resolve_revision(
+    root: Path, config: dict[str, Any], revision_id: str
+) -> dict[str, Any]:
+    requested = canonical_revision_id(revision_id)
+    if not requested:
+        return {"ok": False, "error": "invalid_revision_id", "requested": revision_id}
+    matches = [
+        item for item in revision_specs(root, config) if item["revision_id"] == requested
+    ]
+    if len(matches) > 1:
+        return {"ok": False, "error": "duplicate_revision_id", "matches": matches}
+    if not matches:
+        return {"ok": False, "error": "revision_not_found", "revision_id": requested}
+    parent = resolve_task(root, config, matches[0]["parent_task_id"])
+    if not parent.get("ok"):
+        return {
+            "ok": False,
+            "error": "revision_parent_task_not_found",
+            "revision_id": requested,
+            "parent_task_id": matches[0]["parent_task_id"],
+        }
+    return {"ok": True, "revision": matches[0]}
+
+
+def next_revision_id(
+    root: Path, config: dict[str, Any], parent_task_id: str
+) -> dict[str, Any]:
+    parent = canonical_task_id(parent_task_id)
+    if not parent:
+        return {"ok": False, "error": "invalid_task_id", "requested": parent_task_id}
+    if not resolve_task(root, config, parent).get("ok"):
+        return {"ok": False, "error": "task_not_found", "task_id": parent}
+    numbers = [
+        revision_id_parts(item["revision_id"])[1]
+        for item in revision_specs(root, config)
+        if item["revision_id"] and item["parent_task_id"] == parent
+    ]
+    next_id = f"{parent}-r{max(numbers, default=0) + 1}"
+    return {"ok": True, "parent_task_id": parent, "revision_id": next_id}
 
 
 def resolve_task(root: Path, config: dict[str, Any], task_id: str) -> dict[str, Any]:
@@ -971,6 +1208,68 @@ def task_main(action: str, value: str) -> int:
         payload = resolve_task(root, config, value)
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if payload["ok"] else 1
+
+
+def revision_main(action: str, value: str, host: str) -> int:
+    root = find_git_root(Path.cwd())
+    if root is None:
+        payload = {"ok": False, "error": "git_repository_required"}
+    else:
+        try:
+            config = load_config(root)
+        except ValueError as exc:
+            payload = {"ok": False, "error": "invalid_config", "detail": str(exc)}
+        else:
+            if config is None:
+                payload = {"ok": False, "error": "wishgraph_not_installed"}
+            elif action == "next":
+                payload = next_revision_id(root, config, value)
+            else:
+                payload = resolve_revision(root, config, value)
+                if action == "route" and payload.get("ok"):
+                    revision = payload["revision"]
+                    busy_worker_refs = {
+                        str(claim.get("host_thread_ref"))
+                        for claim in inspect_claims(root)
+                        if claim.get("effective_lease_status") == "active"
+                        and claim.get("host_thread_ref")
+                    }
+                    previous = sorted(
+                        (
+                            claim
+                            for claim in inspect_claims(
+                                root, revision["parent_task_id"]
+                            )
+                            if claim.get("lease_status") == "released"
+                            and claim.get("host_thread_ref")
+                            and str(claim.get("host_thread_ref"))
+                            not in busy_worker_refs
+                        ),
+                        key=lambda claim: str(claim.get("updated_at") or ""),
+                        reverse=True,
+                    )
+                    if host == "codex" and previous:
+                        payload["host_action"] = {
+                            "action": "send_to_existing_worker",
+                            "target_worker_id": previous[0]["host_thread_ref"],
+                            "revision": revision,
+                        }
+                    elif host == "codex":
+                        payload["host_action"] = {
+                            "action": "create_visible_revision_worker",
+                            "revision": revision,
+                        }
+                    else:
+                        payload["host_action"] = {
+                            "action": "show_manual_worker_command",
+                            "user_message": (
+                                f"在任务 {revision['parent_task_id']} 的执行窗口"
+                                f"执行修订 {revision['revision_id']}"
+                            ),
+                            "stop_after_action": True,
+                        }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0 if payload.get("ok") else 1
 
 
 def competitive_plan_main(task_id: str, candidate_count: int) -> int:
@@ -1067,6 +1366,84 @@ def claim_main(args: argparse.Namespace) -> int:
                 branch=current_branch(root) if enforce_binding else None,
                 worktree=str(root) if enforce_binding else None,
             )
+            if (
+                payload.get("ok")
+                and args.claim_action == "release"
+                and args.session_id
+            ):
+                released_claim = payload.get("claim", {})
+                persisted = apply_session_runtime_patch(
+                    root,
+                    args.session_id,
+                    {
+                        "worker_runtime": {
+                            "claim_id": "",
+                            "previous_task_id": released_claim.get("task_id", ""),
+                            "previous_claim_id": released_claim.get("claim_id", ""),
+                            "active_task_id": "",
+                            "active_revision_id": "",
+                            "worker_availability": "idle",
+                            "binding_status": "released",
+                            "allowed_scope": [],
+                            "validation_plan": [],
+                            "execution_ownership": "",
+                        }
+                    },
+                )
+                if not persisted.get("ok"):
+                    payload = {
+                        "ok": False,
+                        "error": "claim_released_but_runtime_persistence_failed",
+                        "claim": released_claim,
+                        "detail": persisted,
+                    }
+    elif args.claim_action == "rebind":
+        try:
+            config = load_config(root)
+        except ValueError as exc:
+            payload = {"ok": False, "error": "invalid_config", "detail": str(exc)}
+        else:
+            if config is None:
+                payload = {"ok": False, "error": "wishgraph_not_installed"}
+            elif args.revision_id:
+                resolved_revision = resolve_revision(root, config, args.revision_id)
+                if not resolved_revision.get("ok"):
+                    payload = resolved_revision
+                else:
+                    revision = resolved_revision["revision"]
+                    payload = rebind_worker_claim(
+                        root,
+                        session_id=args.session_id,
+                        old_claim_id=args.old_claim_id,
+                        old_task_status=args.old_task_status,
+                        next_task_id=revision["parent_task_id"],
+                        revision_id=revision["revision_id"],
+                        attempt=args.attempt,
+                        worker_id=args.worker_id,
+                        host_thread_ref=args.host_thread_ref or args.session_id,
+                        allowed_scope=revision["allowed_scope"],
+                        validation_plan=revision["validation_plan"],
+                        require_clean=not args.allow_dirty,
+                    )
+            else:
+                resolved = resolve_task(root, config, args.next_task_id)
+                if not resolved.get("ok"):
+                    payload = resolved
+                else:
+                    task = resolved["task"]
+                    payload = rebind_worker_claim(
+                        root,
+                        session_id=args.session_id,
+                        old_claim_id=args.old_claim_id,
+                        old_task_status=args.old_task_status,
+                        next_task_id=task["task_id"],
+                        attempt=task["attempt"],
+                        worker_id=args.worker_id,
+                        host_thread_ref=args.host_thread_ref or args.session_id,
+                        allowed_scope=task["allowed_scope"],
+                        validation_plan=task["validation_plan"],
+                        require_clean=not args.allow_dirty,
+                    )
     else:
         try:
             config = load_config(root)
@@ -1076,9 +1453,30 @@ def claim_main(args: argparse.Namespace) -> int:
             if config is None:
                 payload = {"ok": False, "error": "wishgraph_not_installed"}
             else:
-                preflight = execution_preflight(
-                    root, config, args.task_id, args.authorization_action
-                )
+                if args.revision_id:
+                    resolved_revision = resolve_revision(root, config, args.revision_id)
+                    if not resolved_revision.get("ok"):
+                        preflight = resolved_revision
+                    else:
+                        revision = resolved_revision["revision"]
+                        preflight = {
+                            "ok": not revision["errors"]
+                            and revision["status"] in {"pending", "running", "blocked"},
+                            "task": {
+                                "task_id": revision["parent_task_id"],
+                                "attempt": args.attempt,
+                                "execution_mode": "exclusive",
+                                "run_report": revision["run_report"],
+                                "allowed_scope": revision["allowed_scope"],
+                                "validation_plan": revision["validation_plan"],
+                            },
+                            "revision": revision,
+                            "errors": revision["errors"],
+                        }
+                else:
+                    preflight = execution_preflight(
+                        root, config, args.task_id, args.authorization_action
+                    )
                 if not preflight["ok"]:
                     payload = {
                         "ok": False,
@@ -1098,6 +1496,9 @@ def claim_main(args: argparse.Namespace) -> int:
                             else "exclusive"
                         ),
                         host_thread_ref=args.host_thread_ref or args.session_id,
+                        revision_id=(args.revision_id or None),
+                        allowed_scope=task.get("allowed_scope", []),
+                        validation_plan=task.get("validation_plan", []),
                         stale_after_seconds=args.stale_after,
                     )
                     if payload.get("ok"):
@@ -1130,6 +1531,16 @@ def claim_main(args: argparse.Namespace) -> int:
                                         "host_window_or_thread_id": (
                                             args.host_thread_ref or args.session_id
                                         ),
+                                        "active_task_id": task["task_id"],
+                                        "active_revision_id": args.revision_id or "",
+                                        "worker_session_id": args.session_id,
+                                        "worker_availability": "busy",
+                                        "binding_status": "active",
+                                        "allowed_scope": task.get("allowed_scope", []),
+                                        "validation_plan": task.get(
+                                            "validation_plan", []
+                                        ),
+                                        "execution_ownership": "worker_claim",
                                     },
                                 },
                             )
@@ -1166,6 +1577,8 @@ def main() -> int:
     flow_parser.add_argument("--host", choices=("codex", "claude", "unknown"), required=True)
     flow_parser.add_argument("--can-create-visible-worker", action="store_true")
     flow_parser.add_argument("--can-gate-reads", action="store_true")
+    flow_parser.add_argument("--can-route-existing-worker", action="store_true")
+    flow_parser.add_argument("--can-reuse-worker", action="store_true")
     session_parser = subparsers.add_parser("session")
     session_subparsers = session_parser.add_subparsers(
         dest="session_action", required=True
@@ -1205,11 +1618,19 @@ def main() -> int:
     task_parser = subparsers.add_parser("task")
     task_parser.add_argument("action", choices=("resolve", "family", "route"))
     task_parser.add_argument("value")
+    revision_parser = subparsers.add_parser("revision")
+    revision_parser.add_argument("action", choices=("resolve", "next", "route"))
+    revision_parser.add_argument("value")
+    revision_parser.add_argument(
+        "--host", choices=("codex", "claude", "unknown"), default="unknown"
+    )
     claim_parser = subparsers.add_parser("claim")
     claim_subparsers = claim_parser.add_subparsers(dest="claim_action", required=True)
     acquire_parser = claim_subparsers.add_parser("acquire")
-    acquire_parser.add_argument("task_id")
+    acquire_parser.add_argument("task_id", nargs="?", default="")
     acquire_parser.add_argument("--worker-id", required=True)
+    acquire_parser.add_argument("--revision-id")
+    acquire_parser.add_argument("--attempt", type=int, default=1)
     acquire_parser.add_argument("--session-id")
     acquire_parser.add_argument(
         "--host", choices=("codex", "claude", "unknown"), default="unknown"
@@ -1224,9 +1645,32 @@ def main() -> int:
     inspect_parser = claim_subparsers.add_parser("inspect")
     inspect_parser.add_argument("task_id", nargs="?")
     inspect_parser.add_argument("--stale-after", type=int, default=3600)
+    rebind_parser = claim_subparsers.add_parser("rebind")
+    rebind_parser.add_argument("--session-id", required=True)
+    rebind_parser.add_argument("--old-claim-id", required=True)
+    rebind_parser.add_argument(
+        "--old-task-status",
+        choices=(
+            "completed",
+            "blocked",
+            "incomplete",
+            "stopped",
+            "abandoned",
+            "integrated",
+            "reviewed",
+        ),
+        required=True,
+    )
+    rebind_parser.add_argument("--next-task-id", default="")
+    rebind_parser.add_argument("--revision-id")
+    rebind_parser.add_argument("--attempt", type=int, default=1)
+    rebind_parser.add_argument("--worker-id", required=True)
+    rebind_parser.add_argument("--host-thread-ref")
+    rebind_parser.add_argument("--allow-dirty", action="store_true")
     for claim_action in ("heartbeat", "release", "revoke"):
         parser_for_action = claim_subparsers.add_parser(claim_action)
         parser_for_action.add_argument("claim_id")
+        parser_for_action.add_argument("--session-id")
         if claim_action == "revoke":
             parser_for_action.add_argument("--authorized-by-user", action="store_true")
     subparsers.add_parser("git-pre-commit")
@@ -1248,6 +1692,8 @@ def main() -> int:
         return competitive_plan_main(args.task_id, args.candidates)
     if args.command == "task":
         return task_main(args.action, args.value)
+    if args.command == "revision":
+        return revision_main(args.action, args.value, args.host)
     if args.command == "claim":
         return claim_main(args)
     if args.command == "git-pre-commit":

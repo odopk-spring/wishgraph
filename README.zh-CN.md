@@ -78,6 +78,8 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 
 正常使用时，用户只会看到一个长期存在的 Discussion 窗口，以及按任务显式创建、用户可见的 Worker 窗口。Integration 只是 Discussion 内部的临时阶段，既不是独立窗口，也不是后台 Integrator。若 Worker 完成时 Discussion 不活跃，WishGraph 会记录 `integration_pending`，并在用户下次进入或刷新 Discussion 时继续评估。Hooks 只负责暴露和约束状态，不启动 Worker、不合并代码，也不编造项目含义。
 
+Worker 窗口完成当前 Task 并释放执行占用后，可以重新绑定下一个 Task；新的 scope 和验证计划会随新 Claim 一起加载，不会沿用旧任务权限。对已有结果提出的明确、低风险、小范围反馈使用 `012-r1` 这类轻量 Task Revision，系统把它路由给相关 Worker，记录针对性验证和独立报告，安全完成后自动集成，不重新生成完整 Task Spec。
+
 ## 项目状态图谱
 
 | 文件 | 保存的内容 |
@@ -87,6 +89,7 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 | `CODEMAP.md` | 功能和契约到源文件的映射 |
 | `CONVENTIONS.md` | 协作、验证与 Git 规则 |
 | `tasks/build/*.md` | 自包含、带版本状态的执行规格 |
+| `tasks/revisions/*.md` | 与原 Task 关联的轻量修订，例如 `012-r1` |
 | `reports/runs/*.md` | 每个执行单元的不可变证据 |
 | `reports/PROJECT_STATUS.md` | 最新的集成后项目快照 |
 | `prompts/*.md` | Discussion、Worker 与 Discussion-local Integration 的稳定交接入口 |

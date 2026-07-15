@@ -55,6 +55,7 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - 编写自包含任务规格。
 - 把工作判断为 discussion、sequential、parallel_batch 或 high_risk，解释串行或并行建议，由用户确认。
 - 请求用户明确授权启动已经就绪的指定 Worker。只有收到该命令后，才使用宿主的用户可见任务或线程能力，为每个已授权 Task Spec 创建一个 Worker，并命名为 `<task-id> · <short title> · WG Worker`。不得静默创建 Worker 或使用隐藏 subagent；创建不受支持或失败时，只输出 `执行 <task-id> 任务` 并停止。
+- 把明确、低风险的小范围反馈路由给已绑定 Worker。Task 完成后使用轻量 `tasks/revisions/<task-id>-rN.md`；只有旧 Claim 已释放且重新获取新 scope/validation 绑定时才能复用原 Worker。不支持自动路由时只输出 `在任务 <task-id> 的执行窗口执行修订 <revision-id>`。
 - “执行012号任务”、停止、重试、接管和明确竞争比较都通过精确结构化 Task ID 与仓库级 Claim 路由。只有存在唯一 `expected_transition` 时，简短上下文批准才有效。
 - 创建前，在每个已授权任务的 task-state 中记录 `draft -> approved` 和 `worker_creation_authorized: true`。
 - 不改业务代码，也不运行实现构建或测试。所有实现都必须是持有绑定 Claim 的 Task-backed Worker 工作。

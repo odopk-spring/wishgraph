@@ -10,9 +10,13 @@ Discussion AI classifies work as `discussion`, `sequential`, `parallel_batch`, o
 
 Task templates start with a versioned `wishgraph:task-state` block. The checked lifecycle is `draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`; only an explicit human command changes Worker authorization to true.
 
+Worker windows can be rebound after terminal closeout. Low-risk corrections use `tasks/revisions/<task-id>-rN.md` and a `wishgraph:revision-state` block instead of a full Task Spec.
+
 Discussion 先判断工作类型；人类明确命令后，Codex 创建用户可见 Worker；Claude Code、宿主不支持或创建失败时只输出 `执行 <task-id> 任务`。安全串行和机械检查证明独立的 `parallel_independent` 结果自动进入 Discussion-local Integration；高风险、冲突、阻塞、竞争或歧义只询问具体决定。Integration 不创建独立窗口。
 
 任务模板使用版本化 `wishgraph:task-state` 状态块，受检生命周期为 `draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`；只有人类明确命令才能把 Worker 创建授权改为 true。
+
+Worker 窗口在终态收尾后可以重新绑定；低风险修正使用 `tasks/revisions/<task-id>-rN.md` 和 `wishgraph:revision-state`，不创建完整 Task Spec。
 
 ## English
 
@@ -27,6 +31,7 @@ prompts/DISCUSSION_AI.md
 prompts/EXECUTION_AI.md
 prompts/INTEGRATION_AI.md
 tasks/build/*.md
+tasks/revisions/*.md
 reports/PROJECT_STATUS.md
 reports/RUN_REPORT.md
 reports/runs/<work-unit-id>.md
@@ -51,6 +56,7 @@ prompts/DISCUSSION_AI.md
 prompts/EXECUTION_AI.md
 prompts/INTEGRATION_AI.md
 tasks/build/*.md
+tasks/revisions/*.md
 reports/PROJECT_STATUS.md
 reports/RUN_REPORT.md
 reports/runs/<work-unit-id>.md

@@ -15,7 +15,7 @@ from typing import Any, Iterable, Optional
 
 
 SCHEMA_VERSION = 1
-SUPPORTED_KINDS = {"task", "run", "integration"}
+SUPPORTED_KINDS = {"task", "revision", "run", "integration"}
 SESSION_ROLES = {"neutral", "discussion", "worker"}
 FLOW_PHASES = {
     "planning",
@@ -36,6 +36,8 @@ EXPECTED_TRANSITIONS = {
     "resolve_conflict",
     "repair_worker_closeout",
     "accept_result",
+    "route_revision",
+    "rebind_worker",
 }
 CONTEXTUAL_APPROVALS = {
     "可以",
@@ -51,6 +53,9 @@ CONTEXTUAL_APPROVALS = {
 }
 TASK_STATUS_ALIASES = {"pending": "draft", "done": "completed"}
 TASK_ID_RE = re.compile(r"^(?P<number>\d{3,})(?P<suffix>[a-z]*)$")
+REVISION_ID_RE = re.compile(
+    r"^(?P<task_id>\d{3,}[a-z]*)-r(?P<revision_number>[1-9]\d*)$"
+)
 STATE_BLOCK_RE = re.compile(
     r"<!--\s*wishgraph:state:start\s*-->(.*?)<!--\s*wishgraph:state:end\s*-->",
     re.IGNORECASE | re.DOTALL,
@@ -78,6 +83,7 @@ class ReportState:
     new_decision: str = "missing"
     validation_results: list[str] = field(default_factory=list)
     task_id: str = ""
+    revision_id: str = ""
     attempt: int = 1
     execution_mode: str = "exclusive"
     changed_paths: list[str] = field(default_factory=list)
@@ -107,6 +113,21 @@ class TaskState:
     state_source: str = "legacy"
 
 
+@dataclass
+class RevisionState:
+    path: str
+    revision_id: str
+    parent_task_id: str
+    status: str
+    user_request: str
+    allowed_scope: list[str]
+    validation_plan: list[str]
+    run_report: str
+    worker_creation_authorized: bool = True
+    errors: list[str] = field(default_factory=list)
+    state_source: str = "structured"
+
+
 @dataclass(frozen=True)
 class ExpectedTransition:
     """The one contextual transition that a short user reply may consume."""
@@ -116,6 +137,7 @@ class ExpectedTransition:
     report_id: str = ""
     decision_id: str = ""
     integration_id: str = ""
+    revision_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -142,6 +164,16 @@ class WorkerRuntimeState:
     branch: str = ""
     worktree: str = ""
     host_window_or_thread_id: str = ""
+    active_task_id: str = ""
+    active_revision_id: str = ""
+    previous_task_id: str = ""
+    previous_claim_id: str = ""
+    worker_session_id: str = ""
+    worker_availability: str = "unknown"
+    binding_status: str = "unbound"
+    allowed_scope: tuple[str, ...] = ()
+    validation_plan: tuple[str, ...] = ()
+    execution_ownership: str = ""
 
 
 @dataclass(frozen=True)
@@ -152,6 +184,7 @@ class IntegrationRuntimeState:
     worktree: str = ""
     selected_task_ids: tuple[str, ...] = ()
     selected_reports: tuple[str, ...] = ()
+    revision_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -189,6 +222,8 @@ class HostCapability:
     can_gate_writes: bool = False
     can_gate_builds: bool = False
     can_gate_reads: bool = False
+    can_route_existing_worker: bool = False
+    can_reuse_worker: bool = False
 
 
 @dataclass(frozen=True)
@@ -203,6 +238,9 @@ class FlowPlan:
     user_message: str = ""
     stop_after_action: bool = False
     denial_reason: str = ""
+    revision_id: str = ""
+    target_worker_id: str = ""
+    work_payload: dict[str, Any] = field(default_factory=dict)
 
 
 def is_contextual_approval(text: str) -> bool:
@@ -221,6 +259,7 @@ def orchestration_state_from_dict(value: dict[str, Any]) -> OrchestrationState:
             report_id=str(expected_value.get("report_id") or ""),
             decision_id=str(expected_value.get("decision_id") or ""),
             integration_id=str(expected_value.get("integration_id") or ""),
+            revision_id=str(expected_value.get("revision_id") or ""),
         )
         if isinstance(expected_value, dict) and expected_value.get("kind")
         else None
@@ -267,6 +306,20 @@ def orchestration_state_from_dict(value: dict[str, Any]) -> OrchestrationState:
             host_window_or_thread_id=str(
                 worker_value.get("host_window_or_thread_id") or ""
             ),
+            active_task_id=str(worker_value.get("active_task_id") or ""),
+            active_revision_id=str(worker_value.get("active_revision_id") or ""),
+            previous_task_id=str(worker_value.get("previous_task_id") or ""),
+            previous_claim_id=str(worker_value.get("previous_claim_id") or ""),
+            worker_session_id=str(worker_value.get("worker_session_id") or ""),
+            worker_availability=str(
+                worker_value.get("worker_availability") or "unknown"
+            ),
+            binding_status=str(worker_value.get("binding_status") or "unbound"),
+            allowed_scope=tuple(string_list(worker_value.get("allowed_scope"))),
+            validation_plan=tuple(string_list(worker_value.get("validation_plan"))),
+            execution_ownership=str(
+                worker_value.get("execution_ownership") or ""
+            ),
         ),
         integration_runtime=IntegrationRuntimeState(
             lease_id=str(integration_value.get("lease_id") or ""),
@@ -275,6 +328,7 @@ def orchestration_state_from_dict(value: dict[str, Any]) -> OrchestrationState:
             worktree=str(integration_value.get("worktree") or ""),
             selected_task_ids=tuple(string_list(integration_value.get("selected_task_ids"))),
             selected_reports=tuple(string_list(integration_value.get("selected_reports"))),
+            revision_id=str(integration_value.get("revision_id") or ""),
         ),
         pending_decision=PendingDecisionState(
             decision_id=str(decision_value.get("decision_id") or ""),
@@ -373,6 +427,21 @@ def canonical_task_id(value: Any) -> str:
     """Return a normalized Task ID or an empty string when syntax is invalid."""
     candidate = str(value or "").strip().lower()
     return candidate if TASK_ID_RE.fullmatch(candidate) else ""
+
+
+def canonical_revision_id(value: Any) -> str:
+    """Return an exact Task Revision ID such as 012-r1, never a prefix match."""
+    candidate = str(value or "").strip().lower()
+    return candidate if REVISION_ID_RE.fullmatch(candidate) else ""
+
+
+def revision_id_parts(value: Any) -> tuple[str, int]:
+    revision_id = canonical_revision_id(value)
+    if not revision_id:
+        raise ValueError("Revision ID must match ^\\d{3,}[a-z]*-r[1-9]\\d*$")
+    match = REVISION_ID_RE.fullmatch(revision_id)
+    assert match is not None
+    return match.group("task_id"), int(match.group("revision_number"))
 
 
 def task_id_parts(value: Any) -> tuple[str, str]:
@@ -601,6 +670,18 @@ def parse_report_state(report_path: str, content: str) -> ReportState:
         task_id = "" if raw_report_task_id is None else canonical_task_id(raw_report_task_id)
         if raw_report_task_id is not None and raw_report_task_id != "" and not task_id:
             block_errors.append("task_id must be null or match ^\\d{3,}[a-z]*$")
+        raw_revision_id = data.get("revision_id")
+        revision_id = (
+            "" if raw_revision_id is None else canonical_revision_id(raw_revision_id)
+        )
+        if raw_revision_id is not None and raw_revision_id != "" and not revision_id:
+            block_errors.append(
+                "revision_id must be null or match ^\\d{3,}[a-z]*-r[1-9]\\d*$"
+            )
+        if revision_id:
+            revision_parent, _ = revision_id_parts(revision_id)
+            if task_id != revision_parent:
+                block_errors.append("revision_id parent must equal task_id")
         attempt = positive_attempt(data.get("attempt", 1), block_errors)
         execution_mode = normalized_string(data.get("execution_mode"), "exclusive")
         changed_paths = string_list(data.get("changed_paths"))
@@ -616,9 +697,11 @@ def parse_report_state(report_path: str, content: str) -> ReportState:
             data.get("dependency_change"),
             data.get("cross_module_contract_change"),
         ]
+        change_class = normalized_string(data.get("change_class"), "formal")
+        if change_class == "revision":
+            risk_values.append(data.get("privacy_impact"))
         risk_flags_known = all(isinstance(value, bool) for value in risk_values)
         risk_flags_clear = risk_flags_known and not any(risk_values)
-        change_class = normalized_string(data.get("change_class"), "formal")
         raw_candidate_score = data.get("candidate_score")
         candidate_score = (
             float(raw_candidate_score)
@@ -651,6 +734,7 @@ def parse_report_state(report_path: str, content: str) -> ReportState:
         ) or "missing"
         results = validation_results(content)
         task_id = ""
+        revision_id = ""
         attempt = 1
         execution_mode = "exclusive"
         changed_paths = []
@@ -674,6 +758,7 @@ def parse_report_state(report_path: str, content: str) -> ReportState:
         new_decision=new_decision,
         validation_results=results,
         task_id=task_id,
+        revision_id=revision_id,
         attempt=attempt,
         execution_mode=execution_mode,
         changed_paths=changed_paths,
@@ -717,6 +802,70 @@ def canonical_integration_policy(value: Any) -> str:
     }:
         return "requires_explicit_user_confirmation"
     return policy
+
+
+def parse_revision_state(revision_path: str, content: str) -> RevisionState:
+    """Parse the deliberately small durable record for one Task Revision."""
+    block, block_errors = parse_workflow_block(content, "revision")
+    errors = list(block_errors)
+    if block is None:
+        return RevisionState(
+            path=revision_path,
+            revision_id="",
+            parent_task_id="",
+            status="missing",
+            user_request="",
+            allowed_scope=[],
+            validation_plan=[],
+            run_report="",
+            worker_creation_authorized=False,
+            errors=["Task Revision requires a wishgraph:revision-state block"],
+            state_source="legacy",
+        )
+
+    data = block.data
+    revision_id = canonical_revision_id(data.get("revision_id"))
+    if not revision_id:
+        errors.append("revision_id must match ^\\d{3,}[a-z]*-r[1-9]\\d*$")
+    parent_task_id = canonical_task_id(data.get("parent_task_id"))
+    if not parent_task_id:
+        errors.append("parent_task_id must match ^\\d{3,}[a-z]*$")
+    if revision_id and parent_task_id:
+        encoded_parent, _ = revision_id_parts(revision_id)
+        if encoded_parent != parent_task_id:
+            errors.append("revision_id parent must equal parent_task_id")
+
+    status = normalized_string(data.get("status"))
+    if status not in {"pending", "running", "completed", "blocked", "integrated"}:
+        errors.append(
+            "revision status must be pending, running, completed, blocked, or integrated"
+        )
+    user_request = str(data.get("user_request") or "").strip()
+    if not user_request:
+        errors.append("user_request must be non-empty")
+    allowed_scope = string_list(data.get("allowed_scope"))
+    if not allowed_scope:
+        errors.append("allowed_scope must contain at least one path or glob")
+    validation_plan = string_list(data.get("validation_plan"))
+    if not validation_plan:
+        errors.append("validation_plan must contain at least one targeted check")
+    run_report = normalize_cell(str(data.get("run_report") or ""))
+    worker_authorized = data.get("worker_creation_authorized") is True
+    if data.get("worker_creation_authorized") is not True:
+        errors.append("worker_creation_authorized must be true for a routed revision")
+
+    return RevisionState(
+        path=revision_path,
+        revision_id=revision_id,
+        parent_task_id=parent_task_id,
+        status=status,
+        user_request=user_request,
+        allowed_scope=allowed_scope,
+        validation_plan=validation_plan,
+        run_report=run_report,
+        worker_creation_authorized=worker_authorized,
+        errors=errors,
+    )
 
 
 def parse_task_state(task_path: str, content: str) -> TaskState:

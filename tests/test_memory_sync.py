@@ -90,6 +90,13 @@ class OrchestrationStateMachineTests(unittest.TestCase):
         expected_task_id: str = "",
         expected_integration_id: str = "",
         pending_decision_id: str = "",
+        active_task_id: str = "",
+        previous_task_id: str = "",
+        worker_window_id: str = "",
+        worker_availability: str = "unknown",
+        binding_status: str = "unbound",
+        allowed_scope: tuple[str, ...] = (),
+        validation_plan: tuple[str, ...] = (),
     ):
         expected = (
             memory_sync.ExpectedTransition(
@@ -114,7 +121,16 @@ class OrchestrationStateMachineTests(unittest.TestCase):
                 worker_authorized=worker_authorized,
                 run_report=f"reports/runs/{task_id}-attempt-1.md",
             ),
-            worker_runtime=memory_sync.WorkerRuntimeState(claim_id=worker_claim_id),
+            worker_runtime=memory_sync.WorkerRuntimeState(
+                claim_id=worker_claim_id,
+                active_task_id=active_task_id,
+                previous_task_id=previous_task_id,
+                host_window_or_thread_id=worker_window_id,
+                worker_availability=worker_availability,
+                binding_status=binding_status,
+                allowed_scope=allowed_scope,
+                validation_plan=validation_plan,
+            ),
             integration_runtime=memory_sync.IntegrationRuntimeState(
                 lease_id=integration_lease_id,
                 integration_id=integration_id,
@@ -128,13 +144,21 @@ class OrchestrationStateMachineTests(unittest.TestCase):
     def event(self, kind: str, **data: object):
         return memory_sync.UserEvent(kind=kind, data=data)
 
-    def capability(self, host: str = "codex", create_worker: bool = True):
+    def capability(
+        self,
+        host: str = "codex",
+        create_worker: bool = True,
+        route_worker: bool = False,
+        reuse_worker: bool = False,
+    ):
         return memory_sync.HostCapability(
             host=host,
             can_create_visible_worker=create_worker,
             can_gate_writes=True,
             can_gate_builds=True,
             can_gate_reads=False,
+            can_route_existing_worker=route_worker,
+            can_reuse_worker=reuse_worker,
         )
 
     def test_osm_01_contextual_approval_routes_worker_without_discussion_execution(self) -> None:
@@ -205,6 +229,7 @@ class OrchestrationStateMachineTests(unittest.TestCase):
                 "worker_terminal",
                 task_status="completed",
                 report_id="reports/runs/002-attempt-1.md",
+                claim_released=True,
             ),
             self.capability(),
         )
@@ -457,6 +482,512 @@ class OrchestrationStateMachineTests(unittest.TestCase):
         self.assertEqual(plan.next_action, "repair_worker_closeout")
 
 
+class WorkerReuseRevisionSpecTests(unittest.TestCase):
+    state = OrchestrationStateMachineTests.state
+    event = OrchestrationStateMachineTests.event
+    capability = OrchestrationStateMachineTests.capability
+
+    def revision_data(self, **overrides: object) -> dict[str, object]:
+        data: dict[str, object] = {
+            "parent_task_id": "012",
+            "user_request": "蓝色深一点",
+            "request_is_clear": True,
+            "belongs_to_parent_task": True,
+            "small_scope": True,
+            "independently_revertible": True,
+            "allowed_scope": ["ui/ReaderTheme.swift"],
+            "validation_plan": ["Reader preview"],
+            "public_api_change": False,
+            "schema_change": False,
+            "persistence_change": False,
+            "migration_change": False,
+            "dependency_change": False,
+            "permission_change": False,
+            "security_impact": False,
+            "privacy_impact": False,
+            "new_product_decision": False,
+        }
+        data.update(overrides)
+        return data
+
+    def test_reuse_01_terminal_worker_can_rebind_012_to_013(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(
+                role="worker",
+                task_id="012",
+                lifecycle="completed",
+                expected_kind=None,
+                worker_claim_id="claim-012",
+                active_task_id="012",
+                binding_status="active",
+            ),
+            self.event(
+                "task_rebind_requested",
+                next_task_id="013",
+                current_task_terminal=True,
+                old_claim_released=True,
+                allowed_scope=["src/013/**"],
+                validation_plan=["test 013"],
+            ),
+            self.capability(reuse_worker=True),
+        )
+        self.assertEqual(plan.next_action, "rebind_worker")
+        self.assertEqual(plan.state_patch["worker_runtime"]["active_task_id"], "013")
+
+    def test_reuse_02_running_worker_cannot_rebind(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(
+                role="worker",
+                task_id="012",
+                lifecycle="running",
+                expected_kind=None,
+                worker_claim_id="claim-012",
+                active_task_id="012",
+                binding_status="active",
+            ),
+            self.event(
+                "task_rebind_requested",
+                next_task_id="013",
+                current_task_terminal=False,
+                old_claim_released=False,
+                allowed_scope=["src/013/**"],
+                validation_plan=["test 013"],
+            ),
+            self.capability(reuse_worker=True),
+        )
+        self.assertFalse(plan.accepted)
+        self.assertEqual(plan.next_action, "deny_worker_rebind")
+
+    def test_reuse_03_rebind_releases_old_claim_and_acquires_new(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            old = memory_sync.acquire_claim(
+                root,
+                "012",
+                1,
+                "worker-1",
+                allowed_scope=["src/012/**"],
+                validation_plan=["test 012"],
+                require_clean=False,
+            )
+            result = memory_sync.rebind_worker_claim(
+                root,
+                session_id="worker-1",
+                old_claim_id=old["claim"]["claim_id"],
+                old_task_status="completed",
+                next_task_id="013",
+                attempt=1,
+                worker_id="worker-1",
+                allowed_scope=["src/013/**"],
+                validation_plan=["test 013"],
+                require_clean=False,
+            )
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["old_claim"]["lease_status"], "released")
+            self.assertEqual(result["claim"]["task_id"], "013")
+
+    def test_reuse_04_rebind_resets_scope_and_validation(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(
+                role="worker",
+                task_id="012",
+                lifecycle="completed",
+                expected_kind=None,
+                allowed_scope=("src/012/**",),
+                validation_plan=("test 012",),
+            ),
+            self.event(
+                "task_rebind_requested",
+                next_task_id="013",
+                current_task_terminal=True,
+                old_claim_released=True,
+                allowed_scope=["src/013/**"],
+                validation_plan=["test 013"],
+            ),
+            self.capability(reuse_worker=True),
+        )
+        runtime = plan.state_patch["worker_runtime"]
+        self.assertEqual(runtime["allowed_scope"], ["src/013/**"])
+        self.assertEqual(runtime["validation_plan"], ["test 013"])
+        self.assertNotIn("src/012/**", runtime["allowed_scope"])
+
+    def test_reuse_task_spec_reads_table_scope_and_clean_validation_items(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            task_path = root / "tasks/build/012-table-scope.md"
+            task_path.parent.mkdir(parents=True)
+            task_path.write_text(
+                (ROOT / "templates/tasks/build/EXAMPLE-good-task.md").read_text(
+                    encoding="utf-8"
+                ),
+                encoding="utf-8",
+            )
+            config = json.loads((HOOK_ASSETS / "config.json").read_text())
+
+            specs = memory_sync.task_specs(root, config)
+
+            self.assertEqual(
+                specs[0]["allowed_scope"],
+                [
+                    "src/dashboard/DashboardPage.tsx",
+                    "src/auth/sessionStore.ts",
+                    "tests/dashboard-loading.test.tsx",
+                ],
+            )
+            self.assertIn("npm test -- dashboard", specs[0]["validation_plan"])
+            self.assertTrue(
+                all(not item.startswith("[ ]") for item in specs[0]["validation_plan"])
+            )
+
+    def test_revision_05_worker_appends_feedback_to_running_task(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(
+                role="worker",
+                task_id="012",
+                lifecycle="running",
+                expected_kind=None,
+                worker_claim_id="claim-012",
+                active_task_id="012",
+                binding_status="active",
+            ),
+            self.event("worker_feedback_received", **self.revision_data()),
+            self.capability(),
+        )
+        self.assertEqual(plan.next_action, "append_feedback_to_active_task")
+        self.assertFalse(plan.revision_id)
+
+    def test_revision_06_discussion_routes_feedback_to_active_worker(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(
+                task_id="012",
+                lifecycle="running",
+                expected_kind=None,
+                active_task_id="012",
+                worker_window_id="worker-window-012",
+                binding_status="active",
+            ),
+            self.event("user_requested_revision", **self.revision_data()),
+            self.capability(route_worker=True),
+        )
+        self.assertEqual(plan.next_action, "route_to_active_worker")
+        self.assertEqual(plan.target_worker_id, "worker-window-012")
+
+    def test_revision_07_completed_task_creates_lightweight_record(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(task_id="012", lifecycle="completed", expected_kind=None),
+            self.event(
+                "user_requested_revision", **self.revision_data(next_revision_number=1)
+            ),
+            self.capability(create_worker=True),
+        )
+        self.assertEqual(plan.next_action, "create_lightweight_revision")
+        self.assertEqual(plan.revision_id, "012-r1")
+        self.assertNotIn("change_set", plan.state_patch["revision"])
+        stored = memory_sync.parse_revision_state(
+            "tasks/revisions/012-r1.md",
+            (HOOK_ASSETS.parent / "templates" / "TASK_REVISION.md").read_text(
+                encoding="utf-8"
+            ),
+        )
+        self.assertEqual(stored.revision_id, "012-r1")
+        self.assertEqual(stored.parent_task_id, "012")
+        self.assertLessEqual(len(stored.allowed_scope), 3)
+
+    def test_revision_08_completion_enters_automatic_integration(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(task_id="012", lifecycle="completed", expected_kind=None),
+            self.event(
+                "revision_completed",
+                revision_id="012-r1",
+                report_id="reports/runs/012-r1-attempt-1.md",
+            ),
+            self.capability(),
+        )
+        self.assertEqual(plan.next_action, "evaluate_integration")
+        self.assertEqual(plan.state_patch["session"]["phase"], "integration_pending")
+        self.assertFalse(plan.user_message)
+
+    def test_revision_09_theme_redesign_becomes_formal_followup(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(task_id="012", lifecycle="completed", expected_kind=None),
+            self.event(
+                "user_requested_revision",
+                **self.revision_data(small_scope=False, new_product_decision=True),
+            ),
+            self.capability(),
+        )
+        self.assertEqual(plan.next_action, "request_formal_followup_task")
+
+    def test_revision_10_missing_worker_falls_back_without_discussion_edit(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(task_id="012", lifecycle="completed", expected_kind=None),
+            self.event(
+                "user_requested_revision", **self.revision_data(revision_id="012-r1")
+            ),
+            self.capability(host="claude", create_worker=False),
+        )
+        self.assertEqual(plan.next_action, "fallback_manual_worker_command")
+        self.assertEqual(
+            plan.user_message, "在任务 012 的执行窗口执行修订 012-r1"
+        )
+        self.assertNotEqual(plan.next_action, "discussion_window_implements_business_code")
+
+    def test_revision_11_ambiguous_parent_is_not_guessed(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(task_id="012", lifecycle="completed", expected_kind=None),
+            self.event(
+                "user_requested_revision",
+                **self.revision_data(candidate_parent_task_ids=["012", "013"]),
+            ),
+            self.capability(),
+        )
+        self.assertEqual(plan.next_action, "ask_task_choice")
+
+    def test_revision_12_unrelated_busy_worker_is_not_reused(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(
+                task_id="012",
+                lifecycle="running",
+                expected_kind=None,
+                active_task_id="020",
+                worker_window_id="worker-window-020",
+                binding_status="active",
+            ),
+            self.event("user_requested_revision", **self.revision_data()),
+            self.capability(route_worker=True, reuse_worker=True),
+        )
+        self.assertNotIn(plan.next_action, {"route_to_active_worker", "route_to_previous_worker"})
+
+    def test_revision_13_risk_flags_force_formal_task(self) -> None:
+        for flag in (
+            "public_api_change",
+            "schema_change",
+            "dependency_change",
+            "migration_change",
+        ):
+            with self.subTest(flag=flag):
+                plan = memory_sync.reduce_orchestration(
+                    self.state(task_id="012", lifecycle="completed", expected_kind=None),
+                    self.event(
+                        "user_requested_revision", **self.revision_data(**{flag: True})
+                    ),
+                    self.capability(),
+                )
+                self.assertEqual(plan.next_action, "request_formal_followup_task")
+
+    def test_revision_14_revision_ids_are_exact(self) -> None:
+        for value in ("012-r1", "012-r10"):
+            self.assertEqual(memory_sync.canonical_revision_id(value), value)
+        self.assertEqual(memory_sync.canonical_revision_id("012-r1-extra"), "")
+        self.assertNotEqual(
+            memory_sync.canonical_revision_id("012-r1"),
+            memory_sync.canonical_revision_id("012-r10"),
+        )
+
+    def test_revision_15_safe_integration_updates_revision_and_project_state(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(
+                task_id="012",
+                lifecycle="completed",
+                phase="integrating",
+                expected_kind=None,
+                integration_lease_id="lease-1",
+                integration_id="integration-012-r1",
+            ),
+            self.event(
+                "integration_completed",
+                integration_id="integration-012-r1",
+                revision_id="012-r1",
+                report_id="reports/runs/012-r1-attempt-1.md",
+                project_status_updated=True,
+            ),
+            self.capability(),
+        )
+        self.assertEqual(plan.state_patch["revision"]["status"], "integrated")
+        self.assertTrue(plan.state_patch["revision"]["project_status_updated"])
+        self.assertNotIn("是否开始集成", plan.user_message)
+
+    def test_revision_integration_preserves_reviewed_parent_lifecycle(self) -> None:
+        evaluating = memory_sync.reduce_orchestration(
+            self.state(
+                task_id="012",
+                lifecycle="reviewed",
+                phase="integration_pending",
+                expected_kind="auto_integrate",
+            ),
+            self.event(
+                "integration_evaluated", outcome="safe", revision_id="012-r1"
+            ),
+            self.capability(),
+        )
+        self.assertTrue(evaluating.accepted)
+        self.assertEqual(evaluating.revision_id, "012-r1")
+        self.assertEqual(
+            evaluating.state_patch["integration_runtime"]["revision_id"], "012-r1"
+        )
+
+        completed = memory_sync.reduce_orchestration(
+            self.state(
+                task_id="012",
+                lifecycle="reviewed",
+                phase="integrating",
+                expected_kind=None,
+                integration_lease_id="lease-1",
+                integration_id="integration-012-r1",
+            ),
+            self.event(
+                "integration_completed",
+                integration_id="integration-012-r1",
+                revision_id="012-r1",
+            ),
+            self.capability(),
+        )
+        self.assertTrue(completed.accepted)
+        self.assertEqual(completed.state_patch["task"]["lifecycle"], "reviewed")
+        self.assertEqual(completed.state_patch["revision"]["status"], "integrated")
+
+    def test_revision_host_route_finds_reusable_worker_or_uses_exact_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            (root / ".wishgraph").mkdir()
+            shutil.copy2(HOOK_ASSETS / "config.json", root / ".wishgraph/config.json")
+            task_path = root / "tasks/build/012-parent.md"
+            task_path.parent.mkdir(parents=True)
+            task_path.write_text(
+                "<!-- wishgraph:task-state:start -->\n```json\n"
+                + json.dumps(
+                    {
+                        "schema_version": 1,
+                        "kind": "task",
+                        "task_id": "012",
+                        "parent_task_id": None,
+                        "dependencies": [],
+                        "status": "completed",
+                        "work_type": "sequential",
+                        "batch_id": None,
+                        "attempt": 1,
+                        "execution_mode": "exclusive",
+                        "comparison_group": None,
+                        "run_report": "reports/runs/012-attempt-1.md",
+                        "worker_creation_authorized": True,
+                        "integration_policy": "inherited_task_approval",
+                    },
+                    indent=2,
+                )
+                + "\n```\n<!-- wishgraph:task-state:end -->\n",
+                encoding="utf-8",
+            )
+            revision_path = root / "tasks/revisions/012-r1.md"
+            revision_path.parent.mkdir(parents=True)
+            revision_path.write_text(
+                (HOOK_ASSETS.parent / "templates" / "TASK_REVISION.md").read_text(
+                    encoding="utf-8"
+                ),
+                encoding="utf-8",
+            )
+            claim = memory_sync.acquire_claim(
+                root,
+                "012",
+                1,
+                "worker-012",
+                host_thread_ref="visible-worker-012",
+                require_clean=False,
+            )
+            memory_sync.update_claim(root, claim["claim"]["claim_id"], "release")
+
+            codex = subprocess.run(
+                [
+                    sys.executable,
+                    str(HOOK_ASSETS / "memory_sync.py"),
+                    "revision",
+                    "route",
+                    "012-r1",
+                    "--host",
+                    "codex",
+                ],
+                cwd=root,
+                text=True,
+                stdout=subprocess.PIPE,
+                check=True,
+            )
+            self.assertEqual(
+                json.loads(codex.stdout)["host_action"]["target_worker_id"],
+                "visible-worker-012",
+            )
+
+            busy = memory_sync.acquire_claim(
+                root,
+                "013",
+                1,
+                "worker-013",
+                host_thread_ref="visible-worker-012",
+                require_clean=False,
+            )
+            self.assertTrue(busy["ok"], busy)
+            rerouted = subprocess.run(
+                [
+                    sys.executable,
+                    str(HOOK_ASSETS / "memory_sync.py"),
+                    "revision",
+                    "route",
+                    "012-r1",
+                    "--host",
+                    "codex",
+                ],
+                cwd=root,
+                text=True,
+                stdout=subprocess.PIPE,
+                check=True,
+            )
+            self.assertEqual(
+                json.loads(rerouted.stdout)["host_action"]["action"],
+                "create_visible_revision_worker",
+            )
+            claude = subprocess.run(
+                [
+                    sys.executable,
+                    str(HOOK_ASSETS / "memory_sync.py"),
+                    "revision",
+                    "route",
+                    "012-r1",
+                    "--host",
+                    "claude",
+                ],
+                cwd=root,
+                text=True,
+                stdout=subprocess.PIPE,
+                check=True,
+            )
+            self.assertEqual(
+                json.loads(claude.stdout)["host_action"]["user_message"],
+                "在任务 012 的执行窗口执行修订 012-r1",
+            )
+
+    def test_revision_route_failure_creates_visible_codex_worker_or_manual_fallback(self) -> None:
+        event = self.event(
+            "host_revision_route_failed",
+            parent_task_id="012",
+            revision_id="012-r1",
+        )
+        codex = memory_sync.reduce_orchestration(
+            self.state(task_id="012", lifecycle="completed", expected_kind=None),
+            event,
+            self.capability(host="codex", create_worker=True),
+        )
+        self.assertEqual(codex.next_action, "create_lightweight_revision")
+        claude = memory_sync.reduce_orchestration(
+            self.state(task_id="012", lifecycle="completed", expected_kind=None),
+            event,
+            self.capability(host="claude", create_worker=False),
+        )
+        self.assertEqual(
+            claude.user_message, "在任务 012 的执行窗口执行修订 012-r1"
+        )
+
+
 class UnbornRepositoryTests(unittest.TestCase):
     def test_session_start_accepts_repository_without_first_commit(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -628,6 +1159,7 @@ class MemorySyncTests(unittest.TestCase):
         schema_change: bool = False,
         persistence_change: bool = False,
         security_impact: bool = False,
+        privacy_impact: bool = False,
         permission_change: bool = False,
         billing_impact: bool = False,
         deletion_change: bool = False,
@@ -635,6 +1167,7 @@ class MemorySyncTests(unittest.TestCase):
         dependency_change: bool = False,
         cross_module_contract_change: bool = False,
         task_id: Optional[str] = None,
+        revision_id: Optional[str] = None,
         change_class: str = "formal",
         candidate_score: Optional[float] = None,
         selection_requires_judgment: bool = False,
@@ -651,6 +1184,7 @@ class MemorySyncTests(unittest.TestCase):
             "schema_version": 1,
             "kind": "run",
             "task_id": task_id,
+            "revision_id": revision_id,
             "unit": unit,
             "status": status,
             "work_type": work_type,
@@ -661,6 +1195,7 @@ class MemorySyncTests(unittest.TestCase):
             "schema_change": schema_change,
             "persistence_change": persistence_change,
             "security_impact": security_impact,
+            "privacy_impact": privacy_impact,
             "permission_change": permission_change,
             "billing_impact": billing_impact,
             "deletion_change": deletion_change,
@@ -1228,6 +1763,80 @@ class MemorySyncTests(unittest.TestCase):
         self.write("tasks/build/020-planned.md", self.structured_task("020-planned"))
         result = memory_sync.check_sync(self.root, self.config, "worktree")
         self.assertTrue(result.ok, result.errors)
+
+    def test_lightweight_revision_record_is_valid_without_full_task_sections(self) -> None:
+        self.write(
+            "tasks/build/012-parent.md",
+            self.structured_task(
+                "012-parent",
+                status="completed",
+                worker_authorized=True,
+                run_report="reports/runs/000-bootstrap.md",
+            ),
+        )
+        self.git("add", "tasks/build/012-parent.md")
+        self.git("commit", "-qm", "parent task fixture")
+        self.write(
+            "tasks/revisions/012-r1.md",
+            (HOOK_ASSETS.parent / "templates" / "TASK_REVISION.md").read_text(
+                encoding="utf-8"
+            ),
+        )
+        result = memory_sync.check_sync(self.root, self.config, "worktree")
+        self.assertTrue(result.ok, result.errors)
+        allocated = memory_sync.next_revision_id(self.root, self.config, "012")
+        self.assertEqual(allocated["revision_id"], "012-r2")
+
+    def test_revision_closeout_uses_revision_report_and_is_auto_eligible(self) -> None:
+        self.write(
+            "tasks/build/012-parent.md",
+            self.structured_task(
+                "012-parent",
+                status="completed",
+                worker_authorized=True,
+                run_report="reports/runs/000-bootstrap.md",
+            ),
+        )
+        self.git("add", "tasks/build/012-parent.md")
+        self.git("commit", "-qm", "parent task fixture")
+        report_path = "reports/runs/012-r1-attempt-1.md"
+        revision_state = {
+            "schema_version": 1,
+            "kind": "revision",
+            "revision_id": "012-r1",
+            "parent_task_id": "012",
+            "status": "completed",
+            "user_request": "蓝色深一点",
+            "allowed_scope": ["src/app.py"],
+            "validation_plan": ["tests"],
+            "run_report": report_path,
+            "worker_creation_authorized": True,
+        }
+        self.write(
+            "tasks/revisions/012-r1.md",
+            "<!-- wishgraph:revision-state:start -->\n```json\n"
+            + json.dumps(revision_state, ensure_ascii=False, indent=2)
+            + "\n```\n<!-- wishgraph:revision-state:end -->\n",
+        )
+        self.write("src/app.py", "print('dark blue')\n")
+        self.write(
+            report_path,
+            self.structured_run_report(
+                "012-r1-attempt-1",
+                task_id="012",
+                revision_id="012-r1",
+                change_class="revision",
+                changed_paths=["src/app.py"],
+            ),
+        )
+        result = memory_sync.check_sync(self.root, self.config, "worktree")
+        self.assertTrue(result.ok, result.errors)
+        status = memory_sync.integration_state(self.root, self.config).as_dict()
+        self.assertTrue(status["auto_integration_eligible"])
+        revision_units = [
+            unit for unit in status["work_units"] if unit.get("revision_id") == "012-r1"
+        ]
+        self.assertEqual(revision_units[0]["lifecycle_status"], "completed")
         status = memory_sync.integration_state(self.root, self.config).as_dict()
         self.assertNotIn("reports/runs/020-planned.md", status["waiting_reports"])
 
@@ -2921,7 +3530,7 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(json.loads(status.stdout)["kind"], "integration_status")
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
-            self.assertEqual(config["version"], 9)
+            self.assertEqual(config["version"], 10)
             self.assertEqual(config["session_start_context_mode"], "safety_only")
             self.assertEqual(config["paths"]["run_report_glob"], "reports/runs/*.md")
             self.assertEqual(
@@ -2931,6 +3540,9 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(
                 config["paths"]["task_globs"],
                 ["tasks/build/*.md", ".tasks/build/*.md"],
+            )
+            self.assertEqual(
+                config["paths"]["revision_glob"], "tasks/revisions/*.md"
             )
             self.assertTrue(config["scan_worker_refs_for_status"])
             self.assertEqual(config["project_status_max_lines"], 160)
@@ -3000,7 +3612,7 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertEqual(process.returncode, 0, process.stderr)
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
-            self.assertEqual(config["version"], 9)
+            self.assertEqual(config["version"], 10)
             self.assertEqual(config["session_start_context_mode"], "safety_only")
             self.assertEqual(config["session_summary_max_chars"], 1234)
             self.assertTrue(config["scan_worker_refs_for_status"])
@@ -3345,6 +3957,7 @@ class TemplateMirrorTests(unittest.TestCase):
             ("prompts/INTEGRATION_AI.md", "INTEGRATION_AI.md"),
             ("reports/PROJECT_STATUS.md", "PROJECT_STATUS.md"),
             ("reports/RUN_REPORT.md", "RUN_REPORT.md"),
+            ("tasks/revisions/TASK_REVISION.md", "TASK_REVISION.md"),
             ("tasks/build/001-bootstrap-project.md", "001-bootstrap-project.md"),
             ("tasks/build/EXAMPLE-good-task.md", "EXAMPLE-good-task.md"),
             ("tasks/build/NNN-task.md", "NNN-task.md"),
@@ -3365,6 +3978,10 @@ class TemplateMirrorTests(unittest.TestCase):
             ("prompts/INTEGRATION_AI.md", "prompts/INTEGRATION_AI.md"),
             ("reports/PROJECT_STATUS.md", "reports/PROJECT_STATUS.md"),
             ("reports/RUN_REPORT.md", "reports/RUN_REPORT.md"),
+            (
+                "tasks/revisions/TASK_REVISION.md",
+                "tasks/revisions/TASK_REVISION.md",
+            ),
             ("tasks/build/001-bootstrap-project.md", "tasks/build/001-bootstrap-project.md"),
             ("tasks/build/EXAMPLE-good-task.md", "tasks/build/EXAMPLE-good-task.md"),
             ("tasks/build/NNN-task.md", "tasks/build/NNN-task.md"),

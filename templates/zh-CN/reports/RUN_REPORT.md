@@ -5,7 +5,7 @@
 ## 工作单元
 
 - Unit：Task ID 或 `ad-hoc/YYYYMMDD-HHMM-short-slug`
-- 模式：Formal / Ad-hoc
+- 模式：Formal / Revision / Ad-hoc
 - 日期：
 - Agent：
 - 分支 / worktree：
@@ -14,12 +14,15 @@
 
 只有独立 ad-hoc 单元且不涉及 API、schema、持久化、安全、权限、计费、删除、迁移、依赖或跨模块契约时，才使用 `change_class: micro`，并列出全部 changed paths。只有 Task 定义了完整客观评分表时，竞争候选才填写分数；涉及偏好或接近的取舍时设 `selection_requires_judgment: true`。
 
+执行 Task Revision 时使用 `change_class: revision`，`task_id` 保持为原 Task，填写精确 `revision_id` 并列出全部 changed paths。所有显式风险字段必须为 false；否则停止并请求正式后续 Task。
+
 <!-- wishgraph:run-state:start -->
 ```json
 {
   "schema_version": 1,
   "kind": "run",
   "task_id": "001",
+  "revision_id": null,
   "attempt": 1,
   "unit": "NNN-short-slug",
   "status": "completed",
@@ -31,6 +34,7 @@
   "schema_change": false,
   "persistence_change": false,
   "security_impact": false,
+  "privacy_impact": false,
   "permission_change": false,
   "billing_impact": false,
   "deletion_change": false,

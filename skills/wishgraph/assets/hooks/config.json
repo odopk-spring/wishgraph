@@ -1,5 +1,5 @@
 {
-  "version": 9,
+  "version": 10,
   "mode": "enforce",
   "paths": {
     "prd": "PRD.md",
@@ -15,7 +15,8 @@
     "task_globs": [
       "tasks/build/*.md",
       ".tasks/build/*.md"
-    ]
+    ],
+    "revision_glob": "tasks/revisions/*.md"
   },
   "required_impact_rows": [
     "PRD.md",

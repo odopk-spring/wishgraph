@@ -109,6 +109,8 @@ reports/runs/<work-unit-id>.md
 
 新任务规格包含 `wishgraph:task-state`，执行报告包含 `wishgraph:run-state`，项目状态快照包含 `wishgraph:integration-state`。Hooks 检查 `draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`，包括显式 Worker 创建授权和集成策略。Draft 在批准前可以继续修改；批准后执行身份固定，只有阻塞／未完成重试必须换用新的执行报告路径。授权、重试和评审转换只有在周围任务正文不变时才可不创建 Worker 报告；`running` 不是有效收尾。旧标签文件继续兼容；已存在但无效的结构化块会明确报错。
 
+对已完成 Task 的小范围修正可以使用 `tasks/revisions/<task-id>-rN.md`，其中只保存 `wishgraph:revision-state`：原 Task、精确请求、允许范围、针对性验证、状态和一个不可变报告。Revision 报告使用 `change_class: revision`、原 Task 的 `task_id` 和精确 `revision_id`。只要涉及 API、schema、持久化、迁移、依赖、权限、安全、隐私或新产品决定，就必须升级为正式后续 Task。
+
 Task Lifecycle 只是一个状态维度。Session Role（`neutral|discussion|worker`）、Flow Phase 和唯一结构化 `expected_transition` 分别保存在 Git common dir。`可以`、`执行吧` 之类简短回复只有在 transition 唯一时才可执行。
 
 Worker 使用 `Integrate` 或 `N/A`，不直接修改共享项目记忆：
@@ -182,6 +184,10 @@ python3 .wishgraph/hooks/memory_sync.py claim revoke CLAIM_ID
 ```
 
 获取 Claim 使用原子文件系统操作，默认同一 Task 只允许一个 active exclusive Claim，并记录 attempt、worker、branch、绝对 worktree、时间、lease 状态、执行模式和可选宿主线程引用。传入 `--session-id` 时同时持久化 Worker runtime；持久化失败会撤销新 Claim。heartbeat 与 release 校验 branch/worktree 绑定；显式 revoke 是接管控制路径。stale 检测保留旧记录。它能协调共享同一本地 Git common directory 的进程与 worktree，但不是只共享远程仓库的多机器分布式锁。
+
+终态 Worker 窗口可通过 `claim rebind` 复用。rebind 先释放旧 Claim，再获取包含新 `task_id`、可选 `revision_id`、`allowed_scope`、`validation_plan` 和执行归属的新 Claim。若新 Claim 或 runtime 持久化失败，窗口保持 idle/unbound，旧权限不会恢复；旧 Task 仍在 running 时禁止 rebind。
+
+`revision next 012` 分配下一个精确 Revision ID，`revision resolve 012-r1` 检查轻量记录，`revision route 012-r1 --host codex|claude` 计算宿主动作。Codex 有可复用的真实 Worker 记录时返回其目标，否则返回创建可见 Revision Worker 的动作；Claude Code 只返回最短手动命令。
 
 Discussion-local Integration 先持久化 `phase: integrating`，再获取绑定 session、integration ID、Task、报告、branch 与 worktree 的 lease：
 

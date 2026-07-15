@@ -41,7 +41,7 @@ The Integration lease authorizes only the selected merge, bounded conflict resol
 - Read every selected Run Report before resolving conflicts.
 - Do not let the merge commit before combined validation and shared-state closeout.
 - Rewrite `reports/PROJECT_STATUS.md` as the complete current snapshot and fill its `wishgraph:integration-state` block.
-- For each absorbed structured Task, move its task-state from `completed` to `integrated`. Only Discussion review later moves `integrated` to `reviewed`.
+- For each absorbed structured Task, move its task-state from `completed` to `integrated`. For each absorbed Task Revision, move its revision-state from `completed` to `integrated`. Only Discussion review later moves a Task from `integrated` to `reviewed`.
 - Update affected PRD, architecture, CODEMAP, conventions, and prompts only when integrated project truth changed.
 - Refresh the concise dynamic state block in `prompts/DISCUSSION_AI.md`.
 - Run integration validation and the WishGraph worktree check.

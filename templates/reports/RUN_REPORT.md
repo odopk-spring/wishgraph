@@ -5,7 +5,7 @@ Create one new file from this template for each worker execution. Use `reports/r
 ## Work Unit
 
 - Unit: Task ID or `ad-hoc/YYYYMMDD-HHMM-short-slug`
-- Mode: Formal / Ad-hoc
+- Mode: Formal / Revision / Ad-hoc
 - Date:
 - Agent:
 - Branch / worktree:
@@ -14,12 +14,15 @@ The JSON block below is the machine-readable source for lifecycle state. Keep na
 
 Use `change_class: micro` only for an independent ad-hoc unit with no API, schema, persistence, security, permission, billing, deletion, migration, dependency, or cross-module-contract impact. List every changed path. Competitive candidates record their objective score only when the Task defines a complete scorecard; set `selection_requires_judgment: true` for preferences or close tradeoffs.
 
+For a Task Revision, set `change_class: revision`, keep `task_id` as the parent Task, set the exact `revision_id`, and list every changed path. All explicit risk flags must remain false; otherwise stop and request a formal follow-up Task.
+
 <!-- wishgraph:run-state:start -->
 ```json
 {
   "schema_version": 1,
   "kind": "run",
   "task_id": "001",
+  "revision_id": null,
   "attempt": 1,
   "unit": "NNN-short-slug",
   "status": "completed",
@@ -31,6 +34,7 @@ Use `change_class: micro` only for an independent ad-hoc unit with no API, schem
   "schema_change": false,
   "persistence_change": false,
   "security_impact": false,
+  "privacy_impact": false,
   "permission_change": false,
   "billing_impact": false,
   "deletion_change": false,
