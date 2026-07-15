@@ -1,6 +1,6 @@
 # Project Status
 
-This file is the current integrated project snapshot, not an append-only history. The Integration AI rewrites it after each integration. Detailed execution history remains in `reports/runs/*.md` and Git.
+This file is the current integrated project snapshot, not an append-only history. The Discussion-local Integration phase rewrites it after each integration. Detailed execution history remains in `reports/runs/*.md` and Git.
 
 ## Current Integration
 

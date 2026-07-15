@@ -1,6 +1,6 @@
 # Review Window Format
 
-Use this format for human-facing summaries.
+Use this format for human-facing summaries in Discussion. “Review Window” names a presentation format in the `presenting_result` phase; it is not a separate role, window, or fourth Agent.
 
 ## Before Execution
 

@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="600" viewBox="0 0 1800 600" role="img" aria-label="Discuss, execute, update, and discuss again">
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="600" viewBox="0 0 1800 600" role="img" aria-label="Discuss, run a Worker, integrate, and discuss again">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#F8FAFF"/>
@@ -30,7 +30,7 @@
     <rect x="1370" y="195" width="320" height="210" rx="42" fill="#FFFFFF" stroke="#DEDFFB" stroke-width="3"/>
   </g>
   <text x="270" y="305" class="label" fill="#5F5BEF">Discuss</text>
-  <text x="690" y="305" class="label" fill="#2E72E8">Execute</text>
-  <text x="1110" y="305" class="label" fill="#12A777">Update</text>
+  <text x="690" y="305" class="label" fill="#2E72E8">Worker</text>
+  <text x="1110" y="305" class="label" fill="#12A777">Integrate</text>
   <text x="1530" y="305" class="label" fill="#5F5BEF">Discuss Again</text>
 </svg>

@@ -29,7 +29,7 @@ Task state 只记录 Task Lifecycle。Session Role、Flow Phase 与 `expected_tr
 
 ## Intent
 
-在功能实现前创建第一版持久项目框架。这个任务要让未来讨论和执行 agent 不依赖聊天历史也能理解仓库。
+在功能实现前创建第一版持久项目框架。这个 Task 要让后续 Discussion 和 Worker 窗口无需聊天历史也能理解仓库。
 
 ## Current State
 
@@ -44,10 +44,10 @@ Task state 只记录 Task Lifecycle。Session Role、Flow Phase 与 `expected_tr
 | `PRD.md` | Product frame and roadmap | 记录目标用户、目标、非目标、当前决策、首个薄切片和验收标准。 |
 | `ARCHITECTURE.md` | Initial architecture | 记录计划结构、依赖边界、数据流和风险备注。 |
 | `CODEMAP.md` | Initial map | 记录计划或现有文件、功能区域、合约、probe 和调试入口。 |
-| `CONVENTIONS.md` | Collaboration rules | 记录讨论 / 执行角色、验证顺序、外置记忆更新规则和 git 规则。 |
+| `CONVENTIONS.md` | Collaboration rules | 记录 Discussion / Worker 角色、Discussion-local Integration 阶段、验证顺序、外置记忆更新规则和 Git 规则。 |
 | `prompts/DISCUSSION_AI.md` | Current handoff | 保存当前讨论状态、开放决策和下一个可能任务。 |
-| `prompts/EXECUTION_AI.md` | Execution handoff | 保存执行窗口稳定提示词。 |
-| `prompts/INTEGRATION_AI.md` | Temporary integration handoff | 保存授权单写者集成和真实后台降级的稳定提示词。 |
+| `prompts/EXECUTION_AI.md` | Worker handoff | 保存 Worker 窗口的稳定提示词。 |
+| `prompts/INTEGRATION_AI.md` | Integration phase prompt | 保存 lease 约束的 Discussion-local Integration 规则和 pending 恢复行为。 |
 | `tasks/build/002-first-slice.md` | First implementation task | PRD 批准后写首个有边界的实现任务。 |
 | `reports/runs/001-bootstrap-project.md` | Bootstrap run report | 记录创建文件、假设、验证和共享记忆建议。 |
 | `reports/PROJECT_STATUS.md` | 初始项目状态概览 | 把 bootstrap 汇总为第一份当前集成快照。 |

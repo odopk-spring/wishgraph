@@ -203,8 +203,8 @@ Task specs must be executable without chat history.
 
 ## Handoff Rules
 
-- Planning AI writes specs; execution AI implements specs.
-- Execution AI reads `prompts/EXECUTION_AI.md` plus the assigned `tasks/build/*.md`.
+- Discussion writes Task Specs; Worker implements them.
+- Worker reads `prompts/EXECUTION_AI.md` plus the assigned `tasks/build/*.md`.
 - Worker agents use separate branches or worktrees, write only their own `reports/runs/*.md`, and do not update shared memory.
 - Worker launch authority comes from an exact execution command or a contextual reply that consumes the unique `approve_worker_launch` transition. Before routing, update only the exact Task from `draft` to `approved` and set `worker_creation_authorized: true`.
 - A manually launched Worker receives only `执行 <task-id> 任务`; it discovers the execution prompt and exact Task from repository files.

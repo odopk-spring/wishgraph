@@ -11,7 +11,7 @@
 
 **File-backed project governance for AI coding agents.** WishGraph turns intent into auditable specs, tasks, execution evidence, and shared project state so a project can continue across agents and conversations without depending on chat memory.
 
-![Discuss, execute, update, discuss again](docs/assets/wishgraph-simple-loop-en.svg)
+![Discuss, run a Worker, integrate, and discuss again](docs/assets/wishgraph-simple-loop-en.svg)
 
 WishGraph is an installable Codex/Claude Code skill, a set of project templates, and an optional hook runtime. The human sets direction and reviews decisions; agents translate that intent into bounded work and write the resulting facts back to durable files.
 
@@ -72,11 +72,11 @@ Refresh project status.
 
 ![WishGraph workflow](docs/assets/wishgraph-workflow-loop-en.svg)
 
-1. **Discussion** clarifies intent, boundaries, and success criteria, then writes an approved Task Spec.
-2. **Execution** claims that Task, makes the smallest scoped change, validates it, and writes an immutable Run Report.
-3. **Integration** absorbs eligible results and refreshes shared project state before the next discussion.
+1. **Discussion** clarifies intent, boundaries, and success criteria, then writes a bounded Task Spec and waits for explicit Worker authorization.
+2. **Worker** starts only after that authorization, claims the exact Task in an isolated branch or worktree, makes the smallest scoped change, validates it, and writes an immutable Run Report.
+3. **Discussion-local Integration** evaluates every terminal Worker result. Safe results integrate automatically with a bound lease; material risks return to Discussion as a concrete decision.
 
-The normal user experience is a Discussion window plus explicit, user-visible Execution windows. Integration is a temporary control transaction: it can run in the background only when the host genuinely supports that capability; otherwise the active agent performs it in an isolated phase or leaves it pending. Hooks expose and enforce state, but they do not secretly start agents, merge code, or invent project meaning.
+The normal user experience is one long-lived Discussion window plus explicit, user-visible Worker windows. Integration is a temporary phase inside Discussion, never a separate window or background Integrator. If Discussion is inactive when a Worker finishes, WishGraph persists `integration_pending` and resumes evaluation on the next Discussion start or refresh. Hooks expose and enforce state, but they do not start Workers, merge code, or invent project meaning.
 
 ## The project state graph
 
@@ -89,7 +89,7 @@ The normal user experience is a Discussion window plus explicit, user-visible Ex
 | `tasks/build/*.md` | Self-contained, versioned execution specs |
 | `reports/runs/*.md` | Immutable evidence from each execution unit |
 | `reports/PROJECT_STATUS.md` | The latest integrated project snapshot |
-| `prompts/*.md` | Stable handoffs for Discussion, Execution, and Integration |
+| `prompts/*.md` | Stable handoffs for Discussion and Worker, plus the Discussion-local Integration phase |
 
 Human-readable meaning stays in Markdown. Small versioned JSON blocks carry only workflow facts such as Task state, authorization, validation, and integration status.
 
@@ -98,8 +98,8 @@ Human-readable meaning stays in Markdown. Small versioned JSON blocks carry only
 - No Worker starts without explicit human authorization.
 - The default execution mode allows one active Worker Claim per Task attempt.
 - Claims are atomic across local worktrees sharing one Git common directory; they are not a distributed lock across machines.
-- High-risk, conflicting, parallel, or ambiguous results return to Discussion for a decision.
-- Run Reports are immutable, and integration has a single writer for shared project state.
+- Safe sequential and mechanically proven `parallel_independent` results may integrate automatically; high-risk, conflicting, competitive, or ambiguous results return to Discussion for a concrete decision.
+- Run Reports are immutable, and a bound Discussion-local Integration lease enforces one shared-state writer.
 - Human review remains the authority for direction and judgment.
 
 ## Choose your path
@@ -108,6 +108,7 @@ Human-readable meaning stays in Markdown. Small versioned JSON blocks carry only
 | --- | --- |
 | Try WishGraph in a project | [Getting Started](GETTING_STARTED.md) |
 | Understand the method | [WishGraph Method](docs/wishgraph-method.en.md) |
+| Understand the orchestration model | [Orchestration state machine](docs/orchestration-state-machine.md) |
 | Inspect the hook protocol | [External-Memory Hooks](docs/memory-sync-hooks.md) |
 | Adapt it to Claude Code | [Claude Code adapter](adapters/claude-code/README.md) |
 | Adapt it to another agent | [Generic adapter](adapters/generic/README.md) |
@@ -130,7 +131,7 @@ WishGraph supports English, Simplified Chinese, and bilingual project memory. En
 
 ## Status and known limits
 
-WishGraph is a **v0.1 public beta**. The skill validates, fresh installation is tested, and the runtime has automated lifecycle coverage. It still benefits from real-project feedback, broader host testing, and usability refinement around the Discussion / Execution / Integration model.
+WishGraph is a **v0.1 public beta**. The skill validates, fresh installation is tested, and the runtime has automated lifecycle coverage. It still benefits from real-project feedback, broader host testing, and usability refinement around the Discussion / Worker / Discussion-local Integration flow.
 
 WishGraph is a project-governance layer, not an autonomous software factory. It does not replace product decisions, code review, CI, or distributed coordination.
 

@@ -99,7 +99,7 @@ reports/PROJECT_STATUS.md
 
 ### prompts/EXECUTION_AI.md
 
-保持稳定。它告诉执行 AI 如何启动、读哪些文件、如何收尾。任务具体要求属于 `tasks/build/*.md`，不属于这个提示词。
+保持稳定。它告诉 Worker 如何启动、读哪些文件、如何收尾。具体任务要求属于 `tasks/build/*.md`，不属于这个提示词。
 
 ## 前台讨论、显式 Worker、临时集成
 
@@ -110,10 +110,10 @@ Human idea
 -> Discussion AI classifies sequential / parallel_batch / high_risk
 -> Human approves task boundary and explicitly authorizes the named Worker task(s)
 -> Discussion AI creates and configures user-visible Worker task(s)
--> Execution AI reads EXECUTION_AI.md plus the task file
--> Execution AI implements only that task
--> Execution AI validates, writes one immutable run report, commits
--> Temporary Integration AI applies approved results and shared-memory updates
+-> Worker reads EXECUTION_AI.md plus the Task file
+-> Worker implements only that Task
+-> Worker validates, writes one immutable Run Report, and commits
+-> Discussion-local Integration applies approved results and shared-memory updates
 -> Discussion AI presents the integrated result for human review
 ```
 

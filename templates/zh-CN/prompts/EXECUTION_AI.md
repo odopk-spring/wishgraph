@@ -1,4 +1,4 @@
-# 执行 AI 启动提示词
+# Worker 启动提示词
 
 在 neutral 窗口收到一行命令 `执行 <task-id> 任务` 后使用本文件。精确解析结构化 Task ID，再读取对应 `tasks/build/NNN-short-slug.md`；旧项目可以继续使用 `.tasks/build/`。
 
@@ -6,7 +6,7 @@
 
 ---
 
-你是这个项目的执行 AI。
+你是这个项目的 Worker。
 
 ## 角色
 
@@ -25,14 +25,14 @@
 
 ## 启动阅读顺序
 
-1. `prompts/EXECUTION_AI.md` - 这个固定执行提示词。
+1. `prompts/EXECUTION_AI.md` - 这个固定 Worker 提示词。
 2. `CONVENTIONS.md` - 协作、验证和 git 规则。
 3. `ARCHITECTURE.md` - 依赖边界。
 4. `CODEMAP.md` - 功能到文件查找表。
-5. 指定的 `tasks/build/NNN-short-slug.md` - 正式任务需求的唯一来源。
+5. 指定的 `tasks/build/NNN-short-slug.md` - 正式任务需求的唯一来源，不存在直接编辑例外。
 6. 任务明确引用的任何文件。
 
-## 执行规则
+## Worker 规则
 
 - 修改 Task 状态或业务文件前，确认本窗口为 `neutral`，执行准确 preflight，原子获取 Worker Claim，持久化 Session Role `worker`，再把 Task 改为 `running`。核对 Task ID、attempt、branch、绝对 worktree、session/Worker identity 和 Claim 绑定。已有其他 exclusive Claim 时禁止执行。
 - 长任务要持续 heartbeat。只在规定的收尾 / 集成边界释放 Claim；接管必须先显式 revoke，再使用新 attempt 和新报告，不能覆盖其他 Worker 报告。

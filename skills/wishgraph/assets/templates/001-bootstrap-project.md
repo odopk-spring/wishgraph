@@ -29,7 +29,7 @@ Task state records only Task Lifecycle. Session Role, Flow Phase, and `expected_
 
 ## Intent
 
-Create the first durable project frame before feature implementation. This task should make the repository understandable to future discussion and execution agents without relying on chat history.
+Create the first durable project frame before feature implementation. This Task should make the repository understandable to future Discussion and Worker windows without relying on chat history.
 
 ## Current State
 
@@ -44,10 +44,10 @@ Create the first durable project frame before feature implementation. This task 
 | `PRD.md` | Product frame and roadmap | Record target users, goals, non-goals, current decisions, first slice, and acceptance standards. |
 | `ARCHITECTURE.md` | Initial architecture | Record planned structure, dependency boundaries, data flow, and risk notes. |
 | `CODEMAP.md` | Initial map | Record planned or existing files, feature areas, contracts, probes, and debugging entry points. |
-| `CONVENTIONS.md` | Collaboration rules | Record discussion/execution roles, validation order, external memory update rules, and git rule. |
+| `CONVENTIONS.md` | Collaboration rules | Record Discussion/Worker roles, the Discussion-local Integration phase, validation order, external-memory update rules, and the Git rule. |
 | `prompts/DISCUSSION_AI.md` | Current handoff | Store the current discussion state, open decisions, and next likely task. |
-| `prompts/EXECUTION_AI.md` | Execution handoff | Store the stable prompt for execution windows. |
-| `prompts/INTEGRATION_AI.md` | Temporary integration handoff | Store the stable prompt for authorized single-writer integration and truthful background fallback. |
+| `prompts/EXECUTION_AI.md` | Worker handoff | Store the stable prompt for Worker windows. |
+| `prompts/INTEGRATION_AI.md` | Integration phase prompt | Store the lease-bound Discussion-local Integration rules and pending-resumption behavior. |
 | `tasks/build/002-first-slice.md` | First implementation task | Write the first bounded implementation task after PRD approval. |
 | `reports/runs/001-bootstrap-project.md` | Bootstrap run report | Record created files, assumptions, validation, and shared-memory proposals. |
 | `reports/PROJECT_STATUS.md` | Initial Project Status | Summarize the bootstrap as the first current integration snapshot. |

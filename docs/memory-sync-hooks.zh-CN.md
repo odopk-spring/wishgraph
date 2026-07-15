@@ -147,7 +147,7 @@ python3 .wishgraph/hooks/memory_sync.py status
 
 `status` 输出机器可读的待集成状态、集成类型、准备报告、等待报告、阻塞报告、是否需要用户确认和理由。它读取可见 Git refs 中的不可变报告，不写入共享队列文件。讨论入口和显式刷新会读取这个状态；SessionStart 仅在显式兼容模式下包含它。
 
-它还输出 `auto_integration_eligible`，以及 `nothing_to_integrate`、`wait_for_worker`、`auto_integrate`、`await_user_confirmation`、`discuss_blocker`、`compare_candidates` 之一作为 `next_action`。这些是内部路由字段，普通用户只看到 Discussion 和 Execution。
+它还输出 `auto_integration_eligible`，以及 `nothing_to_integrate`、`wait_for_worker`、`auto_integrate`、`await_user_confirmation`、`discuss_blocker`、`compare_candidates` 之一作为 `next_action`。这些是内部路由字段，普通用户只看到 Discussion 和显式 Worker 窗口。
 
 宿主适配器可以通过 `flow-plan` 计算纯 reducer；标准输入为 `{"state": {...}, "event": {...}}`。把返回的 `host_action.state_patch` 作为 JSON 标准输入交给 `session apply SESSION_ID` 原子持久化；`session get` 和 `session set` 用于检查与初始角色设置。真实可见 Worker ID 和 runtime 写入成功之前，不得持久化 `waiting_for_worker`。
 

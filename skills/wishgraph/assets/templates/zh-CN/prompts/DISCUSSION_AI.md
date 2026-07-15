@@ -190,8 +190,8 @@ project/
 
 ## 交接规则
 
-- 规划 AI 写规格；执行 AI 实现规格。
-- 执行 AI 读取 `prompts/EXECUTION_AI.md` 和指定 `tasks/build/*.md`。
+- Discussion 编写 Task Spec；Worker 负责实现。
+- Worker 读取 `prompts/EXECUTION_AI.md` 和指定 `tasks/build/*.md`。
 - Worker 使用独立 branch 或 worktree，只写自己的 `reports/runs/*.md`，不更新共享记忆。
 - Worker 启动授权来自准确执行命令，或消费唯一 `approve_worker_launch` transition 的上下文回复。路由前只把准确 Task 从 `draft` 改为 `approved`，并设置 `worker_creation_authorized: true`。
 - 手动启动时只向新 Worker 提供 `执行 <task-id> 任务`；Worker 从仓库读取执行提示词和准确 Task。

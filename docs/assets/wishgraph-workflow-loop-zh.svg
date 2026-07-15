@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1000" viewBox="0 0 1800 1000" role="img" aria-labelledby="title desc">
   <title id="title">WishGraph 的工作循环</title>
-  <desc id="desc">讨论形成任务，执行产生结果，更新项目状态后进入下一轮讨论。</desc>
+  <desc id="desc">Discussion 形成任务，获授权的 Worker 产出证据，Discussion-local Integration 更新项目状态后进入下一轮讨论。</desc>
 
   <defs>
     <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
@@ -48,7 +48,7 @@
 
   <g class="font" text-anchor="middle">
     <text x="900" y="88" class="title">WishGraph 的工作循环</text>
-    <text x="900" y="132" class="subtitle">把模糊想法变成任务，让每次执行都自动更新项目状态</text>
+    <text x="900" y="132" class="subtitle">把模糊想法变成任务，把 Worker 结果安全写回项目状态</text>
   </g>
 
   <!-- connectors behind cards -->
@@ -103,7 +103,7 @@
     <path d="M883 292 v-10 h34 v10 M879 326 l10 10 18-20 M879 357 h40"/>
   </g>
   <g class="font" text-anchor="middle">
-    <text x="900" y="440" class="card-title">执行</text>
+    <text x="900" y="440" class="card-title">Worker</text>
     <text x="900" y="484" class="card-copy">按任务修改</text>
     <text x="900" y="518" class="card-copy">运行验证并记录结果</text>
   </g>
@@ -120,8 +120,8 @@
     <path d="M1492 294 a35 35 0 0 1 8 14 M1500 308 l-2-15-14 4"/>
   </g>
   <g class="font" text-anchor="middle">
-    <text x="1460" y="440" class="card-title">更新</text>
-    <text x="1460" y="484" class="card-copy">记录最新项目状态</text>
+    <text x="1460" y="440" class="card-title">集成</text>
+    <text x="1460" y="484" class="card-copy">更新项目状态</text>
     <text x="1460" y="518" class="card-copy">为下一轮讨论提供依据</text>
   </g>
 
@@ -131,8 +131,8 @@
     <text x="518" y="916" class="footer-label">用户只需要：</text>
     <text x="688" y="916" class="footer-copy">说清目标</text>
     <circle cx="814" cy="908" r="5" fill="#A1AABE"/>
-    <text x="900" y="916" class="footer-copy">确认任务</text>
-    <circle cx="1027" cy="908" r="5" fill="#A1AABE"/>
-    <text x="1130" y="916" class="footer-copy">查看结果</text>
+    <text x="900" y="916" class="footer-copy">授权 Worker</text>
+    <circle cx="1055" cy="908" r="5" fill="#A1AABE"/>
+    <text x="1160" y="916" class="footer-copy">查看结果</text>
   </g>
 </svg>

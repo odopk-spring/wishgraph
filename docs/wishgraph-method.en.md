@@ -47,7 +47,7 @@ WishGraph external memory includes:
 - Dependency Map: how modules and features depend on each other.
 - Causal Log: why the project changed.
 - Probe: how the project checks itself and detects regressions.
-- Review Window: the compressed state humans need to see.
+- Review Window: the compressed state humans need to see; it is a presentation format inside Discussion, not a separate role or Agent.
 
 When the session, model, or agent changes, a new agent can continue by reading these files.
 
@@ -91,7 +91,7 @@ The goal is a minimal patch set, not a broad rewrite.
 
 ## 6. The Ideal Human Review Window
 
-The ideal product experience is not making humans copy text across many windows. The human should face one review window.
+The ideal product experience is not making humans copy text across many windows. The human should face one review surface inside Discussion. This is the `presenting_result` state, not a fourth Agent or a separate session role.
 
 It shows:
 

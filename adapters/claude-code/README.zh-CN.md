@@ -109,7 +109,7 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
    reports/PROJECT_STATUS.md
    ```
 
-3. 先让 Discussion 解释任务应串行还是并行，并询问 Worker 授权。Claude Code 收到授权后只输出 `执行 <task-id> 任务`；在中立执行窗口运行这一行。Worker 实现前先获取绑定 Claim。
+3. 先让 Discussion 解释任务应串行还是并行，并询问 Worker 授权。Claude Code 收到授权后只输出 `执行 <task-id> 任务`；在另一个 neutral 窗口运行这一行。Preflight 通过后，该窗口进入 Worker 角色，并在实现前获取绑定 Claim。
 
    每个 Worker terminal 事件都进入 `integration_pending`。安全串行和机械检查证明独立的并行结果由持有 lease 的 Discussion-local Integration 自动集成；风险或冲突只询问具体决定，Integration 不创建额外窗口。
 

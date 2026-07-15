@@ -109,7 +109,7 @@ This safely merges `SessionStart`, `PreToolUse`, `Stop`, and `TaskCompleted` gro
    reports/PROJECT_STATUS.md
    ```
 
-3. Let Discussion explain whether the task is sequential or parallel and ask for Worker authorization. After authorization in Claude Code, it outputs only `执行 <task-id> 任务`; run that line in a neutral execution window. The Worker acquires a bound Claim before implementation.
+3. Let Discussion explain whether the task is sequential or parallel and ask for Worker authorization. After authorization in Claude Code, it outputs only `执行 <task-id> 任务`; run that line in a separate neutral window. After preflight, that window enters the Worker role and acquires a bound Claim before implementation.
 
    Every Worker terminal event enters `integration_pending`. Safe sequential and mechanically proven independent parallel results enter Discussion-local Integration automatically with a lease. Risk or conflict asks only the concrete decision; Integration never creates another window.
 

@@ -4,7 +4,7 @@ Use this guide when introducing WishGraph to an existing project or starting a n
 
 ## 0. Recommended First Conversation
 
-Start with a planning or discussion AI, not an execution AI.
+Start in a Discussion window, not a Worker window.
 
 For the lowest-friction setup, say:
 
@@ -86,7 +86,7 @@ Before restructuring or implementation, discuss enough to produce a rough but us
 
 Record this in `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, and `prompts/DISCUSSION_AI.md`.
 
-Also record the project language mode in `prompts/DISCUSSION_AI.md`, so future planning and execution windows preserve the same Chinese, English, or bilingual style.
+Also record the project language mode in `prompts/DISCUSSION_AI.md`, so future Discussion and Worker windows preserve the same Chinese, English, or bilingual style.
 
 The first pass does not need to be perfect. It only needs to be concrete enough for future agents to continue without relying on chat memory.
 
@@ -103,8 +103,8 @@ Minimum files:
 - `CODEMAP.md`: feature to file lookup and current implementation status.
 - `CONVENTIONS.md`: collaboration rules, validation rules, git rules, and memory update rules.
 - `prompts/DISCUSSION_AI.md`: mutable launch prompt for planning windows.
-- `prompts/EXECUTION_AI.md`: stable launch prompt for execution windows.
-- `prompts/INTEGRATION_AI.md`: stable launch prompt for merging workers and updating shared state.
+- `prompts/EXECUTION_AI.md`: stable launch prompt for Worker windows.
+- `prompts/INTEGRATION_AI.md`: stable phase prompt for Discussion-local merging and shared-state updates; it never launches a separate window.
 - `tasks/build/NNN-short-slug.md`: visible, self-contained execution task specs.
 - `tasks/build/001-bootstrap-project.md`: first-use bootstrap task when the project starts from a vague idea.
 - `reports/RUN_REPORT.md`: template for one immutable report per worker execution.
@@ -167,13 +167,13 @@ Use it to:
 - Classify proposed work as discussion, sequential, parallel_batch, or high_risk and explain the recommendation.
 - Present completed, waiting, and blocked workers plus pending integration and one next action.
 
-The discussion AI should not edit business code unless the project explicitly allows a trivial direct-edit exception.
+Discussion never edits business code, installs implementation dependencies, or runs Worker implementation validation. Those operations require a separate Worker with a bound Claim; there is no direct-edit exception. Discussion-local Integration may run only the merge and combined validation authorized by its bound Integration lease.
 
 Task IDs are exact structured identifiers such as `012`, `012a`, and `012aa`; readable slugs stay in filenames. Compact commands such as `执行012b` are accepted alongside explicit forms such as `执行012b号任务`; you can also say `查看012号任务` or `查看012系列任务`. Exact execution never prefix-matches a follow-up. A retry keeps `012`, increments its attempt, and writes a new report instead of allocating `012a`.
 
 You can also say `停止012号任务`, `重新执行012号任务`, `接管012号任务`, or `让两个 Agent 分别执行012，最后比较谁做得好`. Stop/takeover preserves prior evidence and requires explicit Claim revocation; competitive execution creates isolated candidates and integrates exactly one winner. Existing `micro` work units remain readable, but they still execute in a separate claimed Worker; Discussion never implements them directly.
 
-WishGraph controls token use by keeping neutral windows role-free, loading only the current dynamic Discussion state, limiting Execution to its prompt/spec/necessary code, and limiting Integration to selected reports plus affected shared state. Refresh does not reload a full stable prompt. Historical detail stays in immutable Run Reports and Git; completion callbacks are used only when the host truly supports them, otherwise progress appears on the next explicit Discussion entry or refresh.
+WishGraph controls token use by keeping neutral windows role-free, loading only the current dynamic Discussion state, limiting each Worker to its prompt, Task Spec, and necessary code, and limiting Integration to selected reports plus affected shared state. Refresh does not reload a full stable prompt. Historical detail stays in immutable Run Reports and Git; completion callbacks are used only when the host truly supports them, otherwise progress appears on the next explicit Discussion entry or refresh.
 
 If you want to move the discussion into another AI window, ask:
 
@@ -183,7 +183,7 @@ If you want to move the discussion into another AI window, ask:
 
 The discussion AI should update `prompts/DISCUSSION_AI.md` first, then print the full prompt.
 
-### Execution AI Window
+### Worker Window
 
 Use it to:
 
@@ -195,34 +195,34 @@ Use it to:
 - Propose shared-memory updates without editing shared files.
 - Make one atomic commit per task unless the user explicitly says not to commit.
 
-The execution AI should not redesign the feature. If the task spec is wrong, it should stop and report the conflict.
+The Worker should not redesign the feature. If the Task Spec is wrong, it stops and reports the conflict.
 
-Workers do not start silently or as hidden subagents. When a task is ready, discussion AI asks whether to create the execution window. After an explicit human command, the discussion AI creates a user-visible Worker task when the platform supports it, hands off `prompts/EXECUTION_AI.md` and the named task specification automatically, and then the user can observe or control that Worker from the task list. The user does not edit project-memory or integration files.
+Workers do not start silently or as hidden subagents. When a Task is ready, Discussion asks for explicit authorization to launch the named Worker. After that command, Discussion creates a user-visible Worker task when the platform supports it, hands off `prompts/EXECUTION_AI.md` and the exact Task Spec automatically, and then the user can observe or control that Worker from the task list. The user does not edit project-memory or integration files.
 
 ### Discussion-Local Integration Phase
 
 After every Worker terminal event, enter `integration_pending` and evaluate the result. For a safe result, Discussion temporarily enters Integration while holding a bound Integration lease. It merges without committing, reads approved run reports, resolves permitted conflicts, updates shared memory, rewrites the current Project Status, refreshes the discussion handoff, validates, creates the integration commit, and returns to result presentation. Integration is not a separate window or permanent role.
 
-For one safe sequential task, approving the task also authorizes normal integration after all validation, scope, conflict, decision, rollback, and target-worktree gates pass. Do not ask twice. A `parallel_independent` batch also integrates silently when every expected Worker is terminal and overlap, dependency, interface, risk, merge, and combined-validation gates are mechanically clear. High-risk, conflicting, blocked, or ambiguous results return to Discussion for a user decision.
+For one safe sequential task, approving the Task also authorizes normal integration after all validation, scope, conflict, decision, rollback, and target-worktree gates pass. Do not ask twice. A `parallel_independent` batch also integrates silently when every expected Worker is terminal and overlap, dependency, interface, risk, merge, and combined-validation gates are mechanically clear. High-risk, conflicting, competitive, or ambiguous results enter `decision_required`; missing reports, failed validation, or inconsistent terminal state become `blocked` or `incomplete`.
 
 If Discussion is not active when a Worker finishes, persist `integration_pending` and continue automatically when Discussion resumes. Ask the user only for a concrete risk, conflict, compatibility, or product decision; never ask whether to start integration.
 
-After the PRD and first task are ready, discussion AI states the work type, explains the sequential or parallel recommendation, names the approved task files, and asks:
+After the PRD and first Task are ready, Discussion states the work type, explains the sequential or parallel recommendation, names the ready Task files, and asks:
 
 ```text
-The task is ready. Create the execution window?
+Task 012 is ready. Authorize its Worker launch?
 ```
 
 The user can reply:
 
 ```text
-创建执行窗口
+执行 012 任务
 ```
 
-For an approved parallel batch, one explicit batch command can authorize exactly the listed Workers:
+For a ready parallel batch, one explicit batch command can authorize exactly the listed Workers:
 
 ```text
-为这三个任务分别创建执行窗口
+为 012、013、014 分别启动 Worker
 ```
 
 The discussion Agent then creates one user-visible task per authorized Worker, automatically provides the execution prompt and corresponding task specification, prefers an isolated branch or worktree, and names each task `<task-id> · <short title> · WG Worker` so the useful task identity appears before any sidebar truncation. This is still explicit execution: the Agent cannot create a Worker before the human command, cannot create unlisted Workers, and cannot substitute hidden subagents.
@@ -235,7 +235,7 @@ If the current platform cannot create user-visible tasks, or a creation attempt 
 
 In a neutral window, that exact command enters the Worker role after all Task and Claim gates pass. Hooks never launch Workers.
 
-## 4. Execution Loop
+## 4. Worker And Integration Loop
 
 The normal loop is:
 
@@ -306,7 +306,7 @@ The first implementation task should usually be `002-*`, written only after the 
 WishGraph is working when:
 
 - A fresh discussion AI can understand current project status by reading files.
-- A fresh execution AI can implement a task without chat history.
+- A fresh Worker can implement a Task without chat history.
 - Every completed task leaves validation evidence.
 - PRD, architecture, CODEMAP, prompts, task status, and reports stay synchronized.
 - The user can correct direction in the discussion window and have that correction become durable project memory.

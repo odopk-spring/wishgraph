@@ -139,7 +139,7 @@ python3 .wishgraph/hooks/memory_sync.py status
 
 The status command emits machine-readable pending integration, integration kind, ready reports, waiting reports, blocked reports, confirmation requirement, and reason. It scans immutable reports on visible Git refs without writing a shared queue file. Discussion entry and explicit refresh read this status; SessionStart only includes it in opt-in compatibility mode.
 
-It also emits `auto_integration_eligible` and one of `nothing_to_integrate`, `wait_for_worker`, `auto_integrate`, `await_user_confirmation`, `discuss_blocker`, or `compare_candidates` as `next_action`. These are internal routing fields; normal users should see only Discussion and Execution.
+It also emits `auto_integration_eligible` and one of `nothing_to_integrate`, `wait_for_worker`, `auto_integrate`, `await_user_confirmation`, `discuss_blocker`, or `compare_candidates` as `next_action`. These are internal routing fields; normal users should see only Discussion and explicit Worker windows.
 
 The host adapter can evaluate the pure reducer through `flow-plan`, which reads `{"state": {...}, "event": {...}}` from standard input. Persist the returned `host_action.state_patch` with `session apply SESSION_ID`, also via JSON standard input. `session get` and `session set` support inspection and initial role setup. A host must not persist `waiting_for_worker` until a real visible Worker ID exists and runtime persistence succeeds.
 

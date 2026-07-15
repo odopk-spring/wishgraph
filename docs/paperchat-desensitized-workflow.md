@@ -99,7 +99,7 @@ Stores the current planning state. When the user says "迁移讨论窗口", the 
 
 ### prompts/EXECUTION_AI.md
 
-Stays stable. It tells an execution AI how to start, what files to read, and how to close a task. Task-specific requirements belong in `tasks/build/*.md`, not in this prompt.
+Stays stable. It tells a Worker how to start, what files to read, and how to close a Task. Task-specific requirements belong in `tasks/build/*.md`, not in this prompt.
 
 ## Foreground Discussion, Explicit Worker, Temporary Integration
 
@@ -110,10 +110,10 @@ Human idea
 -> Discussion AI classifies sequential / parallel_batch / high_risk
 -> Human approves task boundary and explicitly authorizes the named Worker task(s)
 -> Discussion AI creates and configures user-visible Worker task(s)
--> Execution AI reads EXECUTION_AI.md plus the task file
--> Execution AI implements only that task
--> Execution AI validates, writes one immutable run report, commits
--> Temporary Integration AI applies approved results and shared-memory updates
+-> Worker reads EXECUTION_AI.md plus the Task file
+-> Worker implements only that Task
+-> Worker validates, writes one immutable Run Report, and commits
+-> Discussion-local Integration applies approved results and shared-memory updates
 -> Discussion AI presents the integrated result for human review
 ```
 

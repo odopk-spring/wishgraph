@@ -12,7 +12,7 @@ Responsibilities:
 
 - Start from `prompts/DISCUSSION_AI.md` when opening a fresh planning window.
 - Read project docs before asking questions.
-- Establish or update `PRD.md` before asking an execution agent to restructure architecture or implement feature work.
+- Establish or update `PRD.md` before authorizing a Worker to restructure architecture or implement feature work.
 - For a new or vague project, start with one question about the user's idea and grill one decision at a time before writing implementation tasks.
 - Ask only for decisions that materially change scope.
 - Write self-contained task specs in the visible `tasks/build/` directory. Preserve `.tasks/build/` only for an existing project that already uses it.
@@ -24,9 +24,9 @@ Responsibilities:
 - Maintain the concise dynamic handoff in `prompts/DISCUSSION_AI.md` during discussion and after human review; do not copy the full Project Status into it.
 - Move a ready Task to `awaiting_worker_authorization` with one `approve_worker_launch(<task-id>)` expected transition. A short affirmative reply is valid only when this transition is unique. Then enter `routing_worker`: Codex creates a visible Worker when supported; Claude Code, unknown hosts, and failed creation enter `waiting_for_user_launch` and output only `执行 <task-id> 任务`.
 
-### Execution Agent
+### Worker Role
 
-The execution agent implements approved task specs.
+The Worker implements approved Task Specs.
 
 Responsibilities:
 
@@ -78,8 +78,8 @@ Responsibilities:
 
 ## Launch Prompt Files
 
-- `prompts/DISCUSSION_AI.md` is concise mutable discussion state. Discussion AI maintains it during planning and after human review; Integration AI refreshes it after absorbing Worker reports.
-- `prompts/EXECUTION_AI.md` is stable. It tells an execution agent how to start, what files to read, and how to verify. Do not pack task-specific requirements into it; those belong in `tasks/build/*.md`.
+- `prompts/DISCUSSION_AI.md` is concise mutable discussion state. Discussion maintains it during planning and after human review; Discussion-local Integration refreshes it after absorbing Worker reports.
+- `prompts/EXECUTION_AI.md` is stable. It tells a Worker how to start, what files to read, and how to verify. Do not pack task-specific requirements into it; those belong in `tasks/build/*.md`.
 - Users should be able to paste either prompt into any agent interface and get a coherent continuation without relying on previous chat context.
 - Keep project memory in the language chosen by the user. If bilingual output is requested, write key user-facing explanations in Chinese first, then English. Do not translate file paths, commands, code identifiers, symbols, routes, package names, or environment variables.
 - If the user asks to migrate or continue the discussion in another window, update `prompts/DISCUSSION_AI.md` and output its full content for copying.

@@ -11,7 +11,7 @@
 
 **为 AI 编程 Agent 提供文件化项目治理。** WishGraph 把用户意图转换成可审计的规格、任务、执行证据和共享项目状态，让项目跨越不同 Agent 与对话持续推进，而不是依赖聊天窗口记忆。
 
-![讨论、执行、更新、再讨论](docs/assets/wishgraph-simple-loop-zh.svg)
+![讨论、Worker、集成、再讨论](docs/assets/wishgraph-simple-loop-zh.svg)
 
 WishGraph 同时提供可安装的 Codex / Claude Code Skill、项目模板和可选 Hooks。用户负责方向与判断；Agent 把意图翻译成有边界的工作，并将执行后的项目事实写回持久文件。
 
@@ -72,11 +72,11 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 
 ![WishGraph 工作循环](docs/assets/wishgraph-workflow-loop-zh.svg)
 
-1. **讨论**澄清意图、边界和成功标准，并写出已批准的 Task Spec。
-2. **执行**认领该任务，完成最小范围修改，运行验证并写入不可变 Run Report。
-3. **集成**吸收符合条件的结果，刷新共享项目状态，再进入下一轮讨论。
+1. **Discussion** 澄清意图、边界和成功标准，写出边界明确的 Task Spec，然后等待用户明确授权启动 Worker。
+2. **Worker** 获得授权后才会启动；它在独立 branch 或 worktree 中认领准确 Task，完成最小范围修改、运行验证，并写入不可变 Run Report。
+3. **Discussion-local Integration** 评估每个 Worker 终态。安全结果持有绑定 lease 自动集成；遇到实质风险时，才回到 Discussion 询问具体决定。
 
-用户通常只会看到 Discussion 窗口和显式创建的 Execution 窗口。Integration 是一次临时控制事务：宿主确实支持后台能力时才会后台运行；否则由当前 Agent 进入隔离阶段执行，或保留为 pending。Hooks 只负责暴露和约束状态，不会暗中启动 Agent、合并代码或编造项目含义。
+正常使用时，用户只会看到一个长期存在的 Discussion 窗口，以及按任务显式创建、用户可见的 Worker 窗口。Integration 只是 Discussion 内部的临时阶段，既不是独立窗口，也不是后台 Integrator。若 Worker 完成时 Discussion 不活跃，WishGraph 会记录 `integration_pending`，并在用户下次进入或刷新 Discussion 时继续评估。Hooks 只负责暴露和约束状态，不启动 Worker、不合并代码，也不编造项目含义。
 
 ## 项目状态图谱
 
@@ -89,7 +89,7 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 | `tasks/build/*.md` | 自包含、带版本状态的执行规格 |
 | `reports/runs/*.md` | 每个执行单元的不可变证据 |
 | `reports/PROJECT_STATUS.md` | 最新的集成后项目快照 |
-| `prompts/*.md` | Discussion、Execution 与 Integration 的稳定交接入口 |
+| `prompts/*.md` | Discussion、Worker 与 Discussion-local Integration 的稳定交接入口 |
 
 项目语义保留在便于人阅读的 Markdown 中。小型、带版本的 JSON 块只记录 Task 状态、授权、验证和集成状态等机械事实。
 
@@ -98,8 +98,8 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 - 没有人类显式授权就不会启动 Worker。
 - 默认执行模式下，同一 Task attempt 只能有一个 active Worker Claim。
 - Claim 在共享同一本地 Git common directory 的 worktree 间原子生效，但不是跨机器分布式锁。
-- 高风险、冲突、并行或含糊的结果会返回 Discussion 请求决定。
-- Run Report 不可变，集成共享项目状态时只有一个写入者。
+- 安全串行结果和通过机械门禁的 `parallel_independent` 结果可以自动集成；高风险、冲突、竞争或含糊的结果才会回到 Discussion 询问具体决定。
+- Run Report 不可变；绑定当前工作的 Discussion-local Integration lease 保证共享状态只有一个写入者。
 - 项目方向和最终判断始终由人负责。
 
 ## 按目标选择入口
@@ -108,6 +108,7 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 | --- | --- |
 | 在项目里试用 WishGraph | [Getting Started](GETTING_STARTED.md) |
 | 理解方法论 | [WishGraph 方法论](docs/wishgraph-method.md) |
+| 理解流程控制 | [编排状态机](docs/orchestration-state-machine.md) |
 | 查看 Hooks 协议 | [外置记忆 Hooks](docs/memory-sync-hooks.zh-CN.md) |
 | 适配 Claude Code | [Claude Code 中文适配器](adapters/claude-code/README.zh-CN.md) |
 | 适配其他 Agent | [通用中文适配器](adapters/generic/README.zh-CN.md) |
@@ -130,7 +131,7 @@ WishGraph 支持英文、简体中文和双语项目记忆。GitHub 默认入口
 
 ## 当前状态与限制
 
-WishGraph 当前是 **v0.1 public beta**。Skill 校验、全新安装与运行时生命周期已经有自动化覆盖，但仍需要更多真实项目反馈、更广泛的宿主验证，以及对 Discussion / Execution / Integration 使用体验的继续打磨。
+WishGraph 当前是 **v0.1 public beta**。Skill 校验、全新安装与运行时生命周期已经有自动化覆盖，但仍需要更多真实项目反馈、更广泛的宿主验证，以及对 Discussion / Worker / Discussion-local Integration 流程体验的继续打磨。
 
 WishGraph 是项目治理层，不是自动软件工厂。它不能替代产品决定、代码审查、CI 或分布式协调。
 

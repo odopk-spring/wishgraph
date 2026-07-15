@@ -40,7 +40,7 @@ Avoid:
 
 ## Quality Checklist
 
-Before handing a task to execution AI, confirm:
+Before authorizing a Worker for a Task, confirm:
 
 - The task can be executed without chat history.
 - The implementation surface is small enough for one atomic commit.

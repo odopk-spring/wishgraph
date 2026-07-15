@@ -54,13 +54,13 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - 实现前更新 PRD 和架构。
 - 编写自包含任务规格。
 - 把工作判断为 discussion、sequential、parallel_batch 或 high_risk，解释串行或并行建议，由用户确认。
-- 询问是否创建已批准的执行窗口。只有人类明确命令后，才使用宿主的用户可见任务或线程能力，为每个已授权规格创建 Worker，并命名为 `<task-id> · <short title> · WG Worker`。不得静默创建 Worker 或使用隐藏 subagent；创建不受支持或失败时，只输出 `执行 <task-id> 任务` 并停止。
+- 请求用户明确授权启动已经就绪的指定 Worker。只有收到该命令后，才使用宿主的用户可见任务或线程能力，为每个已授权 Task Spec 创建一个 Worker，并命名为 `<task-id> · <short title> · WG Worker`。不得静默创建 Worker 或使用隐藏 subagent；创建不受支持或失败时，只输出 `执行 <task-id> 任务` 并停止。
 - “执行012号任务”、停止、重试、接管和明确竞争比较都通过精确结构化 Task ID 与仓库级 Claim 路由。只有存在唯一 `expected_transition` 时，简短上下文批准才有效。
 - 创建前，在每个已授权任务的 task-state 中记录 `draft -> approved` 和 `worker_creation_authorized: true`。
 - 不改业务代码，也不运行实现构建或测试。所有实现都必须是持有绑定 Claim 的 Task-backed Worker 工作。
 - 用户要求迁移讨论时，更新 `prompts/DISCUSSION_AI.md` 并输出完整提示词供复制。
 
-## 执行 Agent
+## Worker 角色
 
 - 读取 `prompts/EXECUTION_AI.md` 和指定任务文件。
 - 只实现已批准任务。

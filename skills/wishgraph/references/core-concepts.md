@@ -36,7 +36,7 @@ Any check that can reveal whether the system still satisfies the spec: tests, bu
 
 ## Review Window
 
-The compressed interface for the human reviewer. It should show what the AI understood, what it plans to do, what changed, how it was verified, what failed, and where human judgment is needed.
+The compressed interface for the human reviewer. It should show what the AI understood, what it plans to do, what changed, how it was verified, what failed, and where human judgment is needed. It is a presentation format in Discussion's `presenting_result` phase, not a separate role, window, or fourth Agent.
 
 ## Anti-Black-Box Rule
 
