@@ -128,7 +128,12 @@ For every execution unit:
 4. Move the Task or Revision to `completed`, `blocked`, or `incomplete` from real evidence.
 5. Create one bounded atomic commit unless the user explicitly forbids it.
 6. Release the Claim only after durable terminal state and report evidence exist.
-7. Emit a Worker terminal event so Discussion enters `integration_pending`.
+7. Let Claim release write one idempotent pending notification under the Git common directory. `Stop` / `TaskCompleted` may retry the same notification key, but cannot create a duplicate.
+8. End the Worker. Do not wait for, poll, or directly contact Discussion.
+
+Bind the notification to the originating Discussion session when available. A Worker opened from a neutral window may leave the target empty; the next explicit Discussion entry adopts it. Keep pending notifications in one runtime inbox rather than creating project files per event. The inbox preserves all unread records, only a small recent-read window, and durable notification IDs for deduplication.
+
+Block a normal Worker `Stop` / `TaskCompleted` while its Claim is still active. A host process forcibly killed before any terminal Hook or Claim release cannot write a notification under this no-daemon design; preserve the stale Claim as recovery evidence and surface it on the next Discussion inspection instead of pretending real-time delivery.
 
 Never modify an immutable report after it enters Git history. A retry gets a new attempt and new report path.
 

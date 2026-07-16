@@ -29,5 +29,5 @@ At closeout:
 1. Write exactly one immutable Run Report with real validation evidence and shared-memory impact proposals.
 2. Move the Task to `completed`, `blocked`, or `incomplete` from evidence.
 3. Create the bounded atomic commit unless the Task says otherwise.
-4. Release the Claim only after the terminal Task state and Run Report are durable.
+4. Release the Claim only after the terminal Task state and Run Report are durable. The release command writes the idempotent pending notification bound to the originating Discussion; if that signal fails, remain in closeout repair instead of claiming success.
 5. Emit the terminal result for Discussion-local integration. Never update shared project memory or integrate the branch yourself.

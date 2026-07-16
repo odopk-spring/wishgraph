@@ -77,6 +77,10 @@ Updating the global Codex or Claude Skill refreshes the bundled runtime for futu
 
 The two host files are thin adapters over the same `.wishgraph/hooks/` runtime. Claude setup defaults an unset Worktree `baseRef` to `head` and adds `.wishgraph` to `worktree.symlinkDirectories`, preserving existing entries and an explicit existing baseRef. Native background launch is available only with `baseRef: head` and an authorized Task record already matching current `HEAD`; otherwise it uses the manual command. This lets an isolated Worker run the same local runtime while its Claim binds the actual Worker branch/worktree. A Worker Claim records both the machine hostname and `agent_platform`; an idle thread is reusable only by the same agent platform. Switching between Codex and Claude keeps repository truth, Tasks, reports, Claims, and status portable, but never sends a Codex route to a Claude thread ID or vice versa.
 
+Worker completion reminders use `.git/wishgraph/notifications/inbox.json` (or the equivalent shared Git common directory), not a project file. Claim release writes the terminal record; `Stop` and `TaskCompleted` only retry the same deterministic ID. An existing Discussion consumes its bound records on `SessionStart` or the next `UserPromptSubmit`. Explicit Discussion entry or project refresh may adopt unread project records after switching hosts. Consumption is capped per activation and marks records read atomically. Hooks never launch a daemon, poll another terminal, open a popup, or parse logs/prose as terminal evidence.
+
+A normal terminal Hook blocks while the Worker still holds an active Claim. Forced process termination can bypass every Hook; with daemon and polling explicitly excluded, the remaining recoverable signal is the stale Claim or structured host-session state discovered at the next Discussion inspection.
+
 `SessionStart` and `UserPromptSubmit` record bounded host-liveness evidence outside the worktree:
 
 ```text

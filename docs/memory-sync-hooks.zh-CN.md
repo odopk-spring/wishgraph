@@ -185,14 +185,18 @@ python3 .wishgraph/hooks/memory_sync.py task family 012
 正式执行使用存放在 `git rev-parse --git-common-dir` 下、不会进入业务提交的仓库级 Runtime Claim：
 
 ```bash
-python3 .wishgraph/hooks/memory_sync.py claim acquire 012 --worker-id worker-012 --session-id worker-012 --host codex
+python3 .wishgraph/hooks/memory_sync.py claim acquire 012 --worker-id worker-012 --session-id worker-012 --discussion-session-id discussion-1 --host codex
 python3 .wishgraph/hooks/memory_sync.py claim inspect 012
 python3 .wishgraph/hooks/memory_sync.py claim heartbeat CLAIM_ID
 python3 .wishgraph/hooks/memory_sync.py claim release CLAIM_ID
 python3 .wishgraph/hooks/memory_sync.py claim revoke CLAIM_ID
 ```
 
-获取 Claim 使用原子文件系统操作，默认同一 Task 只允许一个 active exclusive Claim，并记录 attempt、worker、branch、绝对 worktree、时间、lease 状态、执行模式和可选宿主线程引用。传入 `--session-id` 时同时持久化 Worker runtime；持久化失败会撤销新 Claim。heartbeat 与 release 校验 branch/worktree 绑定；显式 revoke 是接管控制路径。stale 检测保留旧记录。它能协调共享同一本地 Git common directory 的进程与 worktree，但不是只共享远程仓库的多机器分布式锁。
+获取 Claim 使用原子文件系统操作，默认同一 Task 只允许一个 active exclusive Claim，并记录 attempt、worker、branch、绝对 worktree、时间、lease 状态、执行模式、可选宿主线程引用，以及可用时的来源 Discussion。传入 `--session-id` 时同时持久化 Worker runtime；持久化失败会撤销新 Claim。heartbeat 与 release 校验 branch/worktree 绑定；显式 revoke 是接管控制路径。stale 检测保留旧记录。它能协调共享同一本地 Git common directory 的进程与 worktree，但不是只共享远程仓库的多机器分布式锁。
+
+`claim release` 会先验证 Task/Revision 终态及其 Run Report，再向 Git common runtime inbox 写入一条幂等 pending notification。`Stop` 与 `TaskCompleted` 只能用同一确定性 ID 重试。绑定的 Discussion 在 SessionStart 或下一条用户输入时消费并标记已读；切换宿主后，明确进入 Discussion 或刷新项目状态可接管未读记录。该机制不使用 daemon、终端轮询、跨终端 IPC、自动弹窗，也不从自然语言猜测 Worker 是否完成。
+
+正常 terminal Hook 会在 Worker 仍持有 active Claim 时阻止退出。如果宿主进程在 Hook 或 Claim release 前被强制结束，在明确不使用 daemon 的设计下无法写入提醒；其 stale Claim 或结构化宿主 session 状态会作为下一次 Discussion 检查时的恢复信号。
 
 终态 Worker 窗口可通过 `claim rebind` 复用。rebind 先释放旧 Claim，再获取包含新 `task_id`、可选 `revision_id`、`allowed_scope`、`validation_plan` 和执行归属的新 Claim。若新 Claim 或 runtime 持久化失败，窗口保持 idle/unbound，旧权限不会恢复；旧 Task 仍在 running 时禁止 rebind。
 

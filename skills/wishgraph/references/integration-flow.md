@@ -33,6 +33,18 @@ Route evaluation outcomes:
 
 If Discussion is inactive, persist `integration_pending`. Resume evaluation on the next explicit Discussion entry or refresh. Do not describe this as real-time push.
 
+The cross-host wake-up contract is file-backed and activation-driven:
+
+```text
+Worker terminal evidence + released Claim
+-> one pending notification in the Git common directory
+-> bound Discussion consumes it on SessionStart or its next prompt
+-> explicit Start discussion / Refresh project status may adopt it after a host switch
+-> notification is marked read
+```
+
+Completed results request `auto_integrate`; blocked or incomplete results report `failed`; high-risk, competitive, or materially undecided results report `decision_required`. The notification is a routing signal, not completion evidence: Integration still reads the Task/Revision, Run Report, Claim, branch, and worktree. Do not add a daemon, polling loop, cross-terminal IPC, automatic popup, or natural-language completion inference.
+
 ## Safe Integration Gates
 
 Require all applicable evidence:

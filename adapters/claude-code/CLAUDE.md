@@ -33,11 +33,11 @@ When working on planning, task writing, or execution, read:
 - Keep task specs self-contained; do not rely on chat history.
 - Worker sessions use separate branches or worktrees, create one immutable `reports/runs/<work-unit-id>.md`, and record Integrate or N/A proposals without editing shared memory.
 - Discussion-local Integration uses a bound lease, merges with `--no-commit`, rewrites `reports/PROJECT_STATUS.md` as the current snapshot, updates affected shared memory, and then refreshes the concise dynamic handoff in `prompts/DISCUSSION_AI.md`.
-- Worker creation requires an explicit human command. Claude Code does not create the Worker window automatically: after authorization, output exactly `执行 <task-id> 任务` and stop. The user runs that line in a separate neutral window, which enters the Worker role after preflight.
+- Worker creation requires an explicit human command. After authorization, prefer the managed native background Worker `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"`. Use a forked subagent only for short low-risk checks. If native launch is unavailable or fails, output exactly `执行 <task-id> 任务` and stop; Discussion never implements as fallback.
 - Claude Code cannot automatically deliver a lightweight Revision to an existing Worker. Create the `tasks/revisions/<task-id>-rN.md` record, output only `在任务 <task-id> 的执行窗口执行修订 <revision-id>`, and stop. A reused Worker must release its old Claim and acquire the Revision's new scope/validation binding first.
 - Route exact execute/stop/retry/takeover and explicit competitive commands through structured Task IDs and Git-common-dir Claims. Contextual approvals are valid only for one unique `expected_transition`.
 - Persist that command in task-state before creation: `draft -> approved` and `worker_creation_authorized: true`. Workers record execution states, Integration records `integrated`, and discussion records `reviewed` after human acceptance.
-- Every Worker terminal event enters `integration_pending`. Safe sequential and mechanically proven `parallel_independent` results enter Discussion-local Integration automatically; risk, conflict, blocking, competition, or ambiguity becomes a concrete `decision_required` or `blocked` state. Never create a separate Integration window.
+- Claim release writes one idempotent pending notification in the Git-common runtime. The bound Discussion consumes and marks it read on its next activation; explicit Discussion entry or refresh can adopt it after a host switch. Safe sequential and mechanically proven `parallel_independent` results enter Discussion-local Integration automatically; risk, conflict, blocking, competition, or ambiguity becomes a concrete `decision_required` or `blocked` state. Never create a separate Integration window, daemon, polling loop, IPC service, or popup.
 - Hooks expose status and enforce boundaries; they do not choose parallelism, launch agents, merge code, write semantic memory, or replace review.
 - New windows are neutral. Default SessionStart is safety-only and does not activate Discussion; explicit Discussion entry or refresh loads current state.
 - Prefer one atomic commit per completed Task-backed execution unit.
@@ -46,7 +46,7 @@ When working on planning, task writing, or execution, read:
 ## Handoff
 
 - When the user asks to migrate discussion, update `prompts/DISCUSSION_AI.md` and print its full content for copying.
-- When PRD and the first task are ready, set one exact `expected_transition` and ask for Worker authorization. After authorization, output only `执行 <task-id> 任务`.
+- When PRD and the first task are ready, set one exact `expected_transition` and ask for Worker authorization. After authorization, use the managed background Worker when available; otherwise output only `执行 <task-id> 任务`.
 
 ## Debugging
 

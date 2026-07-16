@@ -26,6 +26,8 @@ from git_state import (
     configured_revision_glob,
     configured_task_globs,
     current_branch,
+    consume_worker_notifications,
+    enqueue_worker_notification,
     find_git_root,
     load_config,
     inspect_claims,
@@ -46,6 +48,7 @@ from policy import (
     check_sync,
     execution_preflight as evaluate_execution_preflight,
     integration_state,
+    report_state,
     reduce_orchestration,
 )
 from workflow_state import (
@@ -1038,6 +1041,194 @@ def format_warnings(result: CheckResult) -> str:
     )
 
 
+NO_MATERIAL_DECISION_VALUES = {"no", "none", "false", "无", "否"}
+
+
+def enqueue_terminal_notification_from_claim(
+    root: Path,
+    config: dict[str, Any],
+    claim: dict[str, Any],
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Translate durable Worker evidence into one host-neutral inbox record."""
+    if not dry_run and claim.get("lease_status") != "released":
+        return {"ok": False, "error": "released_worker_claim_required"}
+    if dry_run and claim.get("lease_status") not in {"active", "released"}:
+        return {"ok": False, "error": "active_worker_claim_required"}
+    task_id = canonical_task_id(claim.get("task_id"))
+    if not task_id:
+        return {"ok": False, "error": "terminal_claim_task_id_invalid"}
+    revision_id = canonical_revision_id(claim.get("revision_id"))
+    if claim.get("revision_id") and not revision_id:
+        return {"ok": False, "error": "terminal_claim_revision_id_invalid"}
+
+    if revision_id:
+        resolved = resolve_revision(root, config, revision_id)
+        if not resolved.get("ok"):
+            return {"ok": False, "error": "terminal_revision_unavailable"}
+        work = resolved["revision"]
+        work_type = "sequential"
+        execution_mode = "exclusive"
+        integration_policy = "inherited_task_approval"
+    else:
+        resolved = resolve_task(root, config, task_id)
+        if not resolved.get("ok"):
+            return {"ok": False, "error": "terminal_task_unavailable"}
+        work = resolved["task"]
+        task_path = str(work.get("task_path") or "")
+        task_content = read_version(root, task_path, "worktree") or ""
+        task_state = parse_task_state(task_path, task_content)
+        work_type = task_state.work_type
+        execution_mode = task_state.execution_mode
+        integration_policy = task_state.integration_policy
+    lifecycle = str(work.get("status") or "")
+    run_report = str(work.get("run_report") or "")
+    if lifecycle not in {"completed", "blocked", "incomplete"} or not run_report:
+        return {"ok": False, "error": "terminal_evidence_incomplete"}
+    report_content = read_version(root, run_report, "worktree")
+    if report_content is None:
+        return {"ok": False, "error": "terminal_run_report_missing"}
+    report = report_state(run_report, report_content)
+
+    material_decision = (
+        report.new_decision not in NO_MATERIAL_DECISION_VALUES
+        or report.selection_requires_judgment
+        or (report.risk_flags_known and not report.risk_flags_clear)
+        or work_type == "high_risk"
+        or execution_mode == "competitive"
+        or integration_policy == "requires_explicit_user_confirmation"
+    )
+    decision_only_errors = {
+        "a new product, architecture, or data decision requires review"
+    }
+    mechanical_errors = [
+        error for error in report.safety_errors if error not in decision_only_errors
+    ]
+    if lifecycle in {"blocked", "incomplete"} or report.status not in {
+        "completed",
+        "done",
+    }:
+        terminal_event = "failed"
+        next_action = "resolve_worker_failure"
+        reason = f"worker_{lifecycle}"
+    elif mechanical_errors:
+        terminal_event = "failed"
+        next_action = "resolve_worker_failure"
+        reason = "terminal_report_failed_safety_validation"
+    elif material_decision:
+        terminal_event = "decision_required"
+        next_action = "resolve_conflict"
+        reason = "material_integration_decision_required"
+    else:
+        terminal_event = "completed"
+        next_action = "auto_integrate"
+        reason = "safe_terminal_result_ready"
+
+    notification_values = {
+        "task_id": task_id,
+        "work_unit_id": revision_id or task_id,
+        "attempt": int(claim.get("attempt") or 1),
+        "terminal_event": terminal_event,
+        "task_lifecycle": lifecycle,
+        "run_report": run_report,
+        "claim_id": str(claim.get("claim_id") or ""),
+        "worker_session_id": str(
+            claim.get("host_thread_ref") or claim.get("worker_id") or ""
+        ),
+        "discussion_session_id": str(claim.get("discussion_session_id") or ""),
+        "agent_platform": str(claim.get("agent_platform") or "unknown"),
+        "next_action": next_action,
+        "reason": reason,
+    }
+    if dry_run:
+        return {"ok": True, "notification_plan": notification_values}
+    return enqueue_worker_notification(root, **notification_values)
+
+
+def ensure_terminal_notification_for_session(
+    root: Path, config: dict[str, Any], session_id: str
+) -> dict[str, Any]:
+    """Retry notification creation from a terminal Hook without guessing prose."""
+    if not session_id:
+        return {"ok": True, "not_applicable": True}
+    runtime = read_session_runtime(root, session_id) or {}
+    previous_claim_id = str(
+        ((runtime.get("worker_runtime") or {}).get("previous_claim_id") or "")
+        if isinstance(runtime.get("worker_runtime"), dict)
+        else ""
+    )
+    matching_claims = [
+        claim
+        for claim in inspect_claims(root)
+        if (
+            str(claim.get("claim_id") or "") == previous_claim_id
+            or str(claim.get("worker_id") or "") == session_id
+            or str(claim.get("host_thread_ref") or "") == session_id
+        )
+    ]
+    active_claims = [
+        claim
+        for claim in matching_claims
+        if claim.get("effective_lease_status") == "active"
+    ]
+    if active_claims:
+        return {"ok": False, "error": "active_worker_claim_not_closed_out"}
+    claims = [
+        claim for claim in matching_claims if claim.get("lease_status") == "released"
+    ]
+    if not claims:
+        return {"ok": True, "not_applicable": True}
+    claims.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+    return enqueue_terminal_notification_from_claim(root, config, claims[0])
+
+
+def format_worker_notifications(notifications: list[dict[str, Any]]) -> str:
+    """Keep activation context compact and machine-readable."""
+    if not notifications:
+        return ""
+    compact = [
+        {
+            "notification_id": item.get("notification_id"),
+            "task_id": item.get("task_id"),
+            "work_unit_id": item.get("work_unit_id"),
+            "event": item.get("terminal_event"),
+            "lifecycle": item.get("task_lifecycle"),
+            "run_report": item.get("run_report"),
+            "next_action": item.get("next_action"),
+            "reason": item.get("reason"),
+        }
+        for item in notifications
+    ]
+    return (
+        "WishGraph Worker notifications (consumed and marked read; evaluate in "
+        "Discussion, never implement as fallback):\n"
+        + json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
+    )
+
+
+def consume_discussion_notification_context(
+    root: Path, session_id: str, *, adopt_project_pending: bool = False
+) -> str:
+    if not session_id:
+        return ""
+    consumed = consume_worker_notifications(
+        root,
+        session_id,
+        adopt_project_pending=adopt_project_pending,
+    )
+    if not consumed.get("ok"):
+        return (
+            "WishGraph Worker notification inbox could not be consumed: "
+            + str(consumed.get("error") or "unknown_error")
+        )
+    return format_worker_notifications(consumed.get("notifications", []))
+
+
+def join_context(*parts: Optional[str]) -> str:
+    return "\n\n".join(part for part in parts if part)
+
+
 def format_session_safety(result: CheckResult) -> str:
     """Return concise safety-only SessionStart context without role activation."""
     issues = [*result.errors, *result.warnings]
@@ -1425,6 +1616,16 @@ def user_prompt_submit_main(
     command = parse_user_prompt(text)
     session_id = hook_session_id(payload)
     runtime = read_session_runtime(root, session_id) if session_id else None
+    command_action = str((command or {}).get("action") or "")
+    runtime_role = str(((runtime or {}).get("session") or {}).get("role") or "neutral")
+    notification_context = ""
+    if runtime_role == "discussion" and command_action not in {
+        "start_discussion",
+        "refresh_project_status",
+    }:
+        notification_context = consume_discussion_notification_context(
+            root, session_id
+        )
     capability = HostCapability(
         host=host,
         can_create_visible_worker=host == "codex",
@@ -1448,33 +1649,47 @@ def user_prompt_submit_main(
             {
                 "hookSpecificOutput": {
                     "hookEventName": "UserPromptSubmit",
-                    "additionalContext": "WishGraph contextual route:\n"
-                    + json.dumps(
-                        {
-                            "accepted": plan.accepted,
-                            "next_action": action.action,
-                            "task_id": plan.task_id,
-                            "discussion_session_id": session_id,
-                            "host_adapter_command": (
-                                "python3 .wishgraph/hooks/memory_sync.py "
-                                f"claude-worker launch {plan.task_id} "
-                                f"--discussion-session-id {session_id}"
-                                if action.action == "launch_claude_background_worker"
-                                else ""
-                            ),
-                            "user_message": action.user_message,
-                            "stop_after_action": action.stop_after_action,
-                            "denial_reason": plan.denial_reason,
-                        },
-                        ensure_ascii=False,
-                        separators=(",", ":"),
+                    "additionalContext": join_context(
+                        notification_context,
+                        "WishGraph contextual route:\n"
+                        + json.dumps(
+                            {
+                                "accepted": plan.accepted,
+                                "next_action": action.action,
+                                "task_id": plan.task_id,
+                                "discussion_session_id": session_id,
+                                "host_adapter_command": (
+                                    "python3 .wishgraph/hooks/memory_sync.py "
+                                    f"claude-worker launch {plan.task_id} "
+                                    f"--discussion-session-id {session_id}"
+                                    if action.action
+                                    == "launch_claude_background_worker"
+                                    else ""
+                                ),
+                                "user_message": action.user_message,
+                                "stop_after_action": action.stop_after_action,
+                                "denial_reason": plan.denial_reason,
+                            },
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        ),
                     ),
                 }
             }
         )
         return 0
     if command is None:
-        emit({})
+        if notification_context:
+            emit(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "UserPromptSubmit",
+                        "additionalContext": notification_context,
+                    }
+                }
+            )
+        else:
+            emit({})
         return 0
 
     action = command["action"]
@@ -1496,6 +1711,9 @@ def user_prompt_submit_main(
         explicit_config = dict(config)
         explicit_config["session_start_context_mode"] = "discussion_summary"
         context = project_session_context(root, explicit_config)
+        notification_context = consume_discussion_notification_context(
+            root, session_id, adopt_project_pending=True
+        )
         if context is None:
             context = (
                 "WishGraph discussion role is active. Project memory is not initialized; "
@@ -1505,7 +1723,9 @@ def user_prompt_submit_main(
             {
                 "hookSpecificOutput": {
                     "hookEventName": "UserPromptSubmit",
-                    "additionalContext": context,
+                    "additionalContext": join_context(
+                        notification_context, context
+                    ),
                 }
             }
         )
@@ -1516,6 +1736,9 @@ def user_prompt_submit_main(
         explicit_config["session_start_context_mode"] = "discussion_summary"
         context = project_session_context(root, explicit_config) or (
             "WishGraph project memory is not initialized. Run the project bootstrap first."
+        )
+        notification_context = consume_discussion_notification_context(
+            root, session_id, adopt_project_pending=True
         )
         if (
             host == "claude"
@@ -1533,7 +1756,9 @@ def user_prompt_submit_main(
             {
                 "hookSpecificOutput": {
                     "hookEventName": "UserPromptSubmit",
-                    "additionalContext": context,
+                    "additionalContext": join_context(
+                        notification_context, context
+                    ),
                 }
             }
         )
@@ -1546,8 +1771,13 @@ def user_prompt_submit_main(
             {
                 "hookSpecificOutput": {
                     "hookEventName": "UserPromptSubmit",
-                    "additionalContext": json.dumps(
-                        state.as_dict(), ensure_ascii=False, separators=(",", ":")
+                    "additionalContext": join_context(
+                        notification_context,
+                        json.dumps(
+                            state.as_dict(),
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        ),
                     ),
                 }
             }
@@ -1576,6 +1806,7 @@ def user_prompt_submit_main(
             "task": resolved["task"],
             "host_action": host_action,
             "worker_session_id": session_id,
+            "discussion_session_id": session_id if role == "discussion" else "",
             "host_adapter_command": (
                 "python3 .wishgraph/hooks/memory_sync.py "
                 f"claude-worker launch {task_id} "
@@ -1597,8 +1828,11 @@ def user_prompt_submit_main(
         {
             "hookSpecificOutput": {
                 "hookEventName": "UserPromptSubmit",
-                "additionalContext": "WishGraph explicit route:\n"
-                + json.dumps(route, ensure_ascii=False, separators=(",", ":")),
+                "additionalContext": join_context(
+                    notification_context,
+                    "WishGraph explicit route:\n"
+                    + json.dumps(route, ensure_ascii=False, separators=(",", ":")),
+                ),
             }
         }
     )
@@ -1628,7 +1862,8 @@ def hook_main(event: str, host: str = "unknown") -> int:
 
     if event == "session-start":
         session_id = hook_session_id(payload)
-        if session_id and read_session_runtime(root, session_id) is None:
+        session_runtime = read_session_runtime(root, session_id) if session_id else None
+        if session_id and session_runtime is None:
             write_session_runtime(
                 root,
                 session_id,
@@ -1642,6 +1877,19 @@ def hook_main(event: str, host: str = "unknown") -> int:
                     }
                 },
             )
+            session_runtime = read_session_runtime(root, session_id)
+        session_notification_context = ""
+        if (
+            session_id
+            and isinstance(session_runtime, dict)
+            and str((session_runtime.get("session") or {}).get("role") or "")
+            == "discussion"
+        ):
+            session_notification_context = consume_discussion_notification_context(
+                root, session_id
+            )
+    else:
+        session_notification_context = ""
 
     if event == "user-prompt-submit":
         return user_prompt_submit_main(root, config, payload, host)
@@ -1651,11 +1899,12 @@ def hook_main(event: str, host: str = "unknown") -> int:
             {
                 "hookSpecificOutput": {
                     "hookEventName": "SessionStart",
-                    "additionalContext": (
+                    "additionalContext": join_context(
+                        session_notification_context,
                         "WishGraph hooks are active in "
                         f"{config.get('mode', 'warn')} mode, but project memory is not "
                         "initialized. Say '开始讨论' or 'Start discussion' to bootstrap "
-                        "the minimum project state."
+                        "the minimum project state.",
                     ),
                 }
             }
@@ -1735,7 +1984,35 @@ def hook_main(event: str, host: str = "unknown") -> int:
         return 0
 
     result = check_sync(root, config, "worktree")
-    session_context = project_session_context(root, config) if event == "session-start" else None
+    session_context = (
+        join_context(
+            session_notification_context,
+            project_session_context(root, config),
+        )
+        if event == "session-start"
+        else None
+    )
+    if result.ok and event in {"stop", "task-completed"}:
+        terminal_notification = ensure_terminal_notification_for_session(
+            root, config, hook_session_id(payload)
+        )
+        if not terminal_notification.get("ok"):
+            notification_error = str(
+                terminal_notification.get("error") or "unknown_error"
+            )
+            reason = (
+                "WishGraph Worker cannot stop with an active Claim. Write the "
+                "terminal Task/Revision state and Run Report, then release the Claim "
+                "so its Discussion notification is durable."
+                if notification_error == "active_worker_claim_not_closed_out"
+                else "WishGraph could not persist the Worker terminal notification: "
+                + notification_error
+            )
+            if event == "task-completed":
+                print(reason, file=sys.stderr)
+                return 2
+            emit({"decision": "block", "reason": reason})
+            return 0
     if result.ok:
         warning_text = format_warnings(result) if result.warnings else None
         if event == "session-start" and (session_context or warning_text):
@@ -2427,43 +2704,83 @@ def claim_main(args: argparse.Namespace) -> int:
             payload = {"ok": False, "error": "explicit_user_authorization_required"}
         else:
             enforce_binding = args.claim_action != "revoke"
-            payload = update_claim(
-                root,
-                args.claim_id,
-                args.claim_action,
-                branch=current_branch(root) if enforce_binding else None,
-                worktree=str(root) if enforce_binding else None,
-            )
-            if (
-                payload.get("ok")
-                and args.claim_action == "release"
-                and args.session_id
-            ):
-                released_claim = payload.get("claim", {})
-                persisted = apply_session_runtime_patch(
-                    root,
-                    args.session_id,
-                    {
-                        "worker_runtime": {
-                            "claim_id": "",
-                            "previous_task_id": released_claim.get("task_id", ""),
-                            "previous_claim_id": released_claim.get("claim_id", ""),
-                            "active_task_id": "",
-                            "active_revision_id": "",
-                            "worker_availability": "idle",
-                            "binding_status": "released",
-                            "allowed_scope": [],
-                            "validation_plan": [],
-                            "execution_ownership": "",
+            terminal_config: Optional[dict[str, Any]] = None
+            terminal_preflight = {"ok": True}
+            if args.claim_action == "release":
+                matches = [
+                    claim
+                    for claim in inspect_claims(root)
+                    if claim.get("claim_id") == args.claim_id
+                ]
+                if len(matches) != 1:
+                    terminal_preflight = {"ok": False, "error": "claim_not_found"}
+                else:
+                    try:
+                        terminal_config = load_config(root)
+                    except ValueError as exc:
+                        terminal_preflight = {
+                            "ok": False,
+                            "error": "invalid_config",
+                            "detail": str(exc),
                         }
-                    },
+                    else:
+                        terminal_preflight = (
+                            enqueue_terminal_notification_from_claim(
+                                root,
+                                terminal_config,
+                                matches[0],
+                                dry_run=True,
+                            )
+                            if terminal_config is not None
+                            else {"ok": False, "error": "wishgraph_not_installed"}
+                        )
+            if not terminal_preflight.get("ok"):
+                payload = {
+                    "ok": False,
+                    "error": "terminal_notification_preflight_failed",
+                    "detail": terminal_preflight,
+                }
+            else:
+                payload = update_claim(
+                    root,
+                    args.claim_id,
+                    args.claim_action,
+                    branch=current_branch(root) if enforce_binding else None,
+                    worktree=str(root) if enforce_binding else None,
                 )
-                if not persisted.get("ok"):
+            if payload.get("ok") and args.claim_action == "release":
+                released_claim = payload.get("claim", {})
+                persisted = {"ok": True}
+                if args.session_id:
+                    persisted = apply_session_runtime_patch(
+                        root,
+                        args.session_id,
+                        {
+                            "worker_runtime": {
+                                "claim_id": "",
+                                "previous_task_id": released_claim.get("task_id", ""),
+                                "previous_claim_id": released_claim.get("claim_id", ""),
+                                "active_task_id": "",
+                                "active_revision_id": "",
+                                "worker_availability": "idle",
+                                "binding_status": "released",
+                                "allowed_scope": [],
+                                "validation_plan": [],
+                                "execution_ownership": "",
+                            }
+                        },
+                    )
+                notification = enqueue_terminal_notification_from_claim(
+                    root, terminal_config, released_claim
+                )
+                payload["notification"] = notification
+                if not persisted.get("ok") or not notification.get("ok"):
                     payload = {
                         "ok": False,
-                        "error": "claim_released_but_runtime_persistence_failed",
+                        "error": "claim_released_but_closeout_signal_failed",
                         "claim": released_claim,
-                        "detail": persisted,
+                        "runtime": persisted,
+                        "notification": notification,
                     }
     elif args.claim_action == "rebind":
         try:
@@ -2555,6 +2872,27 @@ def claim_main(args: argparse.Namespace) -> int:
                     }
                 else:
                     task = preflight["task"]
+                    existing_runtime = (
+                        read_session_runtime(root, args.session_id)
+                        if args.session_id
+                        else None
+                    ) or {}
+                    launch_context = (
+                        existing_runtime.get("launch_context")
+                        if isinstance(existing_runtime.get("launch_context"), dict)
+                        else {}
+                    )
+                    existing_worker_runtime = (
+                        existing_runtime.get("worker_runtime")
+                        if isinstance(existing_runtime.get("worker_runtime"), dict)
+                        else {}
+                    )
+                    discussion_session_id = str(
+                        args.discussion_session_id
+                        or launch_context.get("discussion_session_id")
+                        or existing_worker_runtime.get("discussion_session_id")
+                        or ""
+                    )
                     payload = acquire_claim(
                         root,
                         task["task_id"],
@@ -2570,12 +2908,13 @@ def claim_main(args: argparse.Namespace) -> int:
                         revision_id=(args.revision_id or None),
                         allowed_scope=task.get("allowed_scope", []),
                         validation_plan=task.get("validation_plan", []),
+                        discussion_session_id=discussion_session_id or None,
                         stale_after_seconds=args.stale_after,
                     )
                     if payload.get("ok"):
                         payload["task"] = task
                         if args.session_id:
-                            runtime_payload = write_session_runtime(
+                            runtime_payload = apply_session_runtime_patch(
                                 root,
                                 args.session_id,
                                 {
@@ -2605,6 +2944,7 @@ def claim_main(args: argparse.Namespace) -> int:
                                         "active_task_id": task["task_id"],
                                         "active_revision_id": args.revision_id or "",
                                         "worker_session_id": args.session_id,
+                                        "discussion_session_id": discussion_session_id,
                                         "worker_availability": "busy",
                                         "binding_status": "active",
                                         "allowed_scope": task.get("allowed_scope", []),
@@ -2768,6 +3108,7 @@ def main() -> int:
     acquire_parser.add_argument("--revision-id")
     acquire_parser.add_argument("--attempt", type=int, default=1)
     acquire_parser.add_argument("--session-id")
+    acquire_parser.add_argument("--discussion-session-id")
     acquire_parser.add_argument(
         "--host", choices=("codex", "claude", "unknown"), default="unknown"
     )

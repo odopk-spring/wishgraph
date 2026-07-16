@@ -2053,6 +2053,361 @@ class MemorySyncTests(unittest.TestCase):
             self.git("worktree", "remove", "--force", str(other))
             self.git("branch", "-D", "worker-two")
 
+    def test_worker_notification_is_idempotent_and_bound_discussion_consumes_it(self) -> None:
+        values = {
+            "task_id": "029a",
+            "work_unit_id": "029a",
+            "attempt": 1,
+            "terminal_event": "completed",
+            "task_lifecycle": "completed",
+            "run_report": "reports/runs/029a-attempt-1.md",
+            "claim_id": "claim-029a",
+            "worker_session_id": "worker-029a",
+            "discussion_session_id": "discussion-codex-029a",
+            "agent_platform": "codex",
+            "next_action": "auto_integrate",
+            "reason": "safe_terminal_result_ready",
+        }
+        first = memory_sync.enqueue_worker_notification(self.root, **values)
+        duplicate = memory_sync.enqueue_worker_notification(self.root, **values)
+        self.assertTrue(first["created"])
+        self.assertFalse(duplicate["created"])
+        self.assertEqual(
+            first["notification"]["notification_id"],
+            duplicate["notification"]["notification_id"],
+        )
+        wrong_discussion = memory_sync.consume_worker_notifications(
+            self.root, "discussion-claude-029a"
+        )
+        self.assertEqual(wrong_discussion["notifications"], [])
+        consumed = memory_sync.consume_worker_notifications(
+            self.root, "discussion-codex-029a"
+        )
+        self.assertEqual(len(consumed["notifications"]), 1)
+        self.assertEqual(consumed["notifications"][0]["status"], "read")
+        inbox = memory_sync.inspect_worker_notifications(self.root)
+        self.assertEqual(len(inbox), 1)
+        self.assertEqual(inbox[0]["read_by_session_id"], "discussion-codex-029a")
+        self.assertEqual(
+            list(memory_sync.worker_notification_root(self.root).glob("*.json")),
+            [memory_sync.worker_notification_root(self.root) / "inbox.json"],
+        )
+
+    def test_explicit_discussion_entry_can_adopt_cross_host_pending_notification(self) -> None:
+        created = memory_sync.enqueue_worker_notification(
+            self.root,
+            task_id="029b",
+            work_unit_id="029b",
+            attempt=1,
+            terminal_event="failed",
+            task_lifecycle="blocked",
+            run_report="reports/runs/029b-attempt-1.md",
+            claim_id="claim-029b",
+            worker_session_id="worker-claude-029b",
+            discussion_session_id="discussion-codex-029b",
+            agent_platform="claude",
+            next_action="resolve_worker_failure",
+            reason="worker_blocked",
+        )
+        self.assertTrue(created["ok"])
+        process = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "user-prompt-submit",
+                "--host",
+                "claude",
+            ],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": "discussion-claude-029b",
+                    "prompt": "开始讨论",
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        context = json.loads(process.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Worker notifications", context)
+        self.assertIn("029b", context)
+        self.assertIn("failed", context)
+        notification = memory_sync.inspect_worker_notifications(self.root)[0]
+        self.assertEqual(notification["status"], "read")
+        self.assertEqual(
+            notification["read_by_session_id"], "discussion-claude-029b"
+        )
+
+    def test_existing_discussion_session_consumes_notification_on_session_start(self) -> None:
+        discussion_id = "discussion-session-start-029b"
+        memory_sync.write_session_runtime(
+            self.root,
+            discussion_id,
+            {
+                "session": {
+                    "session_id": discussion_id,
+                    "role": "discussion",
+                    "host": "codex",
+                    "phase": "waiting_for_worker",
+                    "expected_transition": {
+                        "kind": "wait_for_worker",
+                        "task_id": "029b",
+                    },
+                }
+            },
+        )
+        memory_sync.enqueue_worker_notification(
+            self.root,
+            task_id="029b",
+            work_unit_id="029b",
+            attempt=1,
+            terminal_event="completed",
+            task_lifecycle="completed",
+            run_report="reports/runs/029b-attempt-1.md",
+            claim_id="claim-session-start-029b",
+            discussion_session_id=discussion_id,
+            next_action="auto_integrate",
+        )
+        process = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "session-start",
+                "--host",
+                "codex",
+            ],
+            cwd=self.root,
+            input=json.dumps({"cwd": str(self.root), "session_id": discussion_id}),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        context = json.loads(process.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Worker notifications", context)
+        self.assertIn("auto_integrate", context)
+        self.assertEqual(
+            memory_sync.inspect_worker_notifications(self.root, "pending"), []
+        )
+
+    def test_terminal_claim_classifies_completed_failed_and_decision_events(self) -> None:
+        cases = (
+            ("029c", "completed", "sequential", "completed", {}),
+            ("029d", "blocked", "sequential", "failed", {}),
+            ("029e", "completed", "high_risk", "decision_required", {}),
+            (
+                "029h",
+                "completed",
+                "sequential",
+                "decision_required",
+                {"public_api_change": True},
+            ),
+        )
+        for task_id, lifecycle, work_type, expected_event, report_options in cases:
+            with self.subTest(task_id=task_id):
+                report_path = f"reports/runs/{task_id}-attempt-1.md"
+                self.write(
+                    f"tasks/build/{task_id}-notification.md",
+                    self.structured_task(
+                        task_id,
+                        status=lifecycle,
+                        work_type=work_type,
+                        worker_authorized=True,
+                        integration_policy=(
+                            "requires_explicit_user_confirmation"
+                            if work_type == "high_risk"
+                            else "inherited_task_approval"
+                        ),
+                        run_report=report_path,
+                    ),
+                )
+                self.write(
+                    report_path,
+                    self.structured_run_report(
+                        f"{task_id}-attempt-1",
+                        task_id=task_id,
+                        status=("blocked" if lifecycle == "blocked" else "completed"),
+                        readiness=("blocked" if lifecycle == "blocked" else "ready"),
+                        validation=("fail" if lifecycle == "blocked" else "pass"),
+                        work_type=work_type,
+                        **report_options,
+                    ),
+                )
+                claim = {
+                    "claim_id": f"claim-{task_id}",
+                    "task_id": task_id,
+                    "revision_id": None,
+                    "attempt": 1,
+                    "lease_status": "released",
+                    "worker_id": f"worker-{task_id}",
+                    "host_thread_ref": f"worker-{task_id}",
+                    "discussion_session_id": "discussion-terminal",
+                    "agent_platform": "codex",
+                }
+                notification = memory_sync.enqueue_terminal_notification_from_claim(
+                    self.root, self.config, claim
+                )
+                self.assertTrue(notification["ok"], notification)
+                self.assertEqual(
+                    notification["notification"]["terminal_event"], expected_event
+                )
+
+    def test_notification_runtime_does_not_start_processes_or_scan_source_tree(self) -> None:
+        git_tree = ast.parse(
+            (HOOK_ASSETS / "git_state.py").read_text(encoding="utf-8")
+        )
+        functions = {
+            node.name: node
+            for node in git_tree.body
+            if isinstance(node, ast.FunctionDef)
+            and "worker_notification" in node.name
+        }
+        source = "\n".join(ast.unparse(node) for node in functions.values())
+        self.assertNotIn("subprocess", source)
+        self.assertNotIn("socket", source)
+        self.assertNotIn("sleep", source)
+        self.assertNotIn("rglob", source)
+        self.assertNotIn("glob(", source)
+
+    def test_claim_release_writes_one_pending_notification_for_discussion(self) -> None:
+        task_id = "029f"
+        task_path = f"tasks/build/{task_id}-notification.md"
+        report_path = f"reports/runs/{task_id}-attempt-1.md"
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="approved",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.git("add", task_path)
+        self.git("commit", "-qm", "notification task")
+        acquired = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "acquire",
+                task_id,
+                "--worker-id",
+                "worker-029f",
+                "--session-id",
+                "worker-029f",
+                "--discussion-session-id",
+                "discussion-029f",
+                "--host",
+                "codex",
+            ],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        claim_id = json.loads(acquired.stdout)["claim"]["claim_id"]
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="completed",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.write(
+            report_path,
+            self.structured_run_report(
+                f"{task_id}-attempt-1", task_id=task_id
+            ),
+        )
+        self.git("add", task_path, report_path)
+        self.git("commit", "-qm", "complete notification task")
+        released = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "release",
+                claim_id,
+                "--session-id",
+                "worker-029f",
+            ],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        payload = json.loads(released.stdout)
+        self.assertTrue(payload["notification"]["created"])
+        pending = memory_sync.inspect_worker_notifications(self.root, "pending")
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["discussion_session_id"], "discussion-029f")
+        self.assertEqual(pending[0]["next_action"], "auto_integrate")
+
+    def test_claim_release_keeps_claim_active_when_terminal_signal_is_not_ready(self) -> None:
+        acquired = memory_sync.acquire_claim(
+            self.root,
+            "029g",
+            1,
+            "worker-029g",
+            discussion_session_id="discussion-029g",
+            require_clean=True,
+        )
+        self.assertTrue(acquired["ok"], acquired)
+        claim_id = acquired["claim"]["claim_id"]
+        released = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "release",
+                claim_id,
+            ],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(released.returncode, 1)
+        payload = json.loads(released.stdout)
+        self.assertEqual(payload["error"], "terminal_notification_preflight_failed")
+        claim = memory_sync.inspect_claims(self.root, "029g")[0]
+        self.assertEqual(claim["lease_status"], "active")
+        self.assertEqual(memory_sync.inspect_worker_notifications(self.root), [])
+
+    def test_stop_hook_blocks_worker_until_active_claim_is_closed_out(self) -> None:
+        acquired = memory_sync.acquire_claim(
+            self.root,
+            "029i",
+            1,
+            "worker-029i",
+            host_thread_ref="worker-session-029i",
+            discussion_session_id="discussion-029i",
+            require_clean=True,
+        )
+        self.assertTrue(acquired["ok"], acquired)
+        process = subprocess.run(
+            [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "stop"],
+            cwd=self.root,
+            input=json.dumps(
+                {"cwd": str(self.root), "session_id": "worker-session-029i"}
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        payload = json.loads(process.stdout)
+        self.assertEqual(payload["decision"], "block")
+        self.assertIn("cannot stop with an active Claim", payload["reason"])
+        self.assertEqual(memory_sync.inspect_worker_notifications(self.root), [])
+
     def test_claim_cli_runs_execution_preflight_and_blocks_duplicate_worker(self) -> None:
         task_path = "tasks/build/030-claim.md"
         self.write(task_path, self.execution_ready_task("030-claim"))
@@ -4675,7 +5030,7 @@ class InstallerTests(unittest.TestCase):
 
             with mock.patch.object(installer_module, "ASSET_ROOT", asset_root):
                 manifest = installer_module.bundled_runtime_manifest()
-                self.assertEqual(manifest["runtime_version"], 14)
+                self.assertEqual(manifest["runtime_version"], 15)
 
                 policy_path = asset_root / "policy.py"
                 policy_path.write_bytes(policy_path.read_bytes() + b"# changed\r\n")
@@ -4769,7 +5124,7 @@ class InstallerTests(unittest.TestCase):
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["state"], "confirmed_recently")
             self.assertEqual(execution["last_event"], "session-start")
-            self.assertEqual(execution["observed_runtime_version"], 14)
+            self.assertEqual(execution["observed_runtime_version"], 15)
             self.assertTrue(payload["host_execution_confirmed"])
             self.assertEqual(payload["next_action"], "bootstrap_project_memory")
 
@@ -4935,12 +5290,12 @@ class InstallerTests(unittest.TestCase):
             payload = json.loads(upgraded.stdout)
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["after"]["state"], "current")
-            self.assertEqual(payload["after"]["installed_runtime_version"], 14)
+            self.assertEqual(payload["after"]["installed_runtime_version"], 15)
             config = json.loads(
                 (root / ".wishgraph" / "config.json").read_text(encoding="utf-8")
             )
             self.assertEqual(config["mode"], "enforce")
-            self.assertEqual(config["runtime_version"], 14)
+            self.assertEqual(config["runtime_version"], 15)
 
     def test_safe_upgrade_replaces_only_a_bundled_known_old_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -5273,7 +5628,7 @@ class InstallerTests(unittest.TestCase):
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["version"], 11)
-            self.assertEqual(config["runtime_version"], 14)
+            self.assertEqual(config["runtime_version"], 15)
             self.assertTrue(
                 (root / ".wishgraph" / "hooks" / "runtime-manifest.json").is_file()
             )

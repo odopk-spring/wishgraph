@@ -34,7 +34,7 @@ Do not preload `PRD.md`, `CONVENTIONS.md`, `ARCHITECTURE.md`, `CODEMAP.md`, Proj
 
 ## Worker Rules
 
-- For the first binding, verify this window is `neutral`, run the exact execution preflight, atomically acquire the Task's Worker Claim, persist Session Role `worker`, and then move the Task to `running`. For a rebind, verify the old work is terminal and its Claim is released before acquiring the new Claim. In both cases verify Task/Revision ID, attempt, branch, absolute worktree, session/Worker identity, scope, validation plan, and Claim binding. Do not execute if another exclusive Claim is active.
+- For the first binding, verify this window is `neutral`, run the exact execution preflight, atomically acquire the Task's Worker Claim, persist Session Role `worker`, and then move the Task to `running`. Preserve the originating `discussion_session_id` supplied by the route when available. For a rebind, verify the old work is terminal and its Claim is released before acquiring the new Claim. In both cases verify Task/Revision ID, attempt, branch, absolute worktree, session/Worker identity, scope, validation plan, and Claim binding. Do not execute if another exclusive Claim is active.
 - Keep the Claim heartbeat current during long work. Release it only at the defined closeout/integration boundary. A takeover requires explicit revocation and a new attempt/report; never overwrite another Worker's report.
 - This window may be reused after its current work is terminal. Before another Task or Revision starts, release the old Claim, clear the old scope and validation plan, read the new record, acquire a new bound Claim, and persist the new binding. Never keep two active work units or change only the chat-visible ID.
 - Feedback that remains inside a running Task is appended to its current report. A routed `NNN-rN` Revision uses its own lightweight record, Claim binding, targeted validation, immutable report, and commit. Stop if it expands beyond the recorded scope or introduces an explicit risk.
@@ -60,6 +60,7 @@ Before final report:
 - Do not edit `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, `CONVENTIONS.md`, `reports/PROJECT_STATUS.md`, or any prompt file. The Discussion-local Integration lease holder writes Project Status and refreshes the discussion handoff.
 - If hooks are installed, run `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` and resolve failures before claiming completion.
 - Create one atomic commit for the completed task unless the user explicitly says not to commit.
+- Release the Claim only after terminal evidence is durable. Claim release must create the pending Discussion notification; if its preflight or write fails, remain in closeout repair and do not claim completion.
 - Keep unrelated user changes out of staging.
 
 ## Final Report

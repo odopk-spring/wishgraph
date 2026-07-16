@@ -119,7 +119,7 @@ This safely merges `SessionStart`, `PreToolUse`, `Stop`, and `TaskCompleted` gro
 
    `claude agents` shows native background sessions. `claude logs <id>` reads recent output and `claude attach <id>` resumes interactive control. `/tasks` only shows background work associated with the current Claude session; it does not create a WishGraph Task, grant execution authority, or replace Task Specs and Claims.
 
-   Every Worker terminal event enters `integration_pending`. Safe sequential and mechanically proven independent parallel results enter Discussion-local Integration automatically with a lease. Risk or conflict asks only the concrete decision; Integration never creates another window.
+   Claim release writes one idempotent pending notification to the shared Git runtime. The bound Discussion consumes it on its next activation; an explicit Discussion entry or status refresh adopts it after a host switch. Safe sequential and mechanically proven independent parallel results enter Discussion-local Integration automatically with a lease. Risk or conflict asks only the concrete decision; Integration never creates another window or uses a daemon, polling, IPC, or popup.
 
 4. If the discussion session must move, ask:
 

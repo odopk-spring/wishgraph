@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": 11,
-    "runtime_version": 14,
+    "runtime_version": 15,
     "mode": "enforce",
     "paths": {
         "prd": "PRD.md",
@@ -227,6 +227,7 @@ def acquire_claim(
     allowed_scope: Optional[list[str]] = None,
     validation_plan: Optional[list[str]] = None,
     execution_ownership: str = "worker_claim",
+    discussion_session_id: Optional[str] = None,
     stale_after_seconds: int = 3600,
     require_clean: bool = True,
 ) -> dict[str, Any]:
@@ -306,6 +307,7 @@ def acquire_claim(
             "allowed_scope": list(allowed_scope or []),
             "validation_plan": list(validation_plan or []),
             "execution_ownership": execution_ownership,
+            "discussion_session_id": discussion_session_id or "",
         }
         path = task_dir / f"{claim_id}.json"
         descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
@@ -437,6 +439,7 @@ def rebind_worker_claim(
         allowed_scope=allowed_scope,
         validation_plan=validation_plan,
         execution_ownership=execution_ownership,
+        discussion_session_id=str(old_claim.get("discussion_session_id") or ""),
         require_clean=require_clean,
     )
     if not acquired.get("ok"):
@@ -479,6 +482,9 @@ def rebind_worker_claim(
                 "worktree": new_claim["worktree"],
                 "host_window_or_thread_id": host_thread_ref or "",
                 "worker_session_id": session_id,
+                "discussion_session_id": str(
+                    new_claim.get("discussion_session_id") or ""
+                ),
                 "worker_availability": "busy",
                 "binding_status": "active",
                 "allowed_scope": list(allowed_scope),
@@ -642,6 +648,254 @@ def apply_session_runtime_patch(
     try:
         current = read_session_runtime(root, session_id) or {}
         return write_session_runtime(root, session_id, deep_merge(current, patch))
+    finally:
+        try:
+            mutex.unlink()
+        except OSError:
+            pass
+
+
+WORKER_NOTIFICATION_EVENTS = {"completed", "failed", "decision_required"}
+RECENT_READ_NOTIFICATION_LIMIT = 32
+
+
+def worker_notification_root(root: Path) -> Path:
+    """Store the cross-host inbox beside Claims, never in project history."""
+    return git_common_dir(root) / "wishgraph" / "notifications"
+
+
+def _worker_notification_path(root: Path) -> Path:
+    return worker_notification_root(root) / "inbox.json"
+
+
+def _read_worker_notification_state(root: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(_worker_notification_path(root).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        value = {}
+    notifications = value.get("notifications") if isinstance(value, dict) else None
+    seen_ids = value.get("seen_notification_ids") if isinstance(value, dict) else None
+    return {
+        "schema_version": 1,
+        "kind": "worker_notification_inbox",
+        "notifications": (
+            [item for item in notifications if isinstance(item, dict)]
+            if isinstance(notifications, list)
+            else []
+        ),
+        "seen_notification_ids": (
+            [item for item in seen_ids if isinstance(item, str) and item]
+            if isinstance(seen_ids, list)
+            else []
+        ),
+    }
+
+
+def _write_worker_notification_state(root: Path, state: dict[str, Any]) -> None:
+    path = _worker_notification_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_claim_update(path, state)
+
+
+def inspect_worker_notifications(
+    root: Path, status: Optional[str] = None
+) -> list[dict[str, Any]]:
+    """Read the single inbox file; never enumerate the project or source tree."""
+    notifications = _read_worker_notification_state(root)["notifications"]
+    if status is not None:
+        notifications = [item for item in notifications if item.get("status") == status]
+    return [dict(item) for item in notifications]
+
+
+def enqueue_worker_notification(
+    root: Path,
+    *,
+    task_id: str,
+    work_unit_id: str,
+    attempt: int,
+    terminal_event: str,
+    task_lifecycle: str,
+    run_report: str,
+    claim_id: str,
+    worker_session_id: str = "",
+    discussion_session_id: str = "",
+    agent_platform: str = "unknown",
+    next_action: str = "",
+    reason: str = "",
+) -> dict[str, Any]:
+    """Idempotently append one durable Worker terminal notification."""
+    if terminal_event not in WORKER_NOTIFICATION_EVENTS:
+        return {"ok": False, "error": "invalid_worker_notification_event"}
+    if not task_id or not work_unit_id or attempt < 1 or not run_report or not claim_id:
+        return {"ok": False, "error": "worker_notification_binding_incomplete"}
+    for runtime_id in (worker_session_id, discussion_session_id):
+        if runtime_id and not RUNTIME_ID_RE.fullmatch(runtime_id):
+            return {"ok": False, "error": "invalid_notification_session_id"}
+
+    event_key = "|".join(
+        (
+            claim_id,
+            work_unit_id,
+            str(attempt),
+            terminal_event,
+            task_lifecycle,
+            run_report,
+        )
+    )
+    notification_id = uuid.uuid5(uuid.NAMESPACE_URL, f"wishgraph:{event_key}").hex
+    inbox_root = worker_notification_root(root)
+    try:
+        mutex = _claim_mutex(inbox_root)
+    except (OSError, RuntimeError) as exc:
+        return {"ok": False, "error": str(exc)}
+    try:
+        state = _read_worker_notification_state(root)
+        for existing in state["notifications"]:
+            if existing.get("notification_id") == notification_id:
+                return {
+                    "ok": True,
+                    "created": False,
+                    "notification": dict(existing),
+                }
+        if notification_id in state["seen_notification_ids"]:
+            return {
+                "ok": True,
+                "created": False,
+                "notification": {
+                    "notification_id": notification_id,
+                    "status": "read",
+                },
+            }
+        now = utc_now()
+        notification = {
+            "schema_version": 1,
+            "kind": "worker_terminal_notification",
+            "notification_id": notification_id,
+            "task_id": task_id,
+            "work_unit_id": work_unit_id,
+            "attempt": attempt,
+            "terminal_event": terminal_event,
+            "task_lifecycle": task_lifecycle,
+            "run_report": run_report,
+            "claim_id": claim_id,
+            "worker_session_id": worker_session_id,
+            "discussion_session_id": discussion_session_id,
+            "agent_platform": agent_platform,
+            "next_action": next_action,
+            "reason": reason,
+            "status": "pending",
+            "created_at": now,
+            "read_at": "",
+            "read_by_session_id": "",
+        }
+        state["notifications"].append(notification)
+        state["seen_notification_ids"].append(notification_id)
+        state["updated_at"] = now
+        _write_worker_notification_state(root, state)
+        return {"ok": True, "created": True, "notification": notification}
+    except OSError as exc:
+        return {
+            "ok": False,
+            "error": "worker_notification_write_failed",
+            "detail": str(exc),
+        }
+    finally:
+        try:
+            mutex.unlink()
+        except OSError:
+            pass
+
+
+def consume_worker_notifications(
+    root: Path,
+    discussion_session_id: str,
+    *,
+    adopt_project_pending: bool = False,
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Atomically mark a bounded batch read when Discussion is activated."""
+    if not RUNTIME_ID_RE.fullmatch(discussion_session_id):
+        return {"ok": False, "error": "invalid_discussion_session_id"}
+    if limit < 1 or limit > 20:
+        return {"ok": False, "error": "invalid_notification_consume_limit"}
+    inbox_path = _worker_notification_path(root)
+    if not inbox_path.is_file():
+        return {"ok": True, "notifications": [], "remaining_pending": 0}
+    preview = _read_worker_notification_state(root)
+    preview_pending = [
+        item for item in preview["notifications"] if item.get("status") == "pending"
+    ]
+    eligible = any(
+        str(item.get("discussion_session_id") or "")
+        in {"", discussion_session_id}
+        or adopt_project_pending
+        for item in preview_pending
+    )
+    if not eligible:
+        return {
+            "ok": True,
+            "notifications": [],
+            "remaining_pending": len(preview_pending),
+        }
+    inbox_root = worker_notification_root(root)
+    try:
+        mutex = _claim_mutex(inbox_root)
+    except (OSError, RuntimeError) as exc:
+        return {"ok": False, "error": str(exc)}
+    try:
+        state = _read_worker_notification_state(root)
+        selected: list[dict[str, Any]] = []
+        for notification in state["notifications"]:
+            if notification.get("status") != "pending":
+                continue
+            target = str(notification.get("discussion_session_id") or "")
+            if not (
+                target == discussion_session_id
+                or not target
+                or adopt_project_pending
+            ):
+                continue
+            if len(selected) >= limit:
+                break
+            selected.append(notification)
+        if not selected:
+            return {"ok": True, "notifications": [], "remaining_pending": sum(
+                item.get("status") == "pending" for item in state["notifications"]
+            )}
+        now = utc_now()
+        for notification in selected:
+            notification["status"] = "read"
+            notification["read_at"] = now
+            notification["read_by_session_id"] = discussion_session_id
+
+        read_records = [
+            item for item in state["notifications"] if item.get("status") == "read"
+        ]
+        keep_read_ids = {
+            str(item.get("notification_id") or "")
+            for item in read_records[-RECENT_READ_NOTIFICATION_LIMIT:]
+        }
+        state["notifications"] = [
+            item
+            for item in state["notifications"]
+            if item.get("status") == "pending"
+            or str(item.get("notification_id") or "") in keep_read_ids
+        ]
+        state["updated_at"] = now
+        _write_worker_notification_state(root, state)
+        return {
+            "ok": True,
+            "notifications": [dict(item) for item in selected],
+            "remaining_pending": sum(
+                item.get("status") == "pending" for item in state["notifications"]
+            ),
+        }
+    except OSError as exc:
+        return {
+            "ok": False,
+            "error": "worker_notification_consume_failed",
+            "detail": str(exc),
+        }
     finally:
         try:
             mutex.unlink()

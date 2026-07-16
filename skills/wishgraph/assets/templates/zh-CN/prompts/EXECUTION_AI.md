@@ -34,7 +34,7 @@
 
 ## Worker 规则
 
-- 首次绑定前确认本窗口为 `neutral`，执行准确 preflight，原子获取 Worker Claim，持久化 Session Role `worker`，再把 Task 改为 `running`。重新绑定时，先确认旧工作已进入终态且旧 Claim 已释放，再获取新 Claim。两种情况都要核对 Task/Revision ID、attempt、branch、绝对 worktree、session/Worker identity、scope、验证计划和 Claim 绑定。已有其他 exclusive Claim 时禁止执行。
+- 首次绑定前确认本窗口为 `neutral`，执行准确 preflight，原子获取 Worker Claim，持久化 Session Role `worker`，再把 Task 改为 `running`；路由提供 `discussion_session_id` 时必须保留。重新绑定时，先确认旧工作已进入终态且旧 Claim 已释放，再获取新 Claim。两种情况都要核对 Task/Revision ID、attempt、branch、绝对 worktree、session/Worker identity、scope、验证计划和 Claim 绑定。已有其他 exclusive Claim 时禁止执行。
 - 长任务要持续 heartbeat。只在规定的收尾 / 集成边界释放 Claim；接管必须先显式 revoke，再使用新 attempt 和新报告，不能覆盖其他 Worker 报告。
 - 当前工作进入终态后可以复用本窗口。新 Task 或 Revision 开始前，必须释放旧 Claim、清除旧 scope 与验证计划、读取新记录、获取新 Claim 并持久化新绑定。同一时刻不得保留两个 active 工作单元，也不能只改聊天中的编号。
 - 仍属于 running Task 的反馈追加到当前报告。路由来的 `NNN-rN` 使用独立轻量记录、Claim、针对性验证、不可变报告和提交；一旦超出记录范围或出现显式风险，立即停止。
@@ -60,6 +60,7 @@
 - 不要修改 `PRD.md`、`ARCHITECTURE.md`、`CODEMAP.md`、`CONVENTIONS.md`、`reports/PROJECT_STATUS.md` 或任何提示词文件；持有 lease 的 Discussion-local Integration 阶段写入项目状态概览并刷新讨论交接。
 - 已安装 hooks 时运行 `python3 .wishgraph/hooks/memory_sync.py check --scope worktree`，解决失败后才能宣称完成。
 - 除非用户明确说不提交，否则为完成任务创建一个原子 commit。
+- 只有终态证据持久化后才能释放 Claim。释放时必须成功写入待 Discussion 消费的 pending notification；preflight 或写入失败时继续收尾修复，不得宣称完成。
 - 不要 stage 无关用户改动。
 
 ## 最终报告

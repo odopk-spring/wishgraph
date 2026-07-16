@@ -109,9 +109,9 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
    reports/PROJECT_STATUS.md
    ```
 
-3. 先让 Discussion 解释任务应串行还是并行，并询问 Worker 授权。Claude Code 收到授权后只输出 `执行 <task-id> 任务`；在另一个 neutral 窗口运行这一行。Preflight 通过后，该窗口进入 Worker 角色，并在实现前获取绑定 Claim。
+3. 先让 Discussion 解释任务应串行还是并行，并询问 Worker 授权。Claude Code 优先运行 `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"` 创建可检查的后台 Worker；`forked_subagent` 只用于短时低风险检查。后台能力不可用或启动失败时，才只输出 `执行 <task-id> 任务` 并停止 Discussion。任何降级都不能让 Discussion 修改业务代码。
 
-   每个 Worker terminal 事件都进入 `integration_pending`。安全串行和机械检查证明独立的并行结果由持有 lease 的 Discussion-local Integration 自动集成；风险或冲突只询问具体决定，Integration 不创建额外窗口。
+   Claim release 向共享 Git runtime 写入一条幂等 pending notification。绑定的 Discussion 在下一次激活时消费；切换宿主后，明确开始讨论或刷新状态可接管。安全串行和机械检查证明独立的并行结果由持有 lease 的 Discussion-local Integration 自动集成；风险或冲突只询问具体决定，Integration 不创建额外窗口，也不使用 daemon、轮询、IPC 或弹窗。
 
 4. 如果讨论 session 需要迁移，提问：
 

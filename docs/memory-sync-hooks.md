@@ -177,14 +177,18 @@ It matches structured IDs exactly, reports duplicate declarations, and never exe
 Formal execution uses repository-wide runtime Claims stored below `git rev-parse --git-common-dir`, outside business commits:
 
 ```bash
-python3 .wishgraph/hooks/memory_sync.py claim acquire 012 --worker-id worker-012 --session-id worker-012 --host codex
+python3 .wishgraph/hooks/memory_sync.py claim acquire 012 --worker-id worker-012 --session-id worker-012 --discussion-session-id discussion-1 --host codex
 python3 .wishgraph/hooks/memory_sync.py claim inspect 012
 python3 .wishgraph/hooks/memory_sync.py claim heartbeat CLAIM_ID
 python3 .wishgraph/hooks/memory_sync.py claim release CLAIM_ID
 python3 .wishgraph/hooks/memory_sync.py claim revoke CLAIM_ID
 ```
 
-Acquisition uses an atomic filesystem operation, defaults to one exclusive active Claim per Task, and records attempt, worker, branch, absolute worktree, timestamps, lease status, execution mode, and optional host thread reference. With `--session-id`, Claim acquisition also persists the Worker runtime; persistence failure revokes the new Claim. Heartbeat and release enforce branch/worktree binding; explicit revoke is the takeover control path. Stale detection preserves old records. This coordinates processes and worktrees sharing one local Git common directory; it is not a distributed lock across machines that only share a remote.
+Acquisition uses an atomic filesystem operation, defaults to one exclusive active Claim per Task, and records attempt, worker, branch, absolute worktree, timestamps, lease status, execution mode, optional host thread reference, and the originating Discussion when available. With `--session-id`, Claim acquisition also persists the Worker runtime; persistence failure revokes the new Claim. Heartbeat and release enforce branch/worktree binding; explicit revoke is the takeover control path. Stale detection preserves old records. This coordinates processes and worktrees sharing one local Git common directory; it is not a distributed lock across machines that only share a remote.
+
+`claim release` first verifies terminal Task/Revision state and its Run Report, then writes one idempotent pending notification to the Git-common runtime inbox. `Stop` and `TaskCompleted` can retry the same deterministic ID. The bound Discussion consumes and marks it read on SessionStart or its next prompt; explicit Discussion entry or status refresh may adopt pending records after a host switch. This uses no daemon, terminal polling, cross-terminal IPC, popup, or prose-based completion guess.
+
+A normal terminal Hook blocks while the Worker still owns an active Claim. A process forcibly killed before Hook execution or Claim release cannot write a notification under this no-daemon design; its stale Claim or structured host-session state remains the recovery signal for the next Discussion inspection.
 
 A terminal Worker window may be rebound with `claim rebind`. Rebind releases the old Claim before acquiring a new Claim carrying a fresh `task_id`, optional `revision_id`, `allowed_scope`, `validation_plan`, and execution ownership. If new acquisition or runtime persistence fails, the window remains idle/unbound and old authority is not restored. A running old Task is never eligible.
 

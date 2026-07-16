@@ -307,8 +307,8 @@ planning
 
 - Codex 支持可见 task/thread：自动创建独立 Worker，成功后进入 `waiting_for_worker`。
 - Codex 自动创建失败：进入 `waiting_for_user_launch`，只输出 `执行 <task-id> 任务`。
-- Claude Code：进入 `waiting_for_user_launch`，只输出 `执行 <task-id> 任务`。
-- 未知宿主：与 Claude Code 相同。
+- Claude Code：Host Adapter 能力为 `background_session` 时启动受管 `wishgraph-worker` 并进入 `waiting_for_worker`；能力不可用或启动失败时进入 `waiting_for_user_launch`，只输出 `执行 <task-id> 任务`。`forked_subagent` 不承担正式业务 Worker。
+- 未知宿主：进入 `waiting_for_user_launch`，只输出同一行命令。
 
 降级输出必须严格为一行，例如：
 
@@ -426,8 +426,8 @@ integration_pending
 
 | 状态机动作 | Codex | Claude Code |
 | --- | --- | --- |
-| `launch_worker` | 自动创建可见 Worker task/thread | 输出一行执行命令 |
-| Worker 自动创建失败 | 输出一行执行命令 | 不适用 |
+| `launch_worker` | 自动创建可见 Worker task/thread | 优先受管原生后台 Worker |
+| Worker 自动创建失败 | 输出一行执行命令 | 输出一行执行命令 |
 | `auto_integrate`，Discussion 活跃 | 当前 Discussion 临时进入 Integration phase | 当前 Discussion 临时进入 Integration phase |
 | `auto_integrate`，Discussion 不活跃 | 持久化 `integration_pending`，下次 Discussion resume 时自动进入 | 同左 |
 | `decision_required` | Discussion 询问具体风险决定 | Discussion 询问具体风险决定 |
@@ -539,7 +539,7 @@ read gate: host capability dependent
 | --- | --- | --- | --- |
 | OSM-01 | Discussion 在唯一待启动 Task 上收到“执行吧” | `routing_worker`，动作 `launch_worker(002)` | Discussion 修改源码或运行测试 |
 | OSM-02 | Neutral 新窗口收到“执行 002 任务” | 精确 preflight 后 `role=worker`，获取 Claim | 进入 Discussion 或模糊匹配 |
-| OSM-03 | Claude Code 收到 Worker 启动授权 | `waiting_for_user_launch`，只输出 `执行 002 任务` | 完整提示词包或继续执行 |
+| OSM-03 | Claude Code 收到 Worker 启动授权 | 优先受管后台 Worker；不可用或失败时 `waiting_for_user_launch`，只输出 `执行 002 任务` | Hook 自动启动、完整提示词包或 Discussion 继续执行 |
 | OSM-04 | Codex 自动创建 Worker 失败 | 同 OSM-03 | Discussion 接管实现 |
 | OSM-05 | Worker 安全完成 | 自动 `integration_pending -> integrating` | 询问“是否集成” |
 | OSM-06 | Integration 执行 | 当前 Discussion 临时 phase + Integration lease | 新建用户可见 Integration 窗口 |

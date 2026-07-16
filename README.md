@@ -95,7 +95,7 @@ If `Start discussion` does not respond after reopening the session, run WishGrap
 | **Worker** | Separate user-visible execution window | Claims one Task or Revision, changes only its allowed scope, validates the result, and writes an immutable Run Report. |
 | **Integration** | Temporary phase inside Discussion | Evaluates terminal reports, runs combined checks, updates shared project state, and asks only when a material product or risk decision is required. |
 
-Integration is a phase, not a hidden agent or a fourth window. If Discussion is inactive when a Worker finishes, WishGraph stores `integration_pending` and resumes evaluation when Discussion starts or the project status is refreshed.
+Integration is a phase, not a hidden agent or a fourth window. If Discussion is inactive when a Worker finishes, WishGraph writes one pending reminder beside the shared Git runtime. The bound Discussion consumes and marks it read on its next activation; after switching hosts, an explicit `Start discussion` or status refresh adopts it. This uses no daemon, terminal polling, IPC service, or popup.
 
 Codex can route work to a visible Worker when the host supports it. Claude Code CLI prefers an inspectable native background session through the managed `wishgraph-worker` Agent. If that capability is absent or launch fails, WishGraph prints only `Execute task 012` and Discussion stops execution.
 
@@ -130,6 +130,7 @@ Doctor distinguishes “configured correctly” from “recently invoked by this
 - A Worker requires explicit human authorization and a live Claim bound to its Task, session, branch, worktree, scope, and validation plan.
 - Write/build gates cover supported native tools and recognized commands. Source-read enforcement remains host-capability dependent, and Hooks are not an operating-system sandbox.
 - Claims are atomic across local worktrees that share one Git common directory; they are not distributed locks across machines.
+- A normal Worker exit must release its Claim and persist the Discussion reminder. A forcibly killed host can bypass terminal Hooks; the next Discussion inspection then recovers from stale Claim or structured host-session evidence rather than a real-time push.
 - Safe results can integrate without asking “should I start integration?” Conflicts, public API changes, new product decisions, missing evidence, and other material risks return to Discussion as specific questions.
 - Hooks expose and enforce workflow state. They do not start Workers, merge code, or decide product meaning by themselves.
 

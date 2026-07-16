@@ -33,11 +33,11 @@
 - 任务规格必须自包含；不要依赖聊天历史。
 - Worker session 使用独立 branch 或 worktree，创建一个不可变的 `reports/runs/<work-unit-id>.md`，填写 Integrate 或 N/A 建议，不修改共享记忆。
 - Discussion-local Integration 持有绑定 lease，使用 `--no-commit` 合并，把 `reports/PROJECT_STATUS.md` 重写为当前快照，更新受影响共享记忆，再刷新 `prompts/DISCUSSION_AI.md` 的精简动态交接。
-- 创建 Worker 必须有人类明确命令。Claude Code 不自动创建 Worker 窗口：授权后只输出 `执行 <task-id> 任务` 并停止。用户在另一个 neutral 窗口运行这一行；preflight 通过后，该窗口才进入 Worker 角色。
+- 创建 Worker 必须有人类明确命令。授权后优先使用受管原生后台 Worker：`claude --bg --agent wishgraph-worker "执行 <task-id> 任务"`；forked subagent 只用于短时低风险检查。原生启动不可用或失败时只输出 `执行 <task-id> 任务` 并停止，Discussion 不得降级为实现者。
 - Claude Code 不能自动把轻量 Revision 发送到已有 Worker。创建 `tasks/revisions/<task-id>-rN.md` 后，只输出 `在任务 <task-id> 的执行窗口执行修订 <revision-id>` 并停止。复用 Worker 前必须释放旧 Claim，再获取 Revision 的新 scope/validation 绑定。
 - 精确的执行、停止、重试、接管和明确 competitive 命令通过结构化 Task ID 与 Git common dir Claim 路由。只有存在唯一 `expected_transition` 时，简短上下文批准才有效。
 - 创建前把命令写入 task-state：`draft -> approved` 并设置 `worker_creation_authorized: true`。Worker 记录执行状态，Integration 记录 `integrated`，用户接受后讨论窗口记录 `reviewed`。
-- 每个 Worker terminal 事件都进入 `integration_pending`。安全串行和机械检查证明独立的 `parallel_independent` 结果自动进入 Discussion-local Integration；风险、冲突、阻塞、竞争或歧义进入具体的 `decision_required` 或 `blocked`。不得创建独立 Integration 窗口。
+- Claim release 在 Git common runtime 中写入一条幂等 pending notification。绑定的 Discussion 下一次激活时消费并标记已读；切换宿主后，明确开始讨论或刷新可接管。安全串行和机械检查证明独立的 `parallel_independent` 结果自动进入 Discussion-local Integration；风险、冲突、阻塞、竞争或歧义进入具体的 `decision_required` 或 `blocked`。不得创建独立 Integration 窗口、daemon、轮询、IPC 服务或弹窗。
 - Hooks 只输出状态并执行门禁，不决定是否并行，不启动 Agent，不合并代码，不编写语义记忆，也不代替 Review。
 - 新窗口默认中立。默认 SessionStart 只做安全检查，不激活 Discussion；明确开始讨论或刷新时再加载当前状态。
 - 每个完成的 Task-backed 执行单元优先对应一个原子 commit。
@@ -46,7 +46,7 @@
 ## 交接
 
 - 用户要求迁移讨论时，更新 `prompts/DISCUSSION_AI.md`，并打印完整内容供复制。
-- PRD 和首个任务准备好后，设置唯一 `expected_transition` 并询问 Worker 授权；授权后只输出 `执行 <task-id> 任务`。
+- PRD 和首个任务准备好后，设置唯一 `expected_transition` 并询问 Worker 授权；授权后优先使用受管后台 Worker，不可用时只输出 `执行 <task-id> 任务`。
 
 ## 调试
 

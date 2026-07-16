@@ -210,7 +210,7 @@ After every Worker terminal event, enter `integration_pending` and evaluate the 
 
 For one safe sequential task, approving the Task also authorizes normal integration after all validation, scope, conflict, decision, rollback, and target-worktree gates pass. Do not ask twice. A `parallel_independent` batch also integrates silently when every expected Worker is terminal and overlap, dependency, interface, risk, merge, and combined-validation gates are mechanically clear. High-risk, conflicting, competitive, or ambiguous results enter `decision_required`; missing reports, failed validation, or inconsistent terminal state become `blocked` or `incomplete`.
 
-If Discussion is not active when a Worker finishes, persist `integration_pending` and continue automatically when Discussion resumes. Ask the user only for a concrete risk, conflict, compatibility, or product decision; never ask whether to start integration.
+If Discussion is not active when a Worker finishes, Claim release writes one pending notification beside the shared Git runtime. The bound Discussion consumes and marks it read on SessionStart or its next prompt; after a host switch, explicit Discussion entry or status refresh adopts it. There is no daemon, terminal polling, IPC service, or popup. Ask the user only for a concrete risk, conflict, compatibility, or product decision; never ask whether to start integration.
 
 After the PRD and first Task are ready, Discussion states the work type, explains the sequential or parallel recommendation, names the ready Task files, and asks:
 
