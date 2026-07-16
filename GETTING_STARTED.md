@@ -22,6 +22,8 @@ For step 1, say:
 
 This explicit request authorizes the recommended non-blocking safe setup. After verification, the agent remains neutral and asks the user to reopen the current Agent session. The first input in that reopened session is `开始讨论` / `Start discussion`. Saying `开始讨论` in an unconfigured project does not enable WishGraph or create project files.
 
+Equivalent low-risk English entries include `Begin discussion`, `Open discussion`, `Enter discussion mode`, `Continue discussion`, and `Resume discussion mode`. Project status can also be requested with `Check project status`, `Update project status`, or `Reload project status`.
+
 WishGraph defaults to non-blocking safe hooks. If the user says "只安装 Skill" it skips hooks; if the user says "严格配置" it enables blocking hooks and the Git pre-commit fallback. If the request is unclear, the agent asks only one choice question.
 
 The agent first recommends the best fit rather than showing an unexplained menu. After the user replies "按推荐来", it guides four short stages—choice, prerequisites, installation, verification—and continues automatically. When a dependency or restart requires user action, it provides the reason, rough cost, one recommended action, and an exact resume phrase.

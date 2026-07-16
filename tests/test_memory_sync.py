@@ -108,6 +108,35 @@ class RuntimeBoundaryTests(unittest.TestCase):
                 self.assertEqual(parsed["action"], action)
                 self.assertFalse(parsed["authorizes_execution"])
 
+    def test_low_risk_prompt_parser_accepts_english_discussion_entry_aliases(self) -> None:
+        for prompt in (
+            "begin discussion",
+            "open discussion",
+            "enter discussion mode",
+            "continue discussion",
+            "resume discussion mode",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assertEqual(
+                    memory_sync.parse_user_prompt(prompt),
+                    {"action": "start_discussion", "authorizes_execution": False},
+                )
+
+    def test_low_risk_prompt_parser_accepts_english_project_status_aliases(self) -> None:
+        for prompt in (
+            "check project status",
+            "update project status",
+            "reload project status",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assertEqual(
+                    memory_sync.parse_user_prompt(prompt),
+                    {
+                        "action": "refresh_project_status",
+                        "authorizes_execution": False,
+                    },
+                )
+
     def test_low_risk_prompt_parser_rejects_conversational_or_compound_text(self) -> None:
         for prompt in (
             "我们讨论一下颜色",

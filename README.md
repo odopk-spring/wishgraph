@@ -41,6 +41,8 @@ Refresh project status.
 - **Execute task 012** starts or routes one authorized, user-visible Worker for that exact Task.
 - **Refresh project status** reads the current project snapshot and relevant terminal reports; it does not traverse the whole source tree by default.
 
+Low-risk English entry aliases are also accepted, including `Begin discussion`, `Open discussion`, `Enter discussion mode`, `Continue discussion`, `Resume discussion mode`, `Check project status`, `Update project status`, and `Reload project status`.
+
 Clear, low-risk feedback such as “change this button to warm gray” becomes a lightweight Revision of the original Task. A Worker window can also be reused after it releases the old Task and binds a new Claim. Small corrections stay small without losing validation or history.
 
 ## Start in 60 seconds

@@ -608,9 +608,14 @@ DISCUSSION_ENTRY_COMMANDS = {
     "回到discussion",
     "继续讨论",
     "继续讨论模式",
+    "begindiscussion",
+    "opendiscussion",
     "startdiscussion",
     "enterdiscussion",
+    "enterdiscussionmode",
+    "continuediscussion",
     "resumediscussion",
+    "resumediscussionmode",
     "returntodiscussion",
     "backtodiscussion",
 }
@@ -624,6 +629,8 @@ STATUS_REFRESH_COMMANDS = {
     "refreshprojectstatus",
     "refreshstatus",
     "showprojectstatus",
+    "checkprojectstatus",
+    "updateprojectstatus",
     "reloadprojectstatus",
 }
 
