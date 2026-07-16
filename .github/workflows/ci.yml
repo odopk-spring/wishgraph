@@ -39,6 +39,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+      - name: Verify fresh-session Chinese Hook I/O
+        run: python -m unittest tests.test_memory_sync.MemorySyncTests.test_hook_cli_normalizes_legacy_stdio_to_utf8
       - name: Install from the checked-out revision
         shell: pwsh
         run: |

@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": 11,
-    "runtime_version": 16,
+    "runtime_version": 17,
     "mode": "enforce",
     "paths": {
         "prd": "PRD.md",

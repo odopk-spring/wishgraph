@@ -4477,6 +4477,46 @@ class MemorySyncTests(unittest.TestCase):
         )
         self.assertEqual(json.loads(process.stdout), {})
 
+    def test_hook_cli_normalizes_legacy_stdio_to_utf8(self) -> None:
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "cp1252"
+        request = json.dumps(
+            {
+                "cwd": str(self.root),
+                "session_id": "fresh-windows-session",
+                "prompt": "开始讨论",
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        process = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "user-prompt-submit",
+                "--host",
+                "codex",
+            ],
+            cwd=self.root,
+            env=env,
+            input=request,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(
+            process.returncode,
+            0,
+            process.stderr.decode("utf-8", errors="replace"),
+        )
+        payload = json.loads(process.stdout.decode("utf-8"))
+        self.assertEqual(
+            payload["hookSpecificOutput"]["hookEventName"],
+            "UserPromptSubmit",
+        )
+        runtime = memory_sync.read_session_runtime(
+            self.root, "fresh-windows-session"
+        )
+        self.assertEqual(runtime["session"]["role"], "discussion")
+
     def test_session_start_can_opt_in_to_discussion_summary(self) -> None:
         self.update_config(session_start_context_mode="discussion_summary")
         process = subprocess.run(
@@ -5325,7 +5365,7 @@ class InstallerTests(unittest.TestCase):
 
             with mock.patch.object(installer_module, "ASSET_ROOT", asset_root):
                 manifest = installer_module.bundled_runtime_manifest()
-                self.assertEqual(manifest["runtime_version"], 16)
+                self.assertEqual(manifest["runtime_version"], 17)
 
                 policy_path = asset_root / "policy.py"
                 policy_path.write_bytes(policy_path.read_bytes() + b"# changed\r\n")
@@ -5419,7 +5459,7 @@ class InstallerTests(unittest.TestCase):
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["state"], "confirmed_recently")
             self.assertEqual(execution["last_event"], "session-start")
-            self.assertEqual(execution["observed_runtime_version"], 16)
+            self.assertEqual(execution["observed_runtime_version"], 17)
             self.assertTrue(payload["host_execution_confirmed"])
             self.assertEqual(payload["next_action"], "bootstrap_project_memory")
 
@@ -5585,12 +5625,12 @@ class InstallerTests(unittest.TestCase):
             payload = json.loads(upgraded.stdout)
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["after"]["state"], "current")
-            self.assertEqual(payload["after"]["installed_runtime_version"], 16)
+            self.assertEqual(payload["after"]["installed_runtime_version"], 17)
             config = json.loads(
                 (root / ".wishgraph" / "config.json").read_text(encoding="utf-8")
             )
             self.assertEqual(config["mode"], "enforce")
-            self.assertEqual(config["runtime_version"], 16)
+            self.assertEqual(config["runtime_version"], 17)
 
     def test_safe_upgrade_replaces_only_a_bundled_known_old_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -5924,7 +5964,7 @@ class InstallerTests(unittest.TestCase):
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["version"], 11)
-            self.assertEqual(config["runtime_version"], 16)
+            self.assertEqual(config["runtime_version"], 17)
             self.assertTrue(
                 (root / ".wishgraph" / "hooks" / "runtime-manifest.json").is_file()
             )
