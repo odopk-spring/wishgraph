@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">WishGraph project workflow</title>
+  <desc id="desc">A wish becomes a bounded task, an inspectable Worker produces evidence, and Integration updates current project state.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#F8FAFF"/>
+      <stop offset="1" stop-color="#EEF2FF"/>
+    </linearGradient>
+    <linearGradient id="purple" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#766FF6"/>
+      <stop offset="1" stop-color="#5147E6"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-30%" width="140%" height="170%">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#172033" flood-opacity=".10"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0 0 12 6 0 12Z" fill="#7B879D"/>
+    </marker>
+    <style>
+      .font{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC",sans-serif}
+      .eyebrow{font-size:18px;font-weight:700;letter-spacing:2px;fill:#625DF1}
+      .headline{font-size:38px;font-weight:750;fill:#172033}
+      .sub{font-size:19px;fill:#657089}
+      .cardTitle{font-size:23px;font-weight:700;fill:#172033}
+      .cardSub{font-size:16px;fill:#6A7488}
+      .chip{font-size:17px;font-weight:650;fill:#344057}
+    </style>
+  </defs>
+  <rect width="1280" height="640" rx="32" fill="url(#bg)"/>
+  <circle cx="1150" cy="40" r="210" fill="#DDDFFF" opacity=".65"/>
+  <circle cx="80" cy="650" r="220" fill="#DCF6EC" opacity=".65"/>
+
+  <g class="font" text-anchor="middle">
+    <text x="640" y="66" class="eyebrow">WISHGRAPH</text>
+    <text x="640" y="112" class="headline">从自然语言，到可追踪的项目事实</text>
+    <text x="640" y="145" class="sub">From intent to inspectable project truth</text>
+  </g>
+
+  <g fill="none" stroke="#7B879D" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)">
+    <path d="M313 306h72"/>
+    <path d="M613 306h72"/>
+    <path d="M913 306h72"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="55" y="205" width="258" height="205" rx="28" fill="#fff" stroke="#E0E3FB" stroke-width="2"/>
+    <rect x="355" y="205" width="258" height="205" rx="28" fill="#fff" stroke="#DDE8FA" stroke-width="2"/>
+    <rect x="655" y="205" width="258" height="205" rx="28" fill="#fff" stroke="#D7EFE7" stroke-width="2"/>
+    <rect x="955" y="205" width="270" height="205" rx="28" fill="#fff" stroke="#E0E3FB" stroke-width="2"/>
+  </g>
+
+  <g class="font" text-anchor="middle">
+    <circle cx="184" cy="267" r="32" fill="#EFEEFF"/>
+    <path d="M164 258h40a10 10 0 0 1 10 10v4a10 10 0 0 1-10 10h-16l-11 9v-9h-13a10 10 0 0 1-10-10v-4a10 10 0 0 1 10-10Z" fill="none" stroke="#625DF1" stroke-width="4" stroke-linejoin="round"/>
+    <text x="184" y="338" class="cardTitle">Discussion / 讨论</text>
+    <text x="184" y="370" class="cardSub">明确目标与边界</text>
+
+    <circle cx="484" cy="267" r="32" fill="#EAF3FF"/>
+    <rect x="468" y="247" width="32" height="40" rx="5" fill="none" stroke="#2D72E8" stroke-width="4"/>
+    <path d="m475 267 6 6 12-14" fill="none" stroke="#2D72E8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="484" y="338" class="cardTitle">Worker / 执行</text>
+    <text x="484" y="370" class="cardSub">按 Task 与 Claim 工作</text>
+
+    <circle cx="784" cy="267" r="32" fill="#E8F8F2"/>
+    <path d="M765 249h38v38h-38zM772 258h24M772 267h24M772 276h15" fill="none" stroke="#14A878" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="784" y="338" class="cardTitle">Evidence / 证据</text>
+    <text x="784" y="370" class="cardSub">验证与 Run Report</text>
+
+    <circle cx="1090" cy="267" r="32" fill="#EFEEFF"/>
+    <path d="m1071 260 19-10 19 10-19 10zm0 12 19 10 19-10" fill="none" stroke="#625DF1" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="1109" cy="249" r="8" fill="#14A878"/>
+    <path d="m1105 249 3 3 6-7" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="1090" y="338" class="cardTitle">Current State / 最新状态</text>
+    <text x="1090" y="370" class="cardSub">安全集成，继续下一轮</text>
+  </g>
+
+  <g class="font" filter="url(#shadow)">
+    <rect x="205" y="475" width="335" height="66" rx="18" fill="#fff" stroke="#E1E5EF"/>
+    <circle cx="242" cy="508" r="17" fill="url(#purple)"/>
+    <path d="m236 508 4 4 9-10" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="274" y="514" class="chip">开始讨论 · Start discussion</text>
+    <rect x="740" y="475" width="335" height="66" rx="18" fill="#fff" stroke="#E1E5EF"/>
+    <circle cx="777" cy="508" r="17" fill="#172033"/>
+    <path d="M769 501h16v14h-16zM773 497h8" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
+    <text x="809" y="514" class="chip">执行 012 · Execute task 012</text>
+  </g>
+
+  <g class="font" text-anchor="middle">
+    <text x="640" y="596" class="sub">按项目启用 · 小范围读取 · 可检查 Worker · 真实终态</text>
+  </g>
+</svg>

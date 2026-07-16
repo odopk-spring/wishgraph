@@ -1,29 +1,41 @@
-# WishGraph
+<p align="center">
+  <img src="docs/assets/brand/wishgraph-mark.svg" width="88" alt="WishGraph 标志">
+</p>
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+<h1 align="center">WishGraph</h1>
 
-[![CI](https://github.com/odopk-spring/wishgraph/actions/workflows/ci.yml/badge.svg)](https://github.com/odopk-spring/wishgraph/actions/workflows/ci.yml)
-![状态](https://img.shields.io/badge/status-v0.1%20public%20beta-625DF1)
-![Python](https://img.shields.io/badge/Python-3.9%2B-2D72E8)
-![Codex](https://img.shields.io/badge/agent-Codex-172033)
-![Claude Code](https://img.shields.io/badge/agent-Claude%20Code-172033)
-![许可证](https://img.shields.io/badge/license-PolyForm%20Noncommercial-14A878)
+<p align="center"><strong>让 AI 写得快，也让项目始终说得清。</strong></p>
 
-**让 AI 写得快，也让项目始终说得清。**
+<p align="center">把讨论、执行、验证和交接变成仓库中可追踪的项目事实。适配 Codex 与 Claude Code，按项目启用。</p>
 
-模型越来越强，项目却可能越来越像黑箱：一次小改动牵出更多文件，换个窗口又要重新解释背景，最后只能反复扫描代码、整理进度、猜测以前为什么这样做。
+<p align="center">
+  <a href="#60-秒安装"><strong>60 秒安装</strong></a> ·
+  <a href="#一分钟看懂一次完整流程"><strong>看一次完整流程</strong></a> ·
+  <a href="#常见问题">常见问题</a> ·
+  <a href="#安全边界">安全边界</a>
+</p>
 
-WishGraph 在自然语言和代码之间加了一层清晰的项目接口。它把模糊愿望整理成任务，把执行限制在明确范围内，再把验证结果写回项目状态：
+<p align="center">
+  <a href="https://github.com/odopk-spring/wishgraph/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/odopk-spring/wishgraph/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="状态：v0.1 public beta" src="https://img.shields.io/badge/status-v0.1%20public%20beta-625DF1">
+  <img alt="许可证：PolyForm Noncommercial" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-14A878">
+</p>
+
+<p align="center"><a href="README.md">English</a> · <strong>简体中文</strong></p>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hero/wishgraph-hero-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/hero/wishgraph-hero-light.svg">
+  <img alt="WishGraph 把讨论、Worker 执行、验证证据和最新项目状态连接成可追踪工作循环" src="docs/assets/hero/wishgraph-hero-light.svg">
+</picture>
+
+WishGraph 是自然语言与代码之间的一层项目接口：把模糊愿望整理成有边界的 Task，让获得授权的 Worker 在可检查的 thread 或窗口中执行，再把真实验证结果写回最新项目状态。
 
 ```text
 愿望 → 规格 → Task → Worker → 验证 → Run Report → 集成 → 最新项目状态
 ```
 
-项目的目标、结构、任务、证据和进度保存在仓库里，不依赖某个聊天窗口。你可以继续使用自然语言，Codex 和 Claude Code 则从同一份精简事实继续工作。
-
-![讨论、执行、集成、继续讨论](docs/assets/wishgraph-simple-loop-zh.svg)
-
-[先看一次完整流程](#一分钟看懂一次完整流程) · [60 秒安装](#60-秒安装) · [常见问题](#常见问题) · [安全边界](#安全边界) · [详细文档](#继续深入)
+目标、结构、任务、证据和进度保存在仓库里，而不是锁在某个聊天窗口。换窗口、换模型或在 Codex 与 Claude Code 之间切换时，Agent 从同一份精简事实继续工作。
 
 ## 整体框架
 
@@ -142,6 +154,18 @@ Claude Code：
 
 更完整的安装方式、已有项目接入和故障恢复见 [中文上手指南](GETTING_STARTED.zh-CN.md)。
 
+## 宿主适配
+
+你不需要选择“新窗口、后台会话还是子代理”。WishGraph 先判断当前宿主实际提供的能力，再选择最合适的 Worker 容器；原生创建不可用时，严格退回一行人工执行命令。
+
+| 宿主 | 首选 Worker | 无法原生创建时 | 不变的边界 |
+| --- | --- | --- | --- |
+| **Codex** | 当前界面支持时，使用可查看、可追踪、可控制的 Agent thread。 | 输出 `执行 <task-id> 任务`，由用户在独立执行窗口输入。 | 精确授权、Claim、scope、验证、Run Report 和 Integration。 |
+| **Claude Code CLI** | 能力与 Agent 定义通过检查时，使用 `claude --bg --agent wishgraph-worker` 后台 session。 | 只输出 `执行 <task-id> 任务`。 | 同上；`/tasks` 只用于查看后台工作，不创建 WishGraph Task。 |
+| **其他宿主** | 使用宿主真正可检查的独立 thread 或窗口。 | 使用通用适配器和一行执行命令。 | 宿主能力不足不会扩大 Discussion 的执行权限。 |
+
+Python 3.9+ 是 WishGraph runtime 的要求，不代表你的业务项目必须使用 Python。
+
 ## 常见问题
 
 ### 安装后，每个项目都会自动进入 WishGraph 吗？
@@ -160,13 +184,7 @@ Claude Code：
 
 ### Codex 和 Claude Code 的体验一样吗？
 
-用户命令和项目状态相同，Worker 容器由宿主决定。Codex 在当前界面支持可检查 Agent thread 时优先使用项目级 `wishgraph-worker`；Claude Code CLI 在能力、Agent 定义、worktree 和 Task 检查通过时使用：
-
-```text
-claude --bg --agent wishgraph-worker "执行 <task-id> 任务"
-```
-
-任何原生启动失败都会降级为一行执行命令，Discussion 不会因此直接改业务代码。
+用户命令、Task、Claim、验证和项目状态相同，Worker 容器由宿主能力决定。具体差异见上方[宿主适配](#宿主适配)；任何原生启动失败都不会让 Discussion 接管业务代码。
 
 ### Worker 在后台完成后会主动弹窗吗？
 

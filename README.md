@@ -1,29 +1,41 @@
-# WishGraph
+<p align="center">
+  <img src="docs/assets/brand/wishgraph-mark.svg" width="88" alt="WishGraph mark">
+</p>
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+<h1 align="center">WishGraph</h1>
 
-[![CI](https://github.com/odopk-spring/wishgraph/actions/workflows/ci.yml/badge.svg)](https://github.com/odopk-spring/wishgraph/actions/workflows/ci.yml)
-![Status](https://img.shields.io/badge/status-v0.1%20public%20beta-625DF1)
-![Python](https://img.shields.io/badge/Python-3.9%2B-2D72E8)
-![Codex](https://img.shields.io/badge/agent-Codex-172033)
-![Claude Code](https://img.shields.io/badge/agent-Claude%20Code-172033)
-![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-14A878)
+<p align="center"><strong>Let AI move fast without losing the project story.</strong></p>
 
-**Let AI move fast without turning the project into a mystery.**
+<p align="center">Turn discussion, execution, validation, and handoff into inspectable repository facts. Built for Codex and Claude Code, enabled one project at a time.</p>
 
-As coding agents get stronger, projects can become harder to understand: a small request spreads across more files, a new window needs the whole story again, and every handoff starts with another code scan and progress summary.
+<p align="center">
+  <a href="#install-in-60-seconds"><strong>Install in 60 seconds</strong></a> ·
+  <a href="#one-minute-tour"><strong>See one complete run</strong></a> ·
+  <a href="#faq">FAQ</a> ·
+  <a href="#safety-boundaries">Safety</a>
+</p>
 
-WishGraph adds a clear project interface between natural language and code. It turns an open-ended wish into a bounded task, constrains execution, and writes verified results back into current project state:
+<p align="center">
+  <a href="https://github.com/odopk-spring/wishgraph/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/odopk-spring/wishgraph/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Status: v0.1 public beta" src="https://img.shields.io/badge/status-v0.1%20public%20beta-625DF1">
+  <img alt="License: PolyForm Noncommercial" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-14A878">
+</p>
+
+<p align="center"><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></p>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/hero/wishgraph-hero-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/hero/wishgraph-hero-light.svg">
+  <img alt="WishGraph connects Discussion, Worker execution, validation evidence, and current project state into an inspectable workflow" src="docs/assets/hero/wishgraph-hero-light.svg">
+</picture>
+
+WishGraph is a project interface between natural language and code. It turns an open-ended wish into a bounded Task, routes authorized work to an inspectable Worker thread or window, and writes real validation results back into current project state.
 
 ```text
 Wish → Spec → Task → Worker → Validation → Run Report → Integration → Current State
 ```
 
-Goals, architecture, tasks, evidence, and progress live in the repository instead of one chat. You keep speaking naturally; Codex and Claude Code continue from the same compact facts.
-
-![Discuss, execute, integrate, and continue](docs/assets/wishgraph-simple-loop-en.svg)
-
-[See one complete run](#one-minute-tour) · [Install in 60 seconds](#install-in-60-seconds) · [FAQ](#faq) · [Safety boundaries](#safety-boundaries) · [Detailed docs](#go-deeper)
+Goals, architecture, tasks, evidence, and progress live in the repository instead of one chat. When you switch windows, models, or hosts, Codex and Claude Code continue from the same compact facts.
 
 ## The framework
 
@@ -142,6 +154,18 @@ Use WishGraph for this project.
 
 See [Getting Started](GETTING_STARTED.md) for existing-project adoption, other install modes, and recovery.
 
+## Host support
+
+You do not choose between a new window, background session, or subagent. WishGraph checks what the current host can genuinely provide and selects the best Worker container; when native creation is unavailable, it falls back strictly to one manual execution command.
+
+| Host | Preferred Worker | Native creation unavailable | Boundaries that do not change |
+| --- | --- | --- | --- |
+| **Codex** | A user-visible, inspectable, controllable Agent thread when the current surface supports it. | Print `执行 <task-id> 任务` for a separate execution window. | Exact authorization, Claim, scope, validation, Run Report, and Integration. |
+| **Claude Code CLI** | A `claude --bg --agent wishgraph-worker` background session after capability and Agent checks pass. | Print only `执行 <task-id> 任务`. | Same boundaries; `/tasks` views background work and does not create a WishGraph Task. |
+| **Other hosts** | A genuinely inspectable independent thread or window. | Use the generic adapter and the one-line command. | Missing host capabilities never expand Discussion authority. |
+
+Python 3.9+ is a WishGraph runtime requirement; your business project does not need to be written in Python.
+
 ## FAQ
 
 ### Does installing the Skill activate WishGraph in every project?
@@ -160,13 +184,7 @@ No. WishGraph handoff state lives in project files and the Git-common runtime, n
 
 ### Is the Codex experience identical to Claude Code?
 
-The user commands and project state are the same; the Worker container is host-specific. Codex prefers the project `wishgraph-worker` when the current surface supports an inspectable Agent thread. Claude Code CLI uses the following command only after capability, managed-Agent, worktree, authorization, and current-`HEAD` checks pass:
-
-```text
-claude --bg --agent wishgraph-worker "执行 <task-id> 任务"
-```
-
-Any failed native launch falls back to the one-line execution command. It never authorizes Discussion to implement the Task.
+Commands, Tasks, Claims, validation, and project state are the same; the Worker container depends on host capabilities. See [Host support](#host-support) above. A native launch failure never allows Discussion to take over business-code edits.
 
 ### Does a completed background Worker pop up the Discussion window?
 
