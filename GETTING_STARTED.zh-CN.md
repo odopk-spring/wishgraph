@@ -1,0 +1,216 @@
+# WishGraph 上手指南
+
+[English](GETTING_STARTED.md) | [简体中文](GETTING_STARTED.zh-CN.md)
+
+这份指南从安装讲到第一次完整的 Discussion → Worker → Integration 流程。如果只想先了解 WishGraph，请从[中文首页](README.zh-CN.md)开始。
+
+## 安装前需要什么
+
+- 一个 Git 仓库。
+- Python 3.9 或更高版本。
+- Codex 或 Claude Code，用于当前支持的原生宿主路径。
+
+WishGraph 不安装任何 Python 第三方包。Skill 大约 0.5 MB，项目 runtime 大约 0.3 MB。
+
+三个概念要分开：
+
+- **全局已安装：**Agent 可以使用 WishGraph。
+- **当前项目已启用：**项目根目录存在 `.wishgraph/config.json`，且模式是 `warn` 或 `enforce`。
+- **Discussion 已开始：**已启用项目收到明确的“开始讨论”命令。
+
+全局安装不会让所有文件夹自动进入 WishGraph。
+
+## 在当前项目安装
+
+进入需要启用 WishGraph 的 Git 项目，运行一条命令。
+
+### Codex · macOS / Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- codex --setup-project
+```
+
+### Claude Code CLI · macOS / Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- claude-user --setup-project
+```
+
+### Windows PowerShell
+
+Codex：
+
+```powershell
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) codex -SetupProject
+```
+
+Claude Code：
+
+```powershell
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
+```
+
+安装器会先检查 Git、Python、仓库根目录和当前宿主，只安装当前宿主的适配器，并保留无关的 Hooks。默认 `warn` 模式只报告流程问题，不阻止结束或提交。
+
+如果 Skill 已经安装，也可以直接告诉 Agent：
+
+```text
+在当前项目使用 WishGraph。
+```
+
+这句话明确授权推荐的安全配置。“开始讨论”本身不会在未配置项目里自动安装 WishGraph。
+
+## 开始第一次会话
+
+安装成功后：
+
+```text
+1. 重新打开当前 Agent 会话
+2. 输入：开始讨论
+```
+
+新窗口默认保持 neutral。收到命令后，它只读取精简 Discussion 交接、当前 Project Status 和 active state。
+
+对于已有项目，WishGraph 会先复用仓库中已经可信的文档。它不应该为了证明安装成功而重命名目录、复制出一套平行文档、创建虚假的 bootstrap Task，或者修改业务代码。
+
+对于空白或还很模糊的项目，Discussion 从一个简短的首问开始：
+
+```text
+先不用写完整 PRD。请用几句话告诉我：
+1. 你想做一个什么项目？
+2. 最先服务谁？
+3. 他们第一次打开时最应该完成什么动作？
+4. 你会用什么结果判断 v0 做对了？
+如果还不确定，可以只回答第 1 点，我会继续一问一问补齐。
+```
+
+Discussion 一次只追问一个会改变结果的决定，并提供推荐默认值。项目框架足够清楚后才进入实现。
+
+## 执行第一个 Task
+
+需求明确后，Discussion 会生成一份自包含 Task，至少写清楚：
+
+- 目标和当前状态。
+- 允许修改的范围。
+- 明确不做什么。
+- 依赖和所有权。
+- 验证命令或手动检查。
+- 对共享项目状态的影响。
+- 回滚边界和 Run Report 路径。
+
+然后它请求执行授权。使用准确命令：
+
+```text
+执行 012 任务
+```
+
+授权并不会让 Discussion 自己实现 Task。它会请求当前宿主提供最合适的合法 Worker 路径。
+
+| 宿主路径 | 实际行为 |
+| --- | --- |
+| 支持可检查 Agent thread 的 Codex 界面 | 宿主创建项目 `wishgraph-worker`；只有返回真实稳定 thread ID 后才记录成功。 |
+| 支持兼容后台 Agent 的 Claude Code CLI | Host Adapter 运行 `claude --bg --agent wishgraph-worker "执行 012 任务"` 并保存稳定 session ID。 |
+| 原生创建不可用或失败 | Discussion 只输出 `执行 012 任务`；你在新的可检查执行窗口输入这一行。 |
+
+请求创建进程或 thread 不代表 Task 已经 `running`。Worker 必须通过准确 Task preflight，并取得绑定 session、branch、绝对 worktree、scope 和 validation plan 的 Claim。
+
+## Worker 会读取什么
+
+普通 Worker 从下面四类内容开始：
+
+1. `prompts/EXECUTION_AI.md`。
+2. 自己的准确 Task 或 Revision。
+3. 最小必要的 Project Status 小节。
+4. 允许范围真正需要的源码。
+
+它默认不读取无关 Task、历史 Run Report 或完整源码树。如果实现需要 Task 没有授权的公共 API、schema、持久化、依赖、权限、安全、隐私或新产品决定，Worker 会停止并把问题交回 Discussion。
+
+收尾时，Worker 运行规定验证，生成一个不可变 Run Report，记录项目状态影响，把工作推进到真实终态，按规则创建有边界的 commit，然后释放 Claim。
+
+## Integration 和完成提醒
+
+每个 Worker 终态都先进入 `integration_pending`。
+
+安全结果会由 Discussion-local Integration 获取 lease，先以不提交方式合并，检查报告和受影响文件，运行组合验证，更新共享项目状态，重写 `reports/PROJECT_STATUS.md`，最后创建集成提交。
+
+系统不会重复询问“是否开始集成”。只有出现具体冲突、风险、兼容性选择或产品决定时，才需要用户判断。
+
+如果 Worker 完成时 Discussion 没有运行，Claim release 会在 Git common runtime 中写入 pending notification。Discussion 在下次 SessionStart、输入或明确刷新时读取。WishGraph 不使用 daemon、终端轮询、跨窗口 IPC 或自动弹窗。
+
+## 换窗口或换宿主继续
+
+不需要迁移提示词。
+
+在同一项目的新窗口输入：
+
+```text
+开始讨论
+```
+
+已经处于 Discussion 时可以输入：
+
+```text
+刷新项目状态
+```
+
+从 Codex 切换到 Claude Code，或反向切换时，只需安装或修复当前宿主的 Skill 和项目适配器，然后重新打开会话。持久项目事实可以共享，宿主自己的 thread/session ID 不跨平台复用。
+
+## Revision 和 Worker 复用
+
+属于原 Task 的明确低风险小修订使用 `tasks/revisions/<task-id>-rN.md`。它只记录 parent Task、准确请求、允许范围、针对性验证、状态和报告路径。
+
+旧工作进入终态、旧 Claim 释放、旧 scope 清除，并为新 Task 或 Revision 取得新 Claim 后，原 Worker thread 可以复用。同一时间一个 Worker 只能持有一个 active work unit。
+
+任何涉及 API、schema、持久化、迁移、依赖、权限、安全、隐私或新产品决定的修改，都升级为正式后续 Task。
+
+## 已有项目怎样避免文件膨胀
+
+WishGraph 默认使用 native-lite：
+
+- 已经有产品说明，就不再创建竞争性的 `PRD.md`。
+- 已有架构、代码地图、规范、Issue、Task 或测试事实源时继续复用。
+- 只在缺少时补充精简 `reports/PROJECT_STATUS.md` 和 Discussion/Worker 入口状态。
+- Task、Revision 和 Run Report 目录在首次需要时创建。
+- 当前状态保持为重写后的快照，历史留在不可变报告和 Git 中。
+
+标准文件名是默认方案，不是要求已有项目复制一套文档。
+
+## 维护与排障
+
+普通用户可以直接使用自然语言：
+
+| 请求 | 作用 |
+| --- | --- |
+| `检查 WishGraph 状态` | 固定路径、只读的 Doctor 检查，不扫描业务源码。 |
+| `更新这个项目的 WishGraph` | 根据文件指纹安全升级，失败时原子回滚。 |
+| `修复当前宿主的 WishGraph Hooks` | 只修复当前宿主，保留无关 Hooks。 |
+
+重新打开会话后，如果“开始讨论”没有响应，先运行 Doctor。只有 Codex 宿主调用仍未确认时才检查 `/hooks`；Claude Code CLI 用户还可以运行 `claude doctor`。
+
+更新全局 Skill 不会静默覆盖已有项目的 `.wishgraph/hooks/`。项目 runtime 应走安全升级路径；未知或本地修改过的生成文件会停止并交给用户检查。
+
+## 严格模式
+
+先使用 `warn`。完整跑通一次后，如果希望阻塞不合规的收尾和提交，再开启严格模式：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- codex --setup-project --strict
+```
+
+Claude Code 把 `codex` 换成 `claude-user`；PowerShell 使用 `-Strict`。
+
+严格配置会启用 `enforce` 并请求 Git pre-commit 兜底。安装器不会覆盖已有 Git hook，只会给出串联方式。
+
+## 首次验证清单
+
+WishGraph 正常工作时应该满足：
+
+- “开始讨论”只在已启用项目中进入 Discussion。
+- 新 Discussion 不扫描完整源码树也能理解当前状态。
+- 准确执行命令创建或路由独立、可检查的 Worker。
+- Worker 取得 Claim 前不能写业务代码或运行实现构建。
+- 一个不可变 Run Report 记录真实验证结果。
+- 安全 Integration 更新受影响的项目事实，并重写当前状态。
+- 新窗口只需“开始讨论”，不需要复制聊天记录或完整提示词。
+
+实现细节见[外置记忆 Hooks](docs/memory-sync-hooks.zh-CN.md)、[状态机规格](docs/orchestration-state-machine.md)和 [Claude Code 适配器](adapters/claude-code/README.zh-CN.md)。

@@ -35,9 +35,9 @@ Follow AGENTS.md. Start WishGraph for this project. If there is no PRD, run the 
 Use bilingual Chinese and English for user-facing prompts and summaries. Keep file paths, commands, and code identifiers unchanged.
 ```
 
-## 预期输出
+## 避免项目文件膨胀
 
-Agent 应创建或更新：
+已有产品、架构、代码地图、规范、Task 和测试文件能够承担同一事实时继续复用。只补齐缺少的入口状态，Task、Revision 和 Run Report 目录在首次需要时再创建。下面是默认路径，不是要求已有项目复制一套文档：
 
 ```text
 PRD.md
@@ -51,6 +51,8 @@ reports/PROJECT_STATUS.md
 reports/RUN_REPORT.md
 reports/runs/<work-unit-id>.md
 ```
+
+同一项目的新窗口通过“开始讨论”继续；已经处于 Discussion 时使用“刷新项目状态”。正常交接不复制完整提示词或旧聊天记录。
 
 ## 工具无关规则
 

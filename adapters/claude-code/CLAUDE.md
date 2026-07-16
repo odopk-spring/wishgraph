@@ -40,9 +40,10 @@ Use WishGraph as the project governance layer for AI-assisted development.
 - Prefer one atomic commit per completed Task-backed execution unit.
 - When `.wishgraph/hooks/memory_sync.py` exists, run its worktree check before claiming completion.
 
-## Handoff
+## Continuation
 
-- When the user asks to migrate discussion, update `prompts/DISCUSSION_AI.md` and print its full content for copying.
+- A new Claude Code window in the same project continues by saying `Start discussion`; an active Discussion uses `Refresh project status`. Read the persisted handoff and current state instead of printing a full prompt for manual copying.
+- A host switch preserves project files but not host-specific thread/session IDs. Repair or install only the current host adapter, then enter Discussion normally.
 - When PRD and the first task are ready, set one exact `expected_transition` and ask for Worker authorization. After authorization, use the managed background Worker when available; otherwise output only `执行 <task-id> 任务`.
 
 ## Debugging

@@ -1,77 +1,81 @@
 # Getting Started With WishGraph
 
-Use this guide when introducing WishGraph to an existing project or starting a new project with AI collaboration from day one.
+[English](GETTING_STARTED.md) | [简体中文](GETTING_STARTED.zh-CN.md)
 
-## 0. Recommended First Conversation
+This guide covers installation, project activation, and the first complete Discussion → Worker → Integration run. For the short explanation, start with the [README](README.md).
 
-First opt the current project into WishGraph; project activation and Discussion entry are separate actions. A global installation alone never activates every folder.
+## Before you install
 
-The entire first-use path is:
+WishGraph requires:
 
-```text
-1. 在项目里启用 WishGraph
-2. 重新打开当前 Agent 会话
-3. 输入：开始讨论
+- A Git repository.
+- Python 3.9 or newer.
+- Codex or Claude Code for the supported native paths.
+
+It installs no Python packages. The Skill is roughly 0.5 MB and the project runtime roughly 0.3 MB.
+
+Global installation and project activation are separate:
+
+- **Installed globally:** WishGraph is available to the Agent.
+- **Enabled in this project:** `.wishgraph/config.json` exists with `mode: warn` or `mode: enforce`.
+- **Discussion active:** an enabled project receives an explicit `Start discussion` command.
+
+Installing WishGraph never opts every folder into the workflow.
+
+## Install in the current project
+
+Run one command from the Git project you want to enable.
+
+### Codex · macOS / Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- codex --setup-project
 ```
 
-After that, the ordinary loop stays at three commands:
+### Claude Code CLI · macOS / Linux
 
-| User intent | Command | What actually happens |
-| --- | --- | --- |
-| Enter planning | `开始讨论` / `Start discussion` | Loads the concise handoff, current Project Status, and active state |
-| Run one exact Task | `执行 012 任务` / `Execute task 012` | Records authority and asks the Host Adapter for the best valid Formal Worker route |
-| Refresh | `刷新项目状态` / `Refresh project status` | Reads current candidates and relevant terminal evidence, not the complete source tree or report history |
-
-“Automatic” means bounded routing, evidence evaluation, safe Integration, and next-activation reminders. It does not mean that Hooks spawn Agents, that Discussion implements a failed route, or that a daemon pushes real-time popups.
-
-For step 1, say:
-
-```text
-在当前项目使用 WishGraph。
+```bash
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- claude-user --setup-project
 ```
 
-This explicit request authorizes the recommended non-blocking safe setup. After verification, the agent remains neutral and asks the user to reopen the current Agent session. The first input in that reopened session is `开始讨论` / `Start discussion`. Saying `开始讨论` in an unconfigured project does not enable WishGraph or create project files.
+### Windows PowerShell
 
-Equivalent low-risk English entries include `Begin discussion`, `Open discussion`, `Enter discussion mode`, `Continue discussion`, and `Resume discussion mode`. Project status can also be requested with `Check project status`, `Update project status`, or `Reload project status`.
+Codex:
 
-WishGraph defaults to non-blocking safe hooks. If the user says "只安装 Skill" it skips hooks; if the user says "严格配置" it enables blocking hooks and the Git pre-commit fallback. If the request is unclear, the agent asks only one choice question.
-
-The agent first recommends the best fit rather than showing an unexplained menu. After the user replies "按推荐来", it guides four short stages—choice, prerequisites, installation, verification—and continues automatically. When a dependency or restart requires user action, it provides the reason, rough cost, one recommended action, and an exact resume phrase.
-
-Use the invocation format for your tool:
-
-```text
-Codex: Use $wishgraph to help me set up WishGraph for this project.
-Claude Code: /wishgraph help me set up WishGraph for this project.
-Generic agent: Follow AGENTS.md and help me set up WishGraph for this project.
+```powershell
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) codex -SetupProject
 ```
 
-WishGraph supports Chinese, English, and bilingual handoff. To request bilingual output, add:
+Claude Code:
 
-```text
-Please use bilingual Chinese and English output for user-facing prompts and summaries. Keep file paths, commands, and code identifiers unchanged.
+```powershell
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
 ```
 
-For an existing repository, the recommended native-lite request is:
+The installer checks Git, Python, the repository root, and the selected host before writing. It installs only the current host adapter and preserves unrelated Hook groups. The default `warn` mode reports workflow problems without blocking completion or commits.
+
+For Agent-guided setup, install the Skill first and say:
 
 ```text
-复用仓库已有的 README、产品、架构、规范、Task 和验证文件。只补齐进入 Discussion/Worker 和当前 Project Status 所缺的最小 WishGraph 状态；Task、Revision 和报告目录在首次需要时再创建。不要修改业务代码。
+Use WishGraph for this project.
 ```
 
-For a blank project, ask WishGraph to run the intake below and create the fuller graph as it becomes useful. The first output should be a project frame, not code.
+That explicit request authorizes the recommended safe setup. `Start discussion` by itself never activates an unconfigured project.
 
-For a blank project, the first intake prompt should be:
+## Start the first session
+
+After setup succeeds:
 
 ```text
-先不用写完整 PRD。请用几句话告诉我：
-1. 你想做一个什么项目？
-2. 最先服务谁？
-3. 他们第一次打开时最应该完成什么动作？
-4. 你会用什么结果判断 v0 做对了？
-如果还不确定，可以只回答第 1 点，我会继续一问一问补齐。
+1. Reopen the current Agent session
+2. Say: Start discussion
 ```
 
-English:
+The new window starts neutral. The command loads only the concise Discussion handoff, current Project Status, and active workflow state.
+
+For an existing project, WishGraph first reuses authoritative files already present in the repository. It should not rename folders, copy existing documents into parallel WishGraph versions, create a fake bootstrap Task, or modify business code merely to prove installation.
+
+For a blank or vague project, the first Discussion starts with a small intake:
 
 ```text
 You do not need a full PRD yet. In a few sentences, tell me:
@@ -82,252 +86,133 @@ You do not need a full PRD yet. In a few sentences, tell me:
 If you are not sure, answer only item 1 and I will fill the rest one decision at a time.
 ```
 
-Bilingual mode asks both lines together.
+Discussion asks one material question at a time and gives a recommended default. It builds the project frame before implementation.
 
-## 1. Establish The Project Frame
+## Run the first Task
 
-Before restructuring or implementation, discuss enough to produce a rough but usable project frame:
+When the requirement is clear, Discussion writes one self-contained Task with:
 
-- Project purpose.
-- Target users.
-- Current stage.
-- Main workflows.
-- High-level architecture.
-- Important constraints.
-- Current progress.
-- Immediate next task.
+- Goal and current state.
+- Allowed change scope.
+- Explicit non-goals.
+- Dependencies and ownership.
+- Validation commands or manual checks.
+- Shared project-state impact.
+- Rollback boundary and Run Report path.
 
-Record this in authoritative native project files when they already exist. Create `PRD.md`, `ARCHITECTURE.md`, or `CODEMAP.md` only when no existing source owns that truth; always keep the concise Discussion entry and Project Status discoverable from the root README.
-
-Also record the project language mode in `prompts/DISCUSSION_AI.md`, so future Discussion and Worker windows preserve the same Chinese, English, or bilingual style.
-
-The first pass does not need to be perfect. It only needs to be concrete enough for future agents to continue without relying on chat memory.
-
-Use a grill-first pattern: one question at a time, with a recommended default. The discussion AI should keep asking until it can write a useful PRD and a bounded first implementation task.
-
-## 2. Map Or Create External Memory
-
-WishGraph works because the project, not the chat window, stores state.
-
-Blank projects may grow into the full graph below. Existing projects reuse equivalent native files and create Task, Revision, template, and report directories lazily:
-
-- `PRD.md`: product goals, scope, roadmap, and current decisions.
-- `ARCHITECTURE.md`: structure, dependency boundaries, and ownership.
-- `CODEMAP.md`: feature to file lookup and current implementation status.
-- `CONVENTIONS.md`: collaboration rules, validation rules, git rules, and memory update rules.
-- `prompts/DISCUSSION_AI.md`: mutable launch prompt for planning windows.
-- `prompts/EXECUTION_AI.md`: stable launch prompt for Worker windows.
-- `prompts/INTEGRATION_AI.md`: stable phase prompt for Discussion-local merging and shared-state updates; it never launches a separate window.
-- `tasks/build/NNN-short-slug.md`: visible, self-contained execution task specs.
-- `tasks/build/001-bootstrap-project.md`: first-use bootstrap task when the project starts from a vague idea.
-- `reports/RUN_REPORT.md`: template for one immutable report per worker execution.
-- `reports/runs/<work-unit-id>.md`: worker-specific validation and integration proposals.
-- `reports/PROJECT_STATUS.md`: current integrated Project Status; it is a rewritten snapshot, not a history or live heartbeat log. Live Worker progress comes from the active status command.
-
-New Task Specs, Run Reports, and Project Status snapshots contain small versioned JSON blocks for lifecycle facts. Keep product meaning, evidence, risks, and decisions in normal Markdown; do not move semantic project truth into the structured block.
-
-## 2.5. Optionally Enforce Memory Closeout With Hooks
-
-WishGraph can install project-local Codex and Claude Code hooks without replacing unrelated existing hook groups:
-
-The easiest option is to tell the agent:
+It then asks for execution authority. Use an exact command:
 
 ```text
-Use $wishgraph to enable automatic memory sync for this project in safe mode.
+Execute task 012
 ```
 
-The agent selects the current host and installs non-blocking `warn` hooks. No hook parameters need to be learned.
+Authorization does not let Discussion implement the Task. It asks the current host for the best valid Worker route.
 
-For a first-time command-line installation, add `--setup-project` to install the skill and current-host hooks together:
+| Host route | What happens |
+| --- | --- |
+| Codex surface with inspectable Agent threads | The host creates the project `wishgraph-worker`; WishGraph records success only after receiving a real stable thread ID. |
+| Claude Code CLI with compatible background-agent support | The Host Adapter runs `claude --bg --agent wishgraph-worker "执行 012 任务"` and records the stable session ID. |
+| Native creation unavailable or failed | Discussion prints only `执行 012 任务`; open a new inspectable execution window and enter that line. |
+
+The new Worker is not `running` merely because a process or thread was requested. It must pass exact Task preflight and acquire a Claim bound to its session, branch, absolute worktree, allowed scope, and validation plan.
+
+## What the Worker reads
+
+A normal Worker starts with:
+
+1. `prompts/EXECUTION_AI.md`.
+2. Its exact Task or Revision.
+3. The smallest necessary Project Status section.
+4. Source files required by its allowed scope.
+
+It does not load unrelated Tasks, historical Run Reports, or the entire source tree by default. If the Task requires a public API, schema, persistence, dependency, permission, security, privacy, or new product decision that was not authorized, the Worker stops and returns the decision to Discussion.
+
+At closeout it runs prescribed validation, creates one immutable Run Report, records project-memory impact, moves the work to a real terminal state, makes a bounded commit unless told otherwise, and releases its Claim.
+
+## Integration and completion
+
+Every Worker terminal event enters `integration_pending`.
+
+For a safe result, Discussion-local Integration obtains a lease, merges without committing first, checks the Run Report and affected files, runs combined validation, updates shared project state, rewrites `reports/PROJECT_STATUS.md`, and creates the integration commit.
+
+The user is not asked “should I start integration?” twice. A question appears only when a concrete conflict, risk, compatibility choice, or product decision needs human judgment.
+
+If Discussion is not active when the Worker finishes, Claim release writes one pending notification in the Git-common runtime. Discussion consumes it on the next SessionStart, prompt, or explicit status refresh. WishGraph does not use a daemon, terminal polling, cross-window IPC, or automatic popup.
+
+## Continue in another window or host
+
+No prompt migration is required.
+
+In a new window on the same project:
+
+```text
+Start discussion
+```
+
+In an already active Discussion:
+
+```text
+Refresh project status
+```
+
+When changing from Codex to Claude Code or back, install or repair the current host's Skill and project adapter, reopen the session, and use the same command. Durable project state is shared; host-specific thread/session IDs are not.
+
+## Revisions and Worker reuse
+
+A clear low-risk correction linked to an existing Task uses `tasks/revisions/<task-id>-rN.md`. It records only the parent Task, exact request, allowed scope, targeted validation, state, and report path.
+
+A Worker thread may be reused after its old work is terminal, its old Claim is released, old scope is cleared, and a fresh Claim binds the new Task or Revision. One Worker can hold only one active work unit at a time.
+
+Any API, schema, persistence, migration, dependency, permission, security, privacy, or new product decision becomes a formal follow-up Task.
+
+## Existing-project file policy
+
+WishGraph uses native-lite adoption by default:
+
+- Reuse an existing product spec instead of creating a competing `PRD.md`.
+- Reuse existing architecture, code-map, conventions, issue, Task, and test sources when they already own the truth.
+- Add a compact `reports/PROJECT_STATUS.md` and Discussion/Worker entry state only when missing.
+- Create Task, Revision, and Run Report directories when first needed.
+- Keep current status as a rewritten snapshot; keep history in immutable reports and Git.
+
+The standard file names are defaults, not a demand to duplicate good project documentation.
+
+## Maintenance and recovery
+
+Normal users can use these natural-language requests:
+
+| Request | Effect |
+| --- | --- |
+| `Check WishGraph status` | Fixed-path, read-only Doctor check. It does not scan business source. |
+| `Update this project's WishGraph` | Fingerprint-verified, atomic runtime upgrade with rollback. |
+| `Repair WishGraph hooks for this host` | Repairs only the active host adapter and preserves unrelated Hooks. |
+
+If `Start discussion` does not respond after reopening the session, run Doctor first. Check `/hooks` in Codex only when host invocation remains unverified; Claude Code CLI users may additionally run `claude doctor`.
+
+Updating a global Skill does not silently rewrite project-local `.wishgraph/hooks/`. Use the safe project update path for an existing runtime. Locally modified or unknown generated files stop for review instead of being overwritten.
+
+## Strict mode
+
+Start with `warn`. After one clean end-to-end closeout, optionally enable blocking checks:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- codex --setup-project
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- codex --setup-project --strict
 ```
 
-The lower-level installer remains available for an explicit custom-path or dual-host setup:
+Use `claude-user` for Claude Code. On PowerShell, add `-Strict`.
 
-```bash
-python3 skills/wishgraph/scripts/install_project_hooks.py \
-  --target /path/to/project \
-  --host all \
-  --mode warn
-```
+Strict setup enables `enforce` and requests a Git pre-commit fallback. The installer never overwrites an existing Git hook; it reports how to chain it instead.
 
-Normal setup installs only the current host adapter. Use `--host all` only when the user deliberately wants both project adapters; maintenance and automatic recovery repair the current host only.
-
-The hooks route exact natural-language entry commands, check pending state at session start, gate supported write/build tools before use, check staged memory before `git commit`, and check worktree memory before an agent stops. Start in `warn`; switch `.wishgraph/config.json` to `enforce` after one successful closeout. Codex users must trust the project and review the new definitions with `/hooks`.
-
-To switch in one command, re-run the top-level installer with `--setup-project --strict`. Strict mode also requests a Git pre-commit fallback and will not overwrite an existing Git hook.
-
-Hooks do not write PRD, architecture, CODEMAP, Project Status, or handoff prose. Workers record Integrate or N/A in task-scoped Run Reports; the Discussion-local Integration lease holder applies shared updates and records Updated or N/A in `reports/PROJECT_STATUS.md`. A selected `Integrate` proposal mechanically requires `Updated` plus the corresponding file in the integration diff, so a small PRD decision change cannot be silently recorded as N/A.
-
-The read-only command `python3 .wishgraph/hooks/memory_sync.py status` defaults to a compact active view and reads only current candidate reports across refs. Use `status --task 012` for one exact Task and `status --full` only for historical diagnosis. Hooks do not start hidden Workers or create Integration windows.
-
-Normal setup does not require diagnostic commands. If `开始讨论` does not respond after reopening the session, say `检查 WishGraph 状态` for the fixed-path, read-only Doctor. It distinguishes current files from recently observed host execution. Codex users are routed to `/hooks` only when execution is unverified; Claude Code CLI users may additionally run `claude doctor`. For maintenance, `更新这个项目的 WishGraph` performs an atomic safe upgrade, while `修复当前宿主的 WishGraph Hooks` repairs only the selected host and retains unrelated handlers.
-
-## 3. Use The Foreground Discussion Workflow
-
-### Discussion AI Window
-
-After the project has been explicitly enabled, reopen the current Agent session and say `开始讨论` / `Start discussion`. The prompt hook enters Discussion and loads only the compact handoff, current integrated snapshot, and active status. New windows remain neutral by default. In projects without an active `.wishgraph/config.json`, the same phrase remains ordinary conversation. Say `刷新项目状态` / `Refresh project status` to refresh active state; detailed PRD, architecture, CODEMAP, old reports, and unrelated Tasks are loaded only when the current question requires them.
-
-Use it to:
-
-- Discuss user intent.
-- Update or refine the PRD.
-- Decide the next task boundary.
-- Write `tasks/build/*.md` execution specs.
-- Read execution reports.
-- Read the latest integrated overview before presenting completed results.
-- Decide the next discussion direction.
-- Capture user dissatisfaction and turn it into a follow-up task or spec update.
-- Classify proposed work as discussion, sequential, parallel_batch, or high_risk and explain the recommendation.
-- Present completed, waiting, and blocked workers plus pending integration and one next action.
-
-Discussion never edits business code, installs implementation dependencies, or runs Worker implementation validation. Those operations require a separate Worker with a bound Claim; there is no direct-edit exception. Discussion-local Integration may run only the merge and combined validation authorized by its bound Integration lease.
-
-Task IDs are exact structured identifiers such as `012`, `012a`, and `012aa`; readable slugs stay in filenames. Compact commands such as `执行012b` are accepted alongside explicit forms such as `执行012b号任务`; you can also say `查看012号任务` or `查看012系列任务`. Exact execution never prefix-matches a follow-up. A retry keeps `012`, increments its attempt, and writes a new report instead of allocating `012a`.
-
-You can also say `停止012号任务`, `重新执行012号任务`, `接管012号任务`, or `让两个 Agent 分别执行012，最后比较谁做得好`. Stop/takeover preserves prior evidence and requires explicit Claim revocation; competitive execution creates isolated candidates and integrates exactly one winner. Existing `micro` work units remain readable, but they still execute in a separate claimed Worker; Discussion never implements them directly.
-
-WishGraph controls token use by keeping neutral windows role-free, loading only the current dynamic Discussion state, limiting each Worker to its prompt, Task Spec, and necessary code, and limiting Integration to selected reports plus affected shared state. Refresh does not reload a full stable prompt. Historical detail stays in immutable Run Reports and Git; completion callbacks are used only when the host truly supports them, otherwise progress appears on the next explicit Discussion entry or refresh.
-
-If you want to move the discussion into another AI window, ask:
-
-```text
-请迁移讨论窗口，把当前讨论提示词完整显示出来供我复制。
-```
-
-The discussion AI should update `prompts/DISCUSSION_AI.md` first, then print the full prompt.
-
-### Worker Window
-
-Use it to:
-
-- Read `prompts/EXECUTION_AI.md`.
-- Read the assigned task spec.
-- Implement only that task.
-- Run validation.
-- Create one immutable `reports/runs/<work-unit-id>.md`.
-- Propose shared-memory updates without editing shared files.
-- Make one atomic commit per task unless the user explicitly says not to commit.
-
-The Worker should not redesign the feature. If the Task Spec is wrong, it stops and reports the conflict.
-
-Workers do not start before authorization or as hidden substitutes for an inspectable execution surface. After authorization, WishGraph prepares the route and asks the active host to realize it; Hooks never create Agents. Codex prefers a user-visible custom-Agent thread from `.codex/agents/wishgraph-worker.toml`; Claude Code CLI prefers its native background session with the managed `wishgraph-worker` Agent only after capability, worktree, Task, and `HEAD` checks pass. Codex App/IDE surfaces the thread and CLI users can switch with `/agent`; Claude users can inspect background work with `claude agents`. `/tasks` only views current-session Claude background work and does not create a WishGraph Task. Explorer, Reviewer, Plan, `/fork`, and hidden agents are Helpers, not Formal Workers. If native launch is unavailable, Discussion outputs only `执行 <task-id> 任务`. The user does not edit project-memory or integration files.
-
-The Formal Worker is not considered created until a real stable thread/session ID is persisted. The Task is not considered `running` until execution preflight and Claim acquisition succeed. A `claude --bg` return value or a natural-language “done” message is insufficient evidence.
-
-### Discussion-Local Integration Phase
-
-After every Worker terminal event, enter `integration_pending` and evaluate the result. For a safe result, Discussion temporarily enters Integration while holding a bound Integration lease. It merges without committing, reads approved run reports, resolves permitted conflicts, updates shared memory, rewrites the current Project Status, refreshes the discussion handoff, validates, creates the integration commit, and returns to result presentation. Integration is not a separate window or permanent role.
-
-For one safe sequential task, approving the Task also authorizes normal integration after all validation, scope, conflict, decision, rollback, and target-worktree gates pass. Do not ask twice. A `parallel_independent` batch also integrates silently when every expected Worker is terminal and overlap, dependency, interface, risk, merge, and combined-validation gates are mechanically clear. High-risk, conflicting, competitive, or ambiguous results enter `decision_required`; missing reports, failed validation, or inconsistent terminal state become `blocked` or `incomplete`.
-
-If Discussion is not active when a Worker finishes, Claim release writes one pending notification beside the shared Git runtime. The bound Discussion consumes and marks it read on SessionStart or its next prompt; after a host switch, explicit Discussion entry or status refresh adopts it. There is no daemon, terminal polling, IPC service, or popup. Ask the user only for a concrete risk, conflict, compatibility, or product decision; never ask whether to start integration.
-
-After the PRD and first Task are ready, Discussion states the work type, explains the sequential or parallel recommendation, names the ready Task files, and asks:
-
-```text
-Task 012 is ready. Authorize its Worker launch?
-```
-
-The user can reply:
-
-```text
-执行 012 任务
-```
-
-For a ready parallel batch, one explicit batch command can authorize exactly the listed Workers:
-
-```text
-为 012、013、014 分别启动 Worker
-```
-
-The discussion Agent then asks the current host to create one user-visible and inspectable thread per authorized Worker, provides the bounded execution payload, prefers an isolated branch or worktree, and requests the title `<task-id> · <short title> · WG Worker`. Only a real returned thread/session ID may be persisted as created. This is still explicit execution: the Agent cannot create a Worker before the human command, cannot create unlisted Workers, and cannot substitute hidden subagents.
-
-If the current platform cannot create user-visible tasks, or a creation attempt fails, Discussion outputs exactly one line and stops:
-
-```text
-执行 <task-id> 任务
-```
-
-In a neutral window, that exact command enters the Worker role after all Task and Claim gates pass. Hooks never launch Workers.
-
-## 4. Worker And Integration Loop
-
-The normal loop is:
-
-```text
-Human intent
--> Discussion AI updates PRD / roadmap / current state
--> Discussion AI writes task spec
--> Discussion AI explains discussion / sequential / parallel_batch / high_risk
--> Human explicitly authorizes creation of the named Worker task(s)
--> Host Adapter prepares the authorized route and the active host creates inspectable Worker thread(s) when supported
--> WishGraph persists only real returned thread/session IDs; otherwise it shows the one-line manual command
--> Worker AI implements task spec in an isolated branch or worktree
--> Worker AI validates and creates an immutable run report
--> Worker terminal event creates integration_pending
--> Discussion-local Integration evaluates and safely integrates with a lease
--> Integration rewrites PROJECT_STATUS and refreshes the concise discussion handoff
--> Risk or conflict becomes one concrete decision_required question
--> Discussion presents the result
--> Human reviews the result and decides next direction or correction
-```
-
-If a single execution result is unsatisfactory, keep the correction in the discussion window. The discussion AI should decide whether the fix is:
-
-- A task-spec clarification.
-- A PRD update.
-- A dependency or architecture update.
-- A CODEMAP update.
-- A small follow-up task.
-- A rollback or repair task.
-
-## 5. External Memory Must Stay Current
-
-Workers review shared-memory impact but do not edit shared project truth. They record Integrate or N/A in their own run report. The Discussion-local Integration phase applies the proposals, updates shared files, and records Updated or N/A in Project Status.
-
-Update these files when relevant:
-
-- `PRD.md`: product goal, scope, roadmap, user-visible behavior, accepted tradeoffs.
-- `ARCHITECTURE.md`: dependency direction, module ownership, service boundaries, data flow.
-- `CODEMAP.md`: feature status, file locations, public contracts, runtime probes.
-- `CONVENTIONS.md`: workflow rules, validation rules, git rules, memory update obligations.
-- `prompts/DISCUSSION_AI.md`: current progress, active task, next likely task, open decisions, known risks.
-- `tasks/build/*.md`: task status and execution-relevant corrections. Existing `.tasks/build/*.md` projects remain supported.
-- `reports/runs/<work-unit-id>.md`: worker facts, validation, risk, and integration proposals.
-- `reports/PROJECT_STATUS.md`: current integrated results, validation, unresolved items, Worker state, and next recommendation.
-- `.wishgraph/config.json`: hook mode and machine-readable closeout paths when hooks are installed.
-
-If an agent cannot update a required file, it must say so and provide the exact text that should be added.
-
-## 6. First Task Recommendation
-
-For an existing project, first map existing authoritative files and create only the missing entry state. Do not create a bootstrap Task merely to prove WishGraph is installed. Use a tracked governance setup Task only when repository inspection shows real setup work that needs its own scope, validation, and audit trail:
-
-```text
-001-wishgraph-bootstrap
-```
-
-When needed, it creates only the missing external-memory pieces, summarizes current structure, and defines the first real implementation Task. Otherwise, Discussion can write the first bounded implementation Task directly after the project frame is clear.
-
-For a new project, the first discussion should grill the idea into PRD and architecture before code. The first tracked task can be:
-
-```text
-001-bootstrap-project
-```
-
-The first implementation task should usually be `002-*`, written only after the PRD is clear enough.
-
-## 7. Success Criteria
+## First-run success checklist
 
 WishGraph is working when:
 
-- A fresh discussion AI can understand current project status by reading files.
-- A fresh Worker can implement a Task without chat history.
-- Every completed task leaves validation evidence.
-- PRD, architecture, CODEMAP, prompts, task status, and reports stay synchronized.
-- The user can correct direction in the discussion window and have that correction become durable project memory.
-- When hooks are enabled, an unsynchronized commit or completion boundary is detected before the work is reported as done.
+- `Start discussion` enters Discussion only in the enabled project.
+- A fresh Discussion understands current state without full-tree scanning.
+- An exact execution command creates or routes a separate inspectable Worker.
+- The Worker cannot write or build before Claim acquisition.
+- One immutable Run Report records the real validation result.
+- Safe Integration updates affected project facts and rewrites current status.
+- A new window can continue with `Start discussion`, without copied chat or prompt text.
+
+For implementation details, see [External-Memory Hooks](docs/memory-sync-hooks.md), the [state-machine specification](docs/orchestration-state-machine.md), and the [Claude Code adapter](adapters/claude-code/README.md).

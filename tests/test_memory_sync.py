@@ -6449,13 +6449,36 @@ class TemplateMirrorTests(unittest.TestCase):
 
         for content in (readme_en, readme_zh, state_machine):
             self.assertIn("claude --bg --agent wishgraph-worker", content)
-            self.assertIn("thread ID", content)
             self.assertIn("Claim", content)
-        self.assertIn("Hooks never create Agents", getting_started)
+        self.assertIn("thread/session ID", readme_en)
+        self.assertIn("thread/session ID", readme_zh)
+        self.assertIn("thread ID", state_machine)
+        self.assertIn("Authorization does not let Discussion implement", getting_started)
+        for heading in (
+            "## The framework",
+            "## One-minute tour",
+            "## Install in 60 seconds",
+            "## FAQ",
+            "## Safety boundaries",
+            "## Go deeper",
+        ):
+            self.assertIn(heading, readme_en)
+        for heading in (
+            "## 整体框架",
+            "## 一分钟看懂一次完整流程",
+            "## 60 秒安装",
+            "## 常见问题",
+            "## 安全边界",
+            "## 继续深入",
+        ):
+            self.assertIn(heading, readme_zh)
         self.assertIn("Role-Specific Read Scope", claude_adapter)
         self.assertIn("complete source tree", claude_adapter)
         self.assertIn("supplies no native Worker creation", generic_adapter)
         self.assertIn("managed background Agent is allowed", conventions)
+        self.assertIn("No prompt migration is required", getting_started)
+        self.assertNotIn("output the full prompt for copying", claude_adapter)
+        self.assertNotIn("full prompt for manual transfer", conventions)
         self.assertNotIn("Never start workers in the background by default", conventions)
         self.assertNotIn("运行时配置版本为 10", state_machine)
 

@@ -1,34 +1,27 @@
-# Docs / 文档
+# WishGraph Documentation / 文档
 
-This folder contains public-facing method notes and workflow explanations for WishGraph.
+Start with the repository homepage. The files below move from normal use to implementation detail; ordinary users do not need to read them all.
 
-本目录包含 WishGraph 的公开方法论说明和工作流解释。
+请先从仓库首页开始。下面的文档从普通使用逐步深入到实现细节，普通用户不需要全部阅读。
 
-## Method / 方法论
+## Start here / 从这里开始
 
-- 中文：[`wishgraph-method.md`](wishgraph-method.md)
-- English: [`wishgraph-method.en.md`](wishgraph-method.en.md)
+- Overview: [English README](../README.md) · [中文首页](../README.zh-CN.md)
+- First complete run: [Getting Started](../GETTING_STARTED.md) · [中文上手指南](../GETTING_STARTED.zh-CN.md)
+- Claude Code CLI: [English](../adapters/claude-code/README.md) · [中文](../adapters/claude-code/README.zh-CN.md)
 
-## Intent Compiler / 意图编译器
+## Understand the idea / 理解方法
 
-- English: [`intent-compiler.md`](intent-compiler.md)
-- 中文：[`intent-compiler.zh-CN.md`](intent-compiler.zh-CN.md)
+- WishGraph method: [English](wishgraph-method.en.md) · [中文](wishgraph-method.md)
+- Intent compiler: [English](intent-compiler.md) · [中文](intent-compiler.zh-CN.md)
+- Anti-black-box Agent engineering: [English](anti-blackbox-agent-engineering.md) · [中文](anti-blackbox-agent-engineering.zh-CN.md)
+- Desensitized project example: [English](paperchat-desensitized-workflow.md) · [中文](paperchat-desensitized-workflow.zh-CN.md)
 
-## Anti-Black-Box Agent Engineering / 反黑箱 Agent 工程
+## Protocol and safety / 协议与安全
 
-- English: [`anti-blackbox-agent-engineering.md`](anti-blackbox-agent-engineering.md)
-- 中文：[`anti-blackbox-agent-engineering.zh-CN.md`](anti-blackbox-agent-engineering.zh-CN.md)
+- Roles, states, commands, and host behavior: [Orchestration state machine](orchestration-state-machine.md)
+- Hooks, gates, installation details, performance, and host limits: [English](memory-sync-hooks.md) · [中文](memory-sync-hooks.zh-CN.md)
 
-## Desensitized Workflow Example / 脱敏工作流示例
+The installable Skill keeps detailed operational rules in `skills/wishgraph/references/`. Agents load those references on demand; they are not a reading list for users.
 
-- English: [`paperchat-desensitized-workflow.md`](paperchat-desensitized-workflow.md)
-- 中文：[`paperchat-desensitized-workflow.zh-CN.md`](paperchat-desensitized-workflow.zh-CN.md)
-
-## External-Memory Hooks / 外置记忆 Hooks
-
-- English: [`memory-sync-hooks.md`](memory-sync-hooks.md)
-- 中文：[`memory-sync-hooks.zh-CN.md`](memory-sync-hooks.zh-CN.md)
-
-## Orchestration State Machine / 编排状态机
-
-- 中文规范：[`orchestration-state-machine.md`](orchestration-state-machine.md)
+可安装 Skill 的详细运行规则位于 `skills/wishgraph/references/`。Agent 会按当前任务选择读取，用户不需要把它们当作必读清单。

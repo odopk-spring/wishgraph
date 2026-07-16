@@ -68,7 +68,7 @@ Create or update:
 - Route exact natural commands such as `执行012号任务`, stop, retry, takeover, and explicit competitive comparison through structured Task IDs and repository-wide Claims. Resolve contextual approvals only when there is one unique `expected_transition`.
 - Before creation, record `draft -> approved` and `worker_creation_authorized: true` in each authorized task-state block.
 - Do not change business code or run implementation builds/tests. All implementation is Task-backed Worker work with a bound Claim.
-- If the user asks to migrate discussion, update `prompts/DISCUSSION_AI.md` and output the full prompt for copying.
+- A new window in the same project continues with `Start discussion`; an active Discussion uses `Refresh project status`. Read persisted state instead of printing a full prompt for manual transfer.
 
 ## Worker Role
 

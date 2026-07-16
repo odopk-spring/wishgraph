@@ -95,7 +95,7 @@ reports/PROJECT_STATUS.md
 
 ### prompts/DISCUSSION_AI.md
 
-保存当前规划状态。当用户说“迁移讨论窗口”时，讨论 AI 先更新这个文件，再打印完整内容供复制。
+保存当前规划状态。换窗口继续前，讨论 AI 更新这里的精简交接；新窗口打开同一项目后输入“开始讨论”，无需复制完整提示词。
 
 ### prompts/EXECUTION_AI.md
 

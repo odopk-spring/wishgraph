@@ -81,9 +81,9 @@ Responsibilities:
 
 - `prompts/DISCUSSION_AI.md` is concise mutable discussion state. Discussion maintains it during planning and after human review; Discussion-local Integration refreshes it after absorbing Worker reports.
 - `prompts/EXECUTION_AI.md` is stable. It tells a Worker how to start, what files to read, and how to verify. Do not pack task-specific requirements into it; those belong in `tasks/build/*.md`.
-- Users should be able to paste either prompt into any agent interface and get a coherent continuation without relying on previous chat context.
+- A new supported Agent window should continue from project files after `Start discussion`; users should not need to copy a full prompt or previous chat.
 - Keep project memory in the language chosen by the user. If bilingual output is requested, write key user-facing explanations in Chinese first, then English. Do not translate file paths, commands, code identifiers, symbols, routes, package names, or environment variables.
-- If the user asks to migrate or continue the discussion in another window, update `prompts/DISCUSSION_AI.md` and output its full content for copying.
+- Before another window continues, keep the concise state in `prompts/DISCUSSION_AI.md` current. The new window uses `Start discussion`; an active Discussion uses `Refresh project status`.
 
 ## Orchestration State
 

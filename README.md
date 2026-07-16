@@ -9,81 +9,103 @@
 ![Claude Code](https://img.shields.io/badge/agent-Claude%20Code-172033)
 ![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-14A878)
 
-**Durable project memory and execution boundaries for AI coding agents.**
+**Let AI move fast without turning the project into a mystery.**
 
-WishGraph records product intent, architecture, task scope, execution evidence, and the latest project state in the repository. Codex and Claude Code can then resume from compact, shared facts instead of treating chat history—or a fresh scan of the entire source tree—as project memory.
+As coding agents get stronger, projects can become harder to understand: a small request spreads across more files, a new window needs the whole story again, and every handoff starts with another code scan and progress summary.
 
-![Discuss, run a visible Worker, integrate, and discuss again](docs/assets/wishgraph-simple-loop-en.svg)
-
-[Start in 60 seconds](#start-in-60-seconds) · [Understand the workflow](#one-project-three-responsibilities) · [Browse the docs](docs/README.md) · [中文说明](README.zh-CN.md)
-
-> WishGraph is opt-in per project. Installing the Skill makes it available globally; a project remains an ordinary agent project until you explicitly enable WishGraph there.
-
-First use stays the same on every supported host:
+WishGraph adds a clear project interface between natural language and code. It turns an open-ended wish into a bounded task, constrains execution, and writes verified results back into current project state:
 
 ```text
-1. Enable WishGraph in the project
-2. Reopen the current Agent session
-3. Say: Start discussion
+Wish → Spec → Task → Worker → Validation → Run Report → Integration → Current State
 ```
 
-## What using it feels like
+Goals, architecture, tasks, evidence, and progress live in the repository instead of one chat. You keep speaking naturally; Codex and Claude Code continue from the same compact facts.
 
-After enabling WishGraph in a project, the normal entry points are short natural-language commands:
+![Discuss, execute, integrate, and continue](docs/assets/wishgraph-simple-loop-en.svg)
+
+[See one complete run](#one-minute-tour) · [Install in 60 seconds](#install-in-60-seconds) · [FAQ](#faq) · [Safety boundaries](#safety-boundaries) · [Detailed docs](#go-deeper)
+
+## The framework
+
+WishGraph is not about making every agent read more documentation. Each phase reads only what it needs.
+
+| Part | Responsibility |
+| --- | --- |
+| **Project memory** | Keeps product rules, architecture, code locations, and current state without storing whole chat transcripts. |
+| **Discussion** | Clarifies intent, sets boundaries, and writes Tasks. It does not implement business code. |
+| **Worker** | Executes one authorized Task in an independent, inspectable Agent thread or window and leaves validation evidence. |
+| **Integration** | Evaluates the result inside Discussion and updates shared state. It proceeds automatically when safe and asks only for a material decision. |
+
+The default read scope stays small:
+
+- Discussion starts with the concise handoff, `reports/PROJECT_STATUS.md`, and active state.
+- A Worker reads its exact Task or Revision, execution rules, necessary status, and source files inside scope.
+- Integration reads this run's reports and only the shared files they actually affect.
+
+Historical reports remain available without accumulating in the current-state file or being reread at every start.
+
+> WishGraph is opt-in per project. A global Skill installation means “available,” not “active in every folder.”
+
+## One-minute tour
+
+Suppose you want to add dark mode to a reading screen.
+
+### 1. Start the discussion
+
+In a project where WishGraph is already enabled, say:
 
 ```text
-Start discussion.
-Execute task 012.
-Refresh project status.
+Start discussion
 ```
 
-- **Start discussion** loads the compact current-state entry points and opens planning.
-- **Execute task 012** authorizes and routes that exact Task. The Host Adapter then attempts the best Formal Worker container the current host can actually provide.
-- **Refresh project status** reads the current project snapshot and relevant terminal reports; it does not traverse the whole source tree by default.
+Then speak normally: “I want dark mode on the reading screen.” Discussion uses current project state to ask only the questions that change the outcome—reading screen or whole app, system-controlled or manual, and what proves the feature works.
 
-Low-risk English entry aliases are also accepted, including `Begin discussion`, `Open discussion`, `Enter discussion mode`, `Continue discussion`, `Resume discussion mode`, `Check project status`, `Update project status`, and `Reload project status`.
+Once the boundary is clear, it creates a self-contained Task such as `012b`, including scope, non-goals, allowed files, and validation.
 
-Clear, low-risk feedback such as “change this button to warm gray” becomes a lightweight Revision of the original Task. A Worker thread or window can also be reused after it releases the old Task and binds a new Claim. Small corrections stay small without losing validation or history.
+### 2. Authorize execution
 
-What happens after authorization is host-dependent, but the fallback is always truthful:
-
-| Host | Preferred Formal Worker | When the native container is accepted |
-| --- | --- | --- |
-| Codex App / CLI / IDE | Project `wishgraph-worker` custom Agent in an inspectable agent thread | The host has returned a real thread ID and WishGraph has registered it |
-| Claude Code CLI | `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"` in an isolated worktree | A stable Claude session ID has been saved |
-| Unsupported or unavailable native route | User opens an inspectable execution session from the one-line command | The new session passes Task preflight and acquires its Claim |
-
-The Hook prepares and records routes; it never creates Codex agents. Claude background launch is performed by the Host Adapter only when the managed Agent, `agents --json`, worktree runtime, authorized Task, and current `HEAD` are compatible. Any failed native route prints exactly `执行 <task-id> 任务`; it never turns Discussion into the implementer.
-
-In every host, business work starts only after the Worker passes exact preflight and acquires its Claim.
-
-## Start in 60 seconds
-
-### Codex
-
-Ask Codex to install the Skill:
+Say:
 
 ```text
-Use $skill-installer to install https://github.com/odopk-spring/wishgraph/tree/main/skills/wishgraph
+Execute task 012b
 ```
 
-Then open the target project and enable it:
+WishGraph lets the current host choose the best inspectable Worker it can genuinely provide:
 
-```text
-Use WishGraph for this project.
-```
+- If the host supports a native Agent thread or background session, it creates an independent Worker and saves the real thread/session ID.
+- If native creation is unavailable or fails, Discussion prints one line—`执行 012b 任务`—for you to enter in a new execution window.
 
-Reopen the Codex session and say `Start discussion`.
+The Worker changes code only after exact Task preflight and Claim acquisition. It does not read unrelated Tasks, all historical reports, or the complete source tree.
 
-To install the Skill and safe project Hooks from a terminal instead:
+### 3. Validate and update the project
+
+The Worker writes an immutable Run Report describing the patch, checks, and remaining risk. On its next activation, Discussion receives a completion reminder and enters local Integration:
+
+- Complete evidence and no conflict: integrate and refresh current project state automatically.
+- Missing report or failed validation: mark the work blocked instead of pretending it is done.
+- Public API, product, or conflict decision: ask only that concrete question.
+
+When you later switch windows, models, or even between Codex and Claude Code, there is no full prompt to copy. Open the same Git project and say `Start discussion`; the new agent resumes from project files.
+
+### 4. Keep small changes small
+
+Feedback such as “I dislike this blue; make it warm gray” becomes a lightweight Revision of the original Task, not another long spec. It becomes a formal follow-up Task only when it reaches a public API, schema, persistence, dependency, security boundary, or new product decision.
+
+## Install in 60 seconds
+
+WishGraph requires Git and Python 3.9+ and installs no Python packages. These commands install the Skill and enable safe-mode Hooks in the **current Git project**.
+
+### Codex · macOS / Linux
+
+Run inside the target project:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- codex --setup-project
 ```
 
-### Claude Code
+### Claude Code CLI · macOS / Linux
 
-Run this inside the target project, reopen the Claude Code CLI session, and say `Start discussion`:
+Run inside the target project:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- claude-user --setup-project
@@ -91,85 +113,129 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 
 ### Windows PowerShell
 
+Codex:
+
 ```powershell
 & ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) codex -SetupProject
 ```
 
-Safe setup uses `warn` mode and does not block commits. After one successful end-to-end run, enable strict checks with `--strict` on Bash or `-Strict` on PowerShell. See [Getting Started](GETTING_STARTED.md) for other installation targets and recovery steps.
+Claude Code:
 
-If `Start discussion` does not respond after reopening the session, run WishGraph Doctor. Claude Code CLI users may additionally run `claude doctor`. These are troubleshooting steps, not part of normal setup.
+```powershell
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
+```
 
-## One project, three responsibilities
+After installation:
 
-| Responsibility | Where it runs | What it does |
-| --- | --- | --- |
-| **Discussion** | Long-lived user-facing window | Clarifies intent, creates bounded Task Specs, authorizes routing, integrates results, and presents decisions. It does not implement business code. |
-| **Worker** | Separate user-visible and inspectable Agent thread or window | Claims one Task or Revision, changes only its allowed scope, validates the result, and writes an immutable Run Report. |
-| **Integration** | Temporary phase inside Discussion | Evaluates terminal reports, runs combined checks, updates shared project state, and asks only when a material product or risk decision is required. |
+```text
+1. Reopen the current Agent session
+2. Say: Start discussion
+```
 
-Integration is a phase, not a hidden agent or a fourth window. If Discussion is inactive when a Worker finishes, WishGraph writes one pending reminder beside the shared Git runtime. The bound Discussion consumes and marks it read on its next activation; after switching hosts, an explicit `Start discussion` or status refresh adopts it. This uses no daemon, terminal polling, IPC service, or popup.
+The default `warn` mode reports problems without blocking completion or commits. After one successful full run, enable strict gates with `--strict` on Bash or `-Strict` on PowerShell if you want them.
 
-Codex prefers the project `wishgraph-worker` custom Agent in a visible, inspectable thread; Claude Code CLI prefers an inspectable native background session through its managed Agent. Explorer, Reviewer, Plan, `/fork`, and hidden agents remain read-only Helpers unless every Formal Worker condition is satisfied. If native creation is absent or fails, WishGraph prints only `执行 012 任务` and Discussion stops execution.
+For an Agent-guided setup, install this repository's `skills/wishgraph` with `$skill-installer` in Codex, or invoke `/wishgraph` after installing it in Claude Code, then say:
 
-## The files humans and agents share
+```text
+Use WishGraph for this project.
+```
 
-| Entry point | Purpose |
+See [Getting Started](GETTING_STARTED.md) for existing-project adoption, other install modes, and recovery.
+
+## FAQ
+
+### Does installing the Skill activate WishGraph in every project?
+
+No. The Skill may be global, but every project must opt in explicitly. In an inactive project, `Start discussion` is ordinary text and does not create files or enter the workflow.
+
+### Do I need to copy a migration prompt when I change windows or agents?
+
+No. WishGraph handoff state lives in project files and the Git-common runtime, not in the previous conversation. Open the same project and say `Start discussion`. When switching hosts, install or repair only the current host's Skill and project adapter. Copying a full prompt is not the normal handoff and is not a Claude Code migration requirement.
+
+### What do the three common commands mean?
+
+- `Start discussion` moves the current neutral window into Discussion and loads compact current state.
+- `Execute task 012` authorizes and routes exactly Task `012`; it never prefix-matches `012b` or `012ba`.
+- `Refresh project status` refreshes active state and relevant terminal evidence without scanning the whole source tree or report history by default.
+
+### Is the Codex experience identical to Claude Code?
+
+The user commands and project state are the same; the Worker container is host-specific. Codex prefers the project `wishgraph-worker` when the current surface supports an inspectable Agent thread. Claude Code CLI uses the following command only after capability, managed-Agent, worktree, authorization, and current-`HEAD` checks pass:
+
+```text
+claude --bg --agent wishgraph-worker "执行 <task-id> 任务"
+```
+
+Any failed native launch falls back to the one-line execution command. It never authorizes Discussion to implement the Task.
+
+### Does a completed background Worker pop up the Discussion window?
+
+No. WishGraph runs no daemon, terminal polling loop, or cross-window IPC service. A normal Worker closeout writes a pending notification; Discussion consumes it on the next SessionStart, prompt, or explicit refresh.
+
+### Will WishGraph fill my repository with process files?
+
+Existing repositories use native-lite adoption by default: reuse current README, product, architecture, conventions, and tests, then add only missing entry state. Task, Revision, and report directories appear when first needed. Immutable history stays in Run Reports while `PROJECT_STATUS.md` remains a current snapshot.
+
+### Does every small correction need a full Task?
+
+No. A clear, low-risk correction linked to the original Task uses a lightweight Revision. Public API, schema, persistence, dependency, permission, security, privacy, or new product decisions return to Discussion as a formal Task.
+
+### Can I switch between Codex and Claude Code?
+
+Yes. PRDs, Tasks, reports, and project state are portable inside the Git project. Host thread/session IDs are not shared across platforms, so the new agent establishes its own valid Worker binding and Claim before execution.
+
+### Is WishGraph a sandbox?
+
+No. Hooks can gate writes, builds, commits, and lifecycle events exposed by the host, but they do not replace operating-system permissions or container isolation. Complete read interception also depends on host capabilities.
+
+## Safety boundaries
+
+- **Explicit authority:** a Formal Worker must be bound to one exact Task or Revision; vague conversation does not grant execution authority.
+- **Role separation:** Discussion handles planning, Tasks, Integration, and presentation. It does not implement business code or run Worker validation.
+- **Bound Claims:** business writes and builds require a Claim bound to Task, session, branch, absolute worktree, scope, and validation plan.
+- **Inspectable Workers:** only an Agent with a stable thread/session ID, independent context, and inspect/stop/steer controls can become a Formal Worker. Hidden subagents remain Helpers.
+- **Single-writer project state:** Workers propose shared updates in Run Reports; only Discussion-local Integration with a bound lease updates shared project truth.
+- **Evidence-based completion:** a natural-language “done” message is insufficient. Task state, Run Report, validation, and Claim closeout must agree.
+- **Local coordination boundary:** Claims coordinate worktrees sharing one local Git common directory; they are not distributed locks across machines.
+
+WishGraph is a **v0.1 public beta**. Automated tests cover installation, state transitions, Claims, Revisions, Codex/Claude Worker routing, notifications, and performance gates. Broader real-project and host-version testing is still required before calling it a stable v1.
+
+## Where project memory lives
+
+| File | Human meaning |
 | --- | --- |
-| `PRD.md` | Current goals, scope, roadmap, and product decisions |
-| `ARCHITECTURE.md` + `CODEMAP.md` | System boundaries and the map from features to source files |
-| `CONVENTIONS.md` | Collaboration, validation, and Git rules |
-| `tasks/build/*.md` | Bounded formal Tasks |
-| `tasks/revisions/*.md` | Small, parent-linked corrections such as `012-r1` |
-| `reports/runs/*.md` | Immutable Worker evidence |
-| `reports/PROJECT_STATUS.md` | Current integrated snapshot and the fastest human entry point |
+| `PRD.md` | Goals: what the project is doing, why, and what is out of scope. |
+| `ARCHITECTURE.md` | Structure: modules, dependencies, data flow, and boundaries. |
+| `CODEMAP.md` | Address book: where features, state, storage, and tests live. |
+| `CONVENTIONS.md` | Working rules: collaboration, validation, Git, and state writeback. |
+| `tasks/build/*.md` | Formal Tasks with scope, non-goals, validation, and rollback boundaries. |
+| `tasks/revisions/*.md` | Lightweight, low-risk corrections. |
+| `reports/runs/*.md` | Immutable Worker execution and validation evidence. |
+| `reports/PROJECT_STATUS.md` | Current dashboard: latest result, risk, active work, and next action. |
 
-Markdown carries human-readable meaning. Small versioned JSON blocks hold mechanical facts such as authorization, Claims, validation, and integration state. The latest-state file is rewritten as a current snapshot; execution history remains in immutable reports instead of accumulating as noise there.
+Existing projects do not need to create every file mechanically. WishGraph reuses native documents that already own the same truth.
 
-## Built-in maintenance
+## Go deeper
 
-In an enabled project, the Skill routes these requests to bounded maintenance actions:
-
-| Request | Result |
+| What you need | Document |
 | --- | --- |
-| `Check WishGraph status` | Read-only diagnosis of installed files and recently observed host execution |
-| `Update this project's WishGraph` | Fingerprint-verified safe runtime upgrade with rollback |
-| `Repair WishGraph hooks for this host` | Repairs only the current host adapter and preserves unrelated Hooks |
-
-Doctor distinguishes “configured correctly” from “recently invoked by this host.” If execution remains unverified, review Codex Hooks with `/hooks`; Claude Code CLI users can run `claude doctor`.
-
-## Safety and current limits
-
-- A Worker requires explicit human authorization and a live Claim bound to its Task, session, branch, worktree, scope, and validation plan.
-- Write/build gates cover supported native tools and recognized commands. Source-read enforcement remains host-capability dependent, and Hooks are not an operating-system sandbox.
-- Claims are atomic across local worktrees that share one Git common directory; they are not distributed locks across machines.
-- A normal Worker exit must release its Claim and persist the Discussion reminder. A forcibly killed host can bypass terminal Hooks; the next Discussion inspection then recovers from stale Claim or structured host-session evidence rather than a real-time push.
-- Safe results can integrate without asking “should I start integration?” Conflicts, public API changes, new product decisions, missing evidence, and other material risks return to Discussion as specific questions.
-- Hooks expose and enforce workflow state. They do not start Workers, merge code, or decide product meaning by themselves.
-
-WishGraph is a **v0.1 public beta**. The Skill validates, installation and runtime lifecycles have automated coverage, and both Codex and Claude Code paths are documented. Broader real-project and host-version testing is still needed before calling it a stable v1.
-
-## Explore the repository
-
-| Goal | Start here |
-| --- | --- |
-| Guided setup | [Getting Started](GETTING_STARTED.md) |
-| Method and concepts | [WishGraph Method](docs/wishgraph-method.en.md) |
-| State machine and role boundaries | [Orchestration state machine](docs/orchestration-state-machine.md) |
-| Hook protocol and host limits | [External-Memory Hooks](docs/memory-sync-hooks.md) |
-| Claude Code adaptation | [Claude Code adapter](adapters/claude-code/README.md) |
-| Manual templates | [Templates](templates/README.md) |
+| Installation through the first complete run | [Getting Started](GETTING_STARTED.md) |
+| Method and project-compression idea | [WishGraph Method](docs/wishgraph-method.en.md) |
+| Roles, states, and command parsing | [Orchestration state machine](docs/orchestration-state-machine.md) |
+| Hooks, gates, performance, and host limits | [External-Memory Hooks](docs/memory-sync-hooks.md) |
+| Current Claude Code CLI adaptation | [Claude Code adapter](adapters/claude-code/README.md) |
+| Hosts without native Skills | [Generic Agent adapter](adapters/generic/README.md) |
+| Repository templates | [Templates](templates/README.md) |
 
 ```text
 skills/wishgraph/   Installable Skill and bundled runtime
-templates/          English and Chinese project-memory templates
-adapters/           Claude Code and generic agent instructions
-docs/               Method, protocol, and workflow documentation
+templates/          Human-readable English and Chinese templates
+adapters/           Claude Code and generic Agent guidance
+docs/               Method, state machine, and Hook references
 scripts/            Bash and PowerShell installers
-tests/              Runtime and installer regression tests
+tests/              Installer and runtime regression tests
 ```
-
-WishGraph supports English, Simplified Chinese, and bilingual project memory. Commands, paths, identifiers, and structured state remain language-neutral.
 
 ## License
 
-WishGraph is released under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may download, study, modify, and redistribute it for noncommercial purposes. Commercial use requires separate written permission. This is a source-available noncommercial license, not an OSI open-source license.
+WishGraph uses the [PolyForm Noncommercial License 1.0.0](LICENSE). You may download, study, modify, and redistribute it for noncommercial purposes. Commercial use requires separate written permission. It is a source-available noncommercial license, not an OSI open-source license.

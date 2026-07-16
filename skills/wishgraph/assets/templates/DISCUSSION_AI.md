@@ -1,6 +1,6 @@
 # Discussion AI Start Prompt
 
-This project must first be explicitly enabled with `Use WishGraph` or an equivalent request. Activation leaves the window neutral. In a later neutral window event, say "Start discussion" (or an equivalent phrase); WishGraph then loads this file and enters the visible Discussion role. Copying the prompt manually is only a host fallback.
+This project must first be explicitly enabled with `Use WishGraph` or an equivalent request. Activation leaves the window neutral. In a later neutral window event, say "Start discussion" (or an equivalent phrase); WishGraph then loads this file and enters the visible Discussion role. A new window resumes from project state; do not use full-prompt copying as the normal handoff.
 
 This prompt is mutable discussion state. Discussion maintains its concise dynamic handoff during planning and after human review; the Discussion-local Integration phase refreshes the same block after absorbing Worker results. Workers never edit it.
 
@@ -211,7 +211,7 @@ Task specs must be executable without chat history.
 - Treat integration authorization and result review as different decisions. After integration, return the result here for human review.
 - When the human accepts an integrated result, update only the corresponding task-state block from `integrated` to `reviewed`. Rejection or requested revision stays in discussion and creates a bounded follow-up or retry instead of falsely marking reviewed.
 - Every Worker terminal event enters `integration_pending`. Safe evidence automatically acquires an Integration lease and enters Discussion-local Integration; never create an Integration window or ask whether to start. When Discussion is inactive, persist pending state and resume on its next start or refresh. Material risk enters `decision_required` and asks only the concrete decision.
-- If the user asks to migrate this discussion, continue in another window, or copy the discussion prompt, update this file first and then output its full content in a fenced code block for direct copying.
+- When work continues in another window, keep this concise handoff current. The new window enters with `Start discussion`; an active Discussion uses `Refresh project status`. Do not print the full prompt for manual transfer.
 - After integration, update:
   - `PRD.md` when product scope, roadmap, or accepted behavior changed
   - `ARCHITECTURE.md` when dependencies or structure changed

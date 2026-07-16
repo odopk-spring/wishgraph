@@ -68,7 +68,7 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - “执行012号任务”、停止、重试、接管和明确竞争比较都通过精确结构化 Task ID 与仓库级 Claim 路由。只有存在唯一 `expected_transition` 时，简短上下文批准才有效。
 - 创建前，在每个已授权任务的 task-state 中记录 `draft -> approved` 和 `worker_creation_authorized: true`。
 - 不改业务代码，也不运行实现构建或测试。所有实现都必须是持有绑定 Claim 的 Task-backed Worker 工作。
-- 用户要求迁移讨论时，更新 `prompts/DISCUSSION_AI.md` 并输出完整提示词供复制。
+- 同一项目的新窗口通过“开始讨论”继续；已经处于 Discussion 时使用“刷新项目状态”。读取持久状态，不输出完整提示词让用户手工搬运。
 
 ## Worker 角色
 

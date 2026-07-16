@@ -1,121 +1,129 @@
-# Claude Code 适配器
+# Claude Code CLI 适配器
 
-Claude Code 可以把 WishGraph 作为原生 skill 使用。Claude Code skill 放在 skill 目录中，目录名会成为 slash command。因为本仓库安装目录名是 `wishgraph`，所以命令是：
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-```text
-/wishgraph
-```
+WishGraph 在 Claude Code 中使用原生 Skill、项目 Hooks 和受管 `wishgraph-worker` Agent。正常使用不需要复制完整提示词，也不需要手工“迁移讨论窗口”。项目状态保存在仓库里，新会话打开同一项目后输入“开始讨论”即可继续。
 
-Claude Code 的项目记忆也可以使用 `CLAUDE.md`。本目录中的模板是一个轻量 bridge，适合希望每个 Claude Code session 都知道 WishGraph 工作流的团队。
+## 60 秒安装
 
-官方参考：
-
-- Claude Code skills: https://code.claude.com/docs/en/skills
-- Claude Code memory and `CLAUDE.md`: https://code.claude.com/docs/en/memory
-
-## 安装为用户 skill
-
-如果希望所有 Claude Code 项目都能使用 `/wishgraph`：
+在目标 Git 项目中运行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- claude-user
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- claude-user --setup-project
 ```
 
-必要时重启 Claude Code，然后运行：
-
-```text
-/wishgraph 请为当前项目主动推荐合适的安装方式，让我用自然语言选择，然后持续配置到验证完成
-```
-
-Windows PowerShell 可以使用原生安装器：
+Windows PowerShell：
 
 ```powershell
 & ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
 ```
 
-如果要中英双语交接，追加：
+安装完成后：
 
 ```text
-Use bilingual Chinese and English for user-facing prompts and summaries. Keep file paths, commands, and code identifiers unchanged.
+1. 重新打开 Claude Code 会话
+2. 输入：开始讨论
 ```
 
-## 安装到单个项目
+脚本会：
 
-如果团队希望把 skill 放进单个仓库：
+- 把 Skill 安装到 `~/.claude/skills/wishgraph/`，因此可以使用 `/wishgraph`。
+- 在当前项目安装 `.wishgraph/` runtime。
+- 把 WishGraph Hooks 安全合并进 `.claude/settings.json`，保留无关配置。
+- 安装受管 `.claude/agents/wishgraph-worker.md`。
+- 保留已有 Worktree 配置；未设置时使用 `baseRef: head`，并让隔离 worktree 可以访问 `.wishgraph` runtime。
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- claude-project
-```
+默认 `warn` 模式只提醒，不阻止结束或提交。完整跑通一次后，可在安装命令后追加 `--strict`；PowerShell 使用 `-Strict`。
 
-这会创建：
+## 日常使用
 
 ```text
-.claude/skills/wishgraph/
+开始讨论
+执行 012 任务
+刷新项目状态
 ```
 
-信任工作区前，请先审阅 skill。
+- Discussion 只读取精简交接、当前 Project Status 和 active state；其他文档按需打开。
+- Worker 只读取准确 Task 或 Revision、`prompts/EXECUTION_AI.md`、必要状态和 scope 内源码。
+- Integration 只读取本次报告和确实受到影响的共享文件。
 
-## 添加项目记忆
+在另一个 Claude Code 窗口继续时，不需要输出或复制 `prompts/DISCUSSION_AI.md`。打开同一项目后输入“开始讨论”。从 Codex 切换过来时，也只需确保 Claude Skill 和当前项目适配器已安装，然后使用同一入口。
 
-把本适配器的 `CLAUDE.zh-CN.md` 复制到目标项目根目录，或合并进现有 `CLAUDE.md`：
+## Worker 怎样启动
 
-```bash
-cp adapters/claude-code/CLAUDE.zh-CN.md /path/to/project/CLAUDE.md
-```
+Discussion 收到准确授权后，Host Adapter 检测当前 Claude CLI 的实际能力，并按下面顺序选择：
 
-`CLAUDE.md` 用于 always-loaded 项目规则。较大的任务过程应留在 `/wishgraph` skill 和 WishGraph 项目文件中，例如 `PRD.md`、`CODEMAP.md`、`tasks/build/*.md`、`reports/runs/*.md` 和 `reports/PROJECT_STATUS.md`。
+| 能力档 | 行为 |
+| --- | --- |
+| `background_session` | 运行 `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"`，查询 `claude agents --json --all --cwd <project>`，保存稳定 session ID。 |
+| `forked_subagent` | 只用于短时、低风险、默认只读的辅助检查；不能成为正式业务 Worker。 |
+| `manual_command_only` | 只输出 `执行 <task-id> 任务`，Discussion 随即停止执行动作。 |
 
-## 安装项目记忆同步 Hooks
+进入 `background_session` 需要同时满足：
 
-学习成本最低的方式是直接说：
+- 当前 CLI 支持 `--bg` 和 `agents --json`。
+- 受管 `wishgraph-worker` Agent 定义存在。
+- Worktree 配置能让隔离 Worker 使用同一 runtime。
+- Task 已得到明确授权，并且记录与当前 `HEAD` 一致。
+
+`claude --bg` 返回不代表 Task 已经 `running`。WishGraph 还必须保存真实 session ID；Worker 进入实际 worktree 后必须取得绑定 Task、session、branch、绝对 worktree、scope 和 validation plan 的 Claim。
+
+任何检测或启动失败都严格降级为：
 
 ```text
-/wishgraph 为这个项目推荐合适的 Hooks 配置，让我用自然语言选择，然后继续配置到验证完成
+执行 <task-id> 任务
 ```
 
-如果需要手动安装警告模式 Hooks：
+Discussion 不会因为 Claude 后台能力不可用而直接修改业务代码。
+
+## 查看和控制后台 Worker
 
 ```bash
-python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
-  --target /path/to/project \
-  --host claude \
-  --mode warn
+claude agents --json --all --cwd /path/to/project
+claude logs <session-id>
+claude attach <session-id>
+claude stop <session-id>
 ```
 
-安装器会把 `SessionStart`、`PreToolUse`、`Stop` 和 `TaskCompleted` 安全合并进 `.claude/settings.json`，在未设置时把 Worktree `baseRef` 设为 `head`，保留已有 Worktree 配置并把 `.wishgraph` 加入 `worktree.symlinkDirectories`，同时安装受管 `.claude/agents/wishgraph-worker.md`。完成一次正确收尾后，再把 `.wishgraph/config.json` 切换为 `enforce`。详见 [`docs/memory-sync-hooks.zh-CN.md`](../../docs/memory-sync-hooks.zh-CN.md)。
+- `claude agents` 提供结构化 session 状态。
+- `claude logs` 只用于诊断；日志里的自然语言“完成了”不是终态证据。
+- `claude attach` 恢复交互控制。
+- `claude stop` 停止 session，但不会自动伪造成功报告。
+- `/tasks` 只查看当前 Claude session 关联的后台工作，不创建 WishGraph Task，也不授予 Claim。
 
-## 推荐 Claude Code 流程
+WishGraph 只有在 Task 终态、不可变 Run Report、验证结果和已释放 Claim 相互一致时，才进入 Integration。
 
-1. 在目标项目明确启用 WishGraph：
+## Worker 完成后
 
-   ```text
-   /wishgraph 在当前项目使用 WishGraph。
-   ```
+正常 Claim release 会在共享 Git runtime 中写入一条 pending notification。Discussion 在下一次 SessionStart、输入或明确刷新时消费并标记已读。
 
-   安全配置完成后当前 session 仍保持 neutral。重新打开 Claude Code，再输入“开始讨论”。只安装全局 Skill，或在未配置项目里单独说“开始讨论”，都不会启用该项目。
+这是“下次激活时读取”，不是实时推送。WishGraph 不运行 daemon、终端轮询、跨终端 IPC 或自动弹窗。安全结果自动进入 Discussion-local Integration；冲突、风险和产品决定只询问具体问题。
 
-2. 每个角色只读所需内容：
+## `CLAUDE.md` 是否必须
 
-   - Discussion 从精简交接、当前 Project Status 和 active state 开始，只有当前问题需要时才打开产品或架构文件。
-   - Worker 只读准确 Task/Revision、`prompts/EXECUTION_AI.md`、必要状态，以及 scope 内的源码。
-   - Integration 只读选中的报告和报告实际影响的共享文件。
+不是。正常的 Skill + `--setup-project` 路径已经可以完成启用、Hooks、Worker 定义和项目状态读取。
 
-   现有项目优先复用已有同类文件，Task、Revision 和报告目录在首次需要时再创建。
+本目录的 [`CLAUDE.zh-CN.md`](CLAUDE.zh-CN.md) 只是可选的 always-loaded instruction bridge，适合团队明确希望每个 Claude 会话都预先知道 WishGraph 角色规则时使用。复制它不会自动启用项目，也不会安装 runtime、Hooks 或机械门禁。
 
-3. 先让 Discussion 解释任务应串行还是并行，并询问 Worker 授权。Claude Code 使用三档能力：
+## 排障
 
-   - `background_session`：只有受管 Agent、`agents --json`、worktree runtime、已授权 Task 和当前 `HEAD` 均兼容时，才运行 `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"`，并用 `claude agents --json --all --cwd <project>` 保存和刷新稳定 session ID。
-   - `forked_subagent`：只用于短时、低风险辅助检查，不能成为正式业务 Worker。
-   - `manual_command_only`：只输出 `执行 <task-id> 任务`，随后停止 Discussion 的执行动作。
+重新打开会话后，如果“开始讨论”没有响应：
 
-   `claude --bg` 返回并不代表 Task 已进入 `running`；还需要稳定 session ID，真正实现前仍需 Worker Claim。任何降级都不能让 Discussion 修改业务代码。
+1. 输入 `检查 WishGraph 状态`，让 WishGraph Doctor 做固定路径只读检查。
+2. 必要时运行 `claude doctor`，检查 Claude Code 自身配置。
+3. 如果 Skill 已更新而项目 runtime 仍旧，输入 `更新这个项目的 WishGraph`。
+4. 如果只缺当前 Claude 适配器，输入 `修复当前宿主的 WishGraph Hooks`。
 
-   `claude agents` 查看后台 session，`claude logs <id>` 查看近期输出，`claude attach <id>` 恢复交互控制，`claude stop <id>` 停止 session。`/tasks` 只查看当前 Claude session 关联的后台工作，不创建 WishGraph Task，也不授予 Claim。
+更新全局 Skill 不会静默覆盖项目中的 `.wishgraph/hooks/`。未知或本地修改过的 runtime 会停止并交给用户检查。
 
-   Claim release 向共享 Git runtime 写入一条幂等 pending notification。绑定的 Discussion 在下一次激活时消费；切换宿主后，明确开始讨论或刷新状态可接管。这是“下次激活时拉取”，不是实时弹窗。安全串行和机械检查证明独立的并行结果由持有 lease 的 Discussion-local Integration 自动集成；风险或冲突只询问具体决定，Integration 不创建额外窗口，也不使用 daemon、轮询、IPC 或弹窗。
+## 边界
 
-4. 如果讨论 session 需要迁移，提问：
+- Hook 不会启动 Agent；Host Adapter 只在已有明确 Task 授权后执行宿主动作。
+- Explore、Plan、`/fork` 和隐藏子代理默认都是 Helper，不能获得 Worker Claim。
+- 写入和构建门禁覆盖 Claude 暴露给 Hooks 的工具路径，不是操作系统沙箱。
+- 一个 Worker 同一时间只能绑定一个 Task 或 Revision；复用前必须释放旧 Claim。
+- Claim 只协调共享同一个本地 Git common directory 的 worktree，不是跨机器分布式锁。
 
-   ```text
-   迁移讨论窗口，把当前讨论提示词完整显示出来供我复制。
-   ```
+协议细节见[状态机规格](../../docs/orchestration-state-machine.md)和[外置记忆 Hooks](../../docs/memory-sync-hooks.zh-CN.md)。
+
+官方参考：[Claude Code Skills](https://code.claude.com/docs/en/skills) · [`CLAUDE.md` memory](https://code.claude.com/docs/en/memory)

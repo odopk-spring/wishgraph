@@ -35,9 +35,9 @@ For bilingual Chinese and English handoff, add:
 Use bilingual Chinese and English for user-facing prompts and summaries. Keep file paths, commands, and code identifiers unchanged.
 ```
 
-## Expected Output
+## Project state without file sprawl
 
-The agent should create or update:
+Reuse existing product, architecture, code-map, conventions, Task, and test files when they already own the same truth. Create only the missing entry state and create Task, Revision, and Run Report directories when first needed. The standard paths are defaults, not a requirement to duplicate good project documentation:
 
 ```text
 PRD.md
@@ -51,6 +51,8 @@ reports/PROJECT_STATUS.md
 reports/RUN_REPORT.md
 reports/runs/<work-unit-id>.md
 ```
+
+A new window in the same project continues with `Start discussion`; an active Discussion uses `Refresh project status`. Do not copy a full prompt or previous chat as the normal handoff.
 
 ## Tool-Agnostic Rule
 

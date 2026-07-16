@@ -1,116 +1,134 @@
-# Wish-Driven Engineering: The WishGraph Method
+# The WishGraph Method: A Project Interface Between Two Black Boxes
 
-## One Sentence
+[English](wishgraph-method.en.md) | [简体中文](wishgraph-method.md)
 
-State an intent, compile it into an execution spec, execute it, report the result, then state the next intent.
+## 1. Why stronger models can make projects harder to understand
 
-WishGraph is a complex-project engineering system driven by low-bandwidth human intent. AI compiles that intent into requirements, project structure, code changes, validation, causal traces, repair steps, and review summaries for human judgment.
+A coding agent can change a thousand lines in minutes. Human understanding, impact review, and project-state verification have not accelerated at the same rate.
 
-The human does not need to describe every implementation detail. The human gives direction, preferences, constraints, and evaluation. AI expands that low-bandwidth signal into executable specifications, while the project stores durable external memory so future agents do not depend on one chat window.
+A small request can travel from a page animation into request state, caching, navigation, and persistence. Every local edit may be reasonable while the project as a whole becomes harder to explain:
 
-## 1. Humans Move From Implementers To Reviewers
+- What behavior changed?
+- Did another module move with it?
+- Are earlier constraints still true?
+- Can a new window or model tell where the project is now?
 
-Traditional development asks humans to know how to split requirements, which files to edit, how to debug, and how to avoid breaking the whole system.
+The model is not fully predictable. Once most of a project is AI-generated, its structure, historical decisions, and implicit constraints can also become opaque to the human. Letting one hard-to-predict system directly manage another increasingly opaque system creates a structural control problem, not just an occasional model mistake.
 
-In WishGraph, humans mainly do two things:
+## 2. Natural language needs a project interface
 
-- Express intent: "make this page smoother", "make this chat feel more human", "do not make it too complex", "I dislike this result".
-- Evaluate output: "approved", "wrong", "the direction is off", "continue optimizing", "I accept this risk".
+Humans speak in experiences: “make the animation feel natural,” “this color is wrong,” or “do not show a loading flash.” The agent touches a software system.
 
-Humans no longer manage every implementation detail. They manage direction, taste, risk, and final judgment.
+Natural language is low-bandwidth, ambiguous, and changeable. The problem is not using natural language for development. The problem is letting uncompiled natural language receive authority over an entire codebase.
 
-## 2. AI Becomes A Project Operating Layer
-
-A normal agent loop is:
-
-```text
-Natural language -> Do one task -> Return result
-```
-
-WishGraph is:
+WishGraph inserts a project interface:
 
 ```text
-Natural language -> Spec -> Task -> Code -> Verify -> Repair -> Log -> Report -> Human Review
+Wish → Requirements → Spec → Task → Worker → Validation → Report → Current State
 ```
 
-AI acts as requirements engineer, architect, implementer, tester, debugger, documentation maintainer, and project reporter.
+The user does not need to become a requirements engineer. Discussion turns the wish into work that can be executed, validated, and rolled back. A Worker executes only that work. Integration writes the verified result back into current project state.
 
-The point is not to ask AI to jump from one vague wish to a finished world. The point is to build a structure that lets AI move through many small, stable steps.
+## 3. Compress project rules instead of memorizing answers
 
-## 3. Replace Chat Context With External Project Structure
+When an agent reopens the project by rereading chat, rescanning code, and guessing why earlier changes happened, it is memorizing an ever-growing answer sheet.
 
-AI context windows are limited. A complex project should not store its memory in a chat transcript. It should store memory in project files.
+A better approach extracts the rules:
 
-WishGraph external memory includes:
+- What problem the project solves.
+- Which modules exist and how they connect.
+- Which data source is authoritative.
+- What this change may and may not touch.
+- What proves the work is complete.
+- Which project facts must change afterward.
 
-- Spec Graph: what the project should be.
-- Dependency Map: how modules and features depend on each other.
-- Causal Log: why the project changed.
-- Probe: how the project checks itself and detects regressions.
-- Review Window: the compressed state humans need to see; it is a presentation format inside Discussion, not a separate role or Agent.
+These rules are smaller than the complete chat and codebase but support better reasoning. The project is still complex; the agent simply no longer starts its understanding from line one every time.
 
-When the session, model, or agent changes, a new agent can continue by reading these files.
+WishGraph stores this compression in several views:
 
-## 4. Anti-Black-Box Principle
+- **Spec Graph:** what the project should be.
+- **Dependency Map:** how features, modules, files, contracts, and validation connect.
+- **Task Graph:** bounded, ordered, reversible execution units.
+- **Causal Log:** why the project changed, including decisions, reports, failures, and repairs.
+- **Current State:** the compact snapshot a human or new agent needs first.
 
-AI is a black box, and an unfamiliar project folder can also become a black box.
+## 4. A closed project loop
 
-The way out is to improve the inputs and outputs around the black box, and to separate planning from execution. Do not let an AI black box freely mutate a larger project black box.
+The ordinary loop is short:
 
-A good execution spec forces the agent to understand the intent, change the right files, and avoid unrelated surfaces.
+```text
+Discuss → Authorize → Execute → Validate → Integrate → Present → Discuss again
+```
+
+### Discussion: make the intent clear
+
+The user still speaks naturally. Discussion uses current project state to ask only material questions, then writes a Task with explicit scope, non-goals, and validation.
+
+Discussion does not implement business code. Its job is to decide what should happen next, not to plan, execute, and approve its own patch in one context.
+
+### Worker: execute inside the boundary
+
+A Worker runs in an independent, user-visible, inspectable, and controllable Agent thread or window. It reads the exact Task, execution rules, necessary state, and in-scope source, then changes code only after acquiring a bound Claim.
+
+At closeout it leaves an immutable Run Report covering changes, validation, risk, and proposed project-state updates. A prose “done” message is not equivalent evidence.
+
+### Integration: let the project remember
+
+Every Worker terminal state first enters `integration_pending`. Discussion-local Integration evaluates, merges, and writes back safe results. Conflicts, public-contract changes, and new product decisions return to the user.
+
+`reports/PROJECT_STATUS.md` remains a current snapshot while history stays in Run Reports and Git. The next window resumes from that state without copying a full prompt or retelling the project.
+
+## 5. Humans stay responsible
+
+WishGraph does not remove human judgment. Humans still:
+
+- Express needs and dissatisfaction.
+- Choose product direction and trade-offs.
+- Authorize exact Tasks.
+- Accept material risks and changes.
+- Review the final result.
+
+What changes is the translation burden. The user no longer has to expand every wish into dozens of engineering instructions or move all background between windows. The system compresses human decisions into a few concrete questions and delegates mechanical execution and evidence collection to Agents.
+
+Review is therefore a presentation state inside Discussion, not a fourth Agent. The user should see what the system understood, what it planned, what changed, how it was checked, what remains risky, and what comes next.
+
+## 6. Anti-black-box does not mean total explainability
+
+WishGraph does not explain a model's internals or make a complex project instantly simple. It improves inputs, outputs, and control boundaries around both black boxes.
 
 Every execution should answer:
 
 - What human intent did it infer?
-- What specs did it compile?
-- Why are only these files in scope?
-- What risks exist?
-- How will it validate?
-- Did validation pass?
-- If it failed, where did the error propagate from?
+- What are the Task's scope and non-goals?
+- Why were these files changed?
+- What validation ran?
+- What risk remains?
+- Do product, architecture, code-map, or current-state facts need an update?
 
-This is not ceremony. It is how humans review the work and how future agents inherit it.
+This is not documentation for its own sake. It makes the work reviewable by humans, inheritable by future agents, and traceable back to a specific assumption when something fails.
 
-## 5. Debug By Causality, Not Guessing Files
+## 7. Debug causality instead of guessing familiar files
 
-Traditional debugging often becomes:
-
-```text
-The page is wrong -> Try a patch in a familiar View file
-```
-
-WishGraph requires:
+A common repair loop sees a broken page and tries a patch in a familiar View. WishGraph follows the causal chain:
 
 ```text
-Error -> State -> Code -> Spec
+Error → State → Code → Spec
 ```
 
-Start with the symptom, find the wrong state, identify the code path that wrote or read it, then return to the spec to decide what the behavior should be.
+Confirm the symptom, find the earliest wrong state, locate the code that wrote or read it, then return to the spec to decide the correct behavior. If the spec is unclear, the problem returns to Discussion instead of letting a Worker hide ambiguity behind a larger patch.
 
-The goal is a minimal patch set, not a broad rewrite.
+The target is always the smallest verifiable and reversible change set.
 
-## 6. The Ideal Human Review Window
+## 8. WishGraph and Harness Engineering
 
-The ideal product experience is not making humans copy text across many windows. The human should face one review surface inside Discussion. This is the `presenting_result` state, not a fourth Agent or a separate session role.
+WishGraph belongs to the broad field of Harness Engineering: it organizes agent-readable project knowledge, execution boundaries, feedback loops, and mechanical checks.
 
-It shows:
+Its particular focus is **long-term project continuity**. After switching windows, models, agents, or hosts, are goals, structure, tasks, evidence, and current state still understandable? Can the human see why the project arrived here and why the next step is appropriate?
 
-- The AI's understanding of the request.
-- The plan before execution.
-- The summary after execution.
-- Risks and validation results.
-- Choices that need human judgment.
+WishGraph is therefore one concrete practice, not a universal answer to Agent engineering. It does not replace version control, testing, code review, permission systems, containers, or operating-system sandboxes. It places those capabilities inside a project loop that can be handed off safely.
 
-Many agents, tasks, logs, and code changes can exist behind it, but the human sees a compressed, understandable project state.
+## 9. The larger direction
 
-## 7. Larger Claim
+Agents are moving the computer's control surface upward toward natural language. The faster models complete local work, the more projects need clear state, durable memory, and auditable control loops.
 
-Computer abstraction keeps moving upward:
-
-```text
-Binary -> Assembly -> C -> High-level languages -> GUI -> Natural-language agents
-```
-
-New layers do not delete old layers. They push them downward.
-
-WishGraph is not the final form, but it describes a next engineering interface: humans express goals in natural language, while AI maintains a software world that is explainable, repairable, and able to grow.
+WishGraph is a form of compression: it turns a large, messy, changing project into a structure that humans and AI can continue to understand, reason about, hand off, and validate. The project does not become small. It becomes governable again.

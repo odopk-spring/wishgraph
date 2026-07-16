@@ -1,6 +1,6 @@
 # Project Bootstrap, Layout, And Language
 
-Use this reference when starting from a vague idea, adapting an existing repository, selecting templates, setting Chinese/English/bilingual output, or migrating the Discussion handoff.
+Use this reference when starting from a vague idea, adapting an existing repository, selecting templates, setting Chinese/English/bilingual output, or continuing Discussion in another window or host.
 
 ## Contents
 
@@ -9,7 +9,7 @@ Use this reference when starting from a vague idea, adapting an existing reposit
 - Project-state graph and templates
 - Existing-project adoption
 - Project Status migration
-- Discussion-window migration
+- Cross-window and cross-host continuation
 
 ## Reuse Before Creating
 
@@ -137,6 +137,14 @@ Adapt placeholders to repository facts. Do not inject creator-specific private c
 5. Move to `enforce` only when the worktree and project state are clean.
 
 Do not rename native task folders for aesthetics. New projects use `tasks/build/*.md`; legacy `.tasks/build/*.md` remains supported.
+
+## Cross-Window And Cross-Host Continuation
+
+Do not make the user copy a full Discussion prompt or previous chat as a normal handoff.
+
+Before the current Discussion ends, keep the concise dynamic block in `prompts/DISCUSSION_AI.md` and the current snapshot in `reports/PROJECT_STATUS.md` accurate. A new supported window in the same Git project says `开始讨论` / `Start discussion`; an already active Discussion says `刷新项目状态` / `Refresh project status`.
+
+When switching hosts, preserve project files, Tasks, reports, Claims, and integrated state. Install or repair only the current host's Skill and project adapter. Never route a Codex thread ID to Claude or a Claude session ID to Codex; the new host establishes its own valid Worker binding before execution.
 
 ## Project Status Migration
 

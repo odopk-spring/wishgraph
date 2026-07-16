@@ -1,45 +1,34 @@
-# Adapters / 适配器
+# Host Adapters / 宿主适配器
 
-Adapters are lightweight instruction files for agent tools that do not use Codex skills directly, or for teams that want always-loaded project rules.
+WishGraph keeps project truth portable, but every Agent host exposes different lifecycle and Worker controls. Adapters explain how one host realizes the same Discussion → Worker → Integration state machine.
 
-适配器是给不直接支持 Codex skill 的 agent 工具使用的轻量 instruction 文件，也适合需要常驻项目规则的团队。
+WishGraph 把项目事实保存在仓库中，但不同 Agent 宿主提供的生命周期和 Worker 控制能力不同。适配器负责说明当前宿主怎样实现同一套 Discussion → Worker → Integration 状态机。
 
-An adapter is not the WishGraph runtime. It can explain roles and file conventions, but native Worker creation, lifecycle Hooks, write/build gates, and completion notifications exist only when the current host and project runtime actually support them.
+## Normal user path / 普通用户路径
 
-适配器不等于 WishGraph runtime。它可以解释角色与文件约定；只有当前宿主和项目 runtime 确实支持时，才具备原生 Worker 创建、生命周期 Hooks、写入／构建门禁和完成提醒。
+Codex and Claude Code users should use the installer and project runtime described in the root README. They do not need to copy these instruction files or migrate a full prompt between windows.
 
-| Route | Native Worker support | Mechanical gates |
+Codex 和 Claude Code 用户应使用首页里的安装器和项目 runtime。正常流程不需要复制本目录的 instruction，也不需要在窗口之间搬运完整提示词。
+
+| Route / 路径 | Formal Worker | Mechanical gates / 机械门禁 |
 | --- | --- | --- |
-| Codex Skill + project runtime | Host-mediated inspectable Agent thread, with one-line fallback | Codex project Hooks |
-| Claude Code Skill + project runtime | Managed background session when capability checks pass, with one-line fallback | Claude Code project Hooks |
-| Generic instruction adapter | Manual inspectable session only unless that host supplies an equivalent integration | Policy guidance; direct checker commands only |
+| Codex Skill + project runtime | Inspectable Agent thread when supported; one-line fallback otherwise | Codex project Hooks |
+| Claude Code Skill + project runtime | Managed background session after capability checks; one-line fallback otherwise | Claude Code project Hooks |
+| Generic instruction adapter | User-opened inspectable session unless the host supplies an equivalent integration | Policy guidance and direct checker commands only |
 
-Installing any global Skill means “available,” not “active in every project.” Project activation must still be explicit.
+An adapter is not the WishGraph runtime. Copying an instruction file can explain roles, but it does not install native Worker creation, lifecycle Hooks, write/build gates, or completion notifications.
 
-## Claude Code
+适配器不等于 WishGraph runtime。复制 instruction 文件只能解释角色，不能自动获得原生 Worker 创建、生命周期 Hooks、写入／构建门禁或完成提醒。
 
-- English: [`claude-code/CLAUDE.md`](claude-code/CLAUDE.md)
-- 中文：[`claude-code/CLAUDE.zh-CN.md`](claude-code/CLAUDE.zh-CN.md)
-- Guide: [`claude-code/README.md`](claude-code/README.md)
-- 中文指南：[`claude-code/README.zh-CN.md`](claude-code/README.zh-CN.md)
+## Choose a guide / 选择指南
 
-## Generic Agents
+- Claude Code CLI: [English guide](claude-code/README.md) · [中文指南](claude-code/README.zh-CN.md)
+- Generic Agent: [English guide](generic/README.md) · [中文指南](generic/README.zh-CN.md)
 
-- English: [`generic/AGENTS.md`](generic/AGENTS.md)
-- 中文：[`generic/AGENTS.zh-CN.md`](generic/AGENTS.zh-CN.md)
-- Guide: [`generic/README.md`](generic/README.md)
-- 中文指南：[`generic/README.zh-CN.md`](generic/README.zh-CN.md)
+The `CLAUDE.md` and `AGENTS.md` files in this folder are optional always-loaded bridges. Use them only when a team deliberately wants those rules in the host's project instruction file.
 
-## Bilingual Use / 双语使用
+本目录中的 `CLAUDE.md` 和 `AGENTS.md` 是可选的 always-loaded bridge。只有团队明确希望把规则常驻宿主项目 instruction 时才需要它们。
 
-Use the English or Chinese adapter as the base project instruction, then tell the agent:
+Installing a Skill globally still means “available,” not “active in every project.” Every project must explicitly opt in.
 
-```text
-Use bilingual Chinese and English for user-facing prompts and summaries. Keep file paths, commands, and code identifiers unchanged.
-```
-
-选择英文或中文适配器作为项目基础 instruction 后，再告诉 agent：
-
-```text
-面向用户的提示、摘要和任务解释使用中英双语，中文在前、英文在后。文件路径、命令和代码符号保持原文。
-```
+全局安装 Skill 仍然只表示“可用”，不代表每个项目自动启用。每个项目都必须明确选择加入。

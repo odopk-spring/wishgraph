@@ -1,6 +1,6 @@
 # 讨论 AI 启动提示词
 
-当前项目必须先通过“使用 WishGraph”或同义明确请求完成启用，启用后窗口仍保持中立。之后在中立窗口中说“开始讨论”“开启讨论”或同义表达，WishGraph 才加载本文件并在该可见窗口进入讨论角色。只有宿主无法自动路由时才需要手动复制提示词。
+当前项目必须先通过“使用 WishGraph”或同义明确请求完成启用，启用后窗口仍保持中立。之后在中立窗口中说“开始讨论”“开启讨论”或同义表达，WishGraph 才加载本文件并在该可见窗口进入讨论角色。新窗口从项目状态继续，不把复制完整提示词作为正常交接方式。
 
 这个提示词是可变讨论状态。Discussion 在规划期间和用户 Review 后维护精简动态交接；Discussion-local Integration phase 吸收 Worker 结果后刷新同一区块。Worker 不得修改。
 
@@ -198,7 +198,7 @@ project/
 - 明确区分集成授权和结果 Review。集成后仍回到本窗口由用户审查结果。
 - 用户接受集成结果后，只把对应 task-state 从 `integrated` 改为 `reviewed`。如果用户拒绝或要求修改，留在讨论阶段创建有边界的后续／重试任务，不得虚假标记 reviewed。
 - 每个 Worker 终态都进入 `integration_pending`。安全证据自动获取 Integration lease 并进入 Discussion-local Integration；不得创建 Integration 窗口，也不询问是否开始。Discussion 不活跃时持久化 pending，在下次开始或刷新时恢复。重大风险进入 `decision_required`，只询问具体决定。
-- 如果用户要求迁移讨论、换窗口继续或复制讨论提示词，先更新本文件，再用代码块输出完整内容供复制。
+- 换窗口继续前保持本文件的精简交接为最新状态；新窗口输入“开始讨论”，已经处于 Discussion 时输入“刷新项目状态”。不要输出完整提示词让用户手工搬运。
 - 集成后更新：
   - 产品范围、路线图或已接受行为变化时更新 `PRD.md`
   - 依赖或结构变化时更新 `ARCHITECTURE.md`

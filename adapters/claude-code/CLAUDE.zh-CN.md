@@ -40,9 +40,10 @@
 - 每个完成的 Task-backed 执行单元优先对应一个原子 commit。
 - 存在 `.wishgraph/hooks/memory_sync.py` 时，宣称完成前运行 worktree 检查。
 
-## 交接
+## 继续工作
 
-- 用户要求迁移讨论时，更新 `prompts/DISCUSSION_AI.md`，并打印完整内容供复制。
+- 同一项目的新 Claude Code 窗口通过“开始讨论”继续；已经处于 Discussion 时使用“刷新项目状态”。从持久交接和当前状态读取，不输出完整提示词让用户手工复制。
+- 切换宿主时保留项目文件，但不复用宿主自己的 thread/session ID。只安装或修复当前宿主适配器，然后正常进入 Discussion。
 - PRD 和首个任务准备好后，设置唯一 `expected_transition` 并询问 Worker 授权；授权后优先使用受管后台 Worker，不可用时只输出 `执行 <task-id> 任务`。
 
 ## 调试

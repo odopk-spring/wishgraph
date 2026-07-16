@@ -1,121 +1,129 @@
-# Claude Code Adapter
+# Claude Code CLI Adapter
 
-Claude Code can use WishGraph as a native skill. Claude Code skills live in a skill directory with `SKILL.md`; the skill directory name becomes the slash command name. Because this repository installs the folder as `wishgraph`, WishGraph runs as:
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-```text
-/wishgraph
-```
+WishGraph uses a native Skill, project Hooks, and a managed `wishgraph-worker` Agent in Claude Code. Normal use requires no full-prompt copy and no manual “discussion migration.” Project state lives in the repository; a new session in the same project continues with `Start discussion`.
 
-Claude Code project memory can also use `CLAUDE.md`; the template in this folder is a lightweight bridge for teams that want every Claude Code session to know the WishGraph workflow.
+## Install in 60 seconds
 
-Official references:
-
-- Claude Code skills: https://code.claude.com/docs/en/skills
-- Claude Code memory and `CLAUDE.md`: https://code.claude.com/docs/en/memory
-
-## Install As A User Skill
-
-Use this when you want `/wishgraph` available in all Claude Code projects:
+Run inside the target Git project:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- claude-user
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- claude-user --setup-project
 ```
 
-Then restart Claude Code if needed and run:
-
-```text
-/wishgraph recommend the best installation for this project, let me choose in natural language, then continue through prerequisites, setup, and verification
-```
-
-On Windows PowerShell, use the native installer:
+Windows PowerShell:
 
 ```powershell
 & ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
 ```
 
-For bilingual Chinese and English handoff, add:
+Then:
 
 ```text
-Use bilingual Chinese and English for user-facing prompts and summaries. Keep file paths, commands, and code identifiers unchanged.
+1. Reopen the Claude Code session
+2. Say: Start discussion
 ```
 
-## Install Into One Project
+The installer:
 
-Use this when a team wants the skill checked into one repository:
+- Installs the Skill at `~/.claude/skills/wishgraph/`, making `/wishgraph` available.
+- Installs the `.wishgraph/` runtime in the current project.
+- Safely merges WishGraph Hooks into `.claude/settings.json` while preserving unrelated configuration.
+- Installs the managed `.claude/agents/wishgraph-worker.md` definition.
+- Preserves existing Worktree configuration, defaults an unset `baseRef` to `head`, and makes the `.wishgraph` runtime available inside isolated worktrees.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- claude-project
-```
+The default `warn` mode reports problems without blocking completion or commits. After one successful full run, append `--strict` to the Bash command or `-Strict` on PowerShell if you want blocking gates.
 
-This creates:
+## Everyday use
 
 ```text
-.claude/skills/wishgraph/
+Start discussion
+Execute task 012
+Refresh project status
 ```
 
-Review the skill before trusting the workspace.
+- Discussion reads the concise handoff, current Project Status, and active state; it opens other documents only when needed.
+- A Worker reads the exact Task or Revision, `prompts/EXECUTION_AI.md`, necessary state, and source inside scope.
+- Integration reads this run's reports and only the shared files they actually affect.
 
-## Add Project Memory
+Continuing in another Claude Code window does not require printing or copying `prompts/DISCUSSION_AI.md`. Open the same project and say `Start discussion`. When arriving from Codex, install the Claude Skill and current-project adapter, then use the same entry.
 
-Copy this adapter's `CLAUDE.md` into the target project root or merge it into an existing project `CLAUDE.md`:
+## How Worker launch works
 
-```bash
-cp adapters/claude-code/CLAUDE.md /path/to/project/CLAUDE.md
-```
+After Discussion receives exact authority, the Host Adapter detects the current Claude CLI's real capabilities and chooses one tier:
 
-Use `CLAUDE.md` for always-loaded project rules. Keep large task procedures in the `/wishgraph` skill and in WishGraph project files such as `PRD.md`, `CODEMAP.md`, `tasks/build/*.md`, `reports/runs/*.md`, and `reports/PROJECT_STATUS.md`.
+| Capability tier | Behavior |
+| --- | --- |
+| `background_session` | Run `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"`, query `claude agents --json --all --cwd <project>`, and persist the stable session ID. |
+| `forked_subagent` | Use only for short, low-risk, read-only-by-default assistance; it is not a Formal business Worker. |
+| `manual_command_only` | Print only `执行 <task-id> 任务`, then stop Discussion execution. |
 
-## Install Project Memory-Sync Hooks
+`background_session` requires all of the following:
 
-The lowest-learning-cost option is to ask:
+- The current CLI supports `--bg` and `agents --json`.
+- The managed `wishgraph-worker` Agent definition exists.
+- Worktree configuration exposes the shared runtime to an isolated Worker.
+- The exact Task is authorized and its record matches the current `HEAD`.
+
+A successful `claude --bg` return does not make the Task `running`. WishGraph must persist the real session ID, and the Worker must acquire a Claim bound to Task, session, branch, absolute worktree, scope, and validation plan after entering its actual worktree.
+
+Any detection or launch failure strictly falls back to:
 
 ```text
-/wishgraph 为这个项目推荐合适的 Hooks 配置，让我用自然语言选择，然后继续配置到验证完成
+执行 <task-id> 任务
 ```
 
-For a manual warning-mode installation:
+Discussion never implements business code because Claude background support is unavailable.
+
+## Inspect and control a background Worker
 
 ```bash
-python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
-  --target /path/to/project \
-  --host claude \
-  --mode warn
+claude agents --json --all --cwd /path/to/project
+claude logs <session-id>
+claude attach <session-id>
+claude stop <session-id>
 ```
 
-This safely merges `SessionStart`, `PreToolUse`, `Stop`, and `TaskCompleted` groups into `.claude/settings.json`, defaults an unset Worktree `baseRef` to `head`, preserves existing Worktree entries while adding `.wishgraph` to `worktree.symlinkDirectories`, and installs the managed `.claude/agents/wishgraph-worker.md` definition. Switch `.wishgraph/config.json` to `enforce` after a successful closeout. See [`docs/memory-sync-hooks.md`](../../docs/memory-sync-hooks.md).
+- `claude agents` provides structured session state.
+- `claude logs` is diagnostic only; a prose “done” message is not terminal evidence.
+- `claude attach` restores interactive control.
+- `claude stop` stops the session without fabricating a successful closeout.
+- `/tasks` only displays background work associated with the current Claude session. It does not create a WishGraph Task or grant a Claim.
 
-## Recommended Claude Code Flow
+WishGraph enters Integration only when terminal Task state, an immutable Run Report, validation, and released Claim evidence agree.
 
-1. Explicitly enable WishGraph in the target project:
+## After a Worker finishes
 
-   ```text
-   /wishgraph Use WishGraph for this project.
-   ```
+Normal Claim release writes one pending notification in the shared Git runtime. Discussion consumes and marks it read on the next SessionStart, prompt, or explicit refresh.
 
-   Safe setup leaves the current session neutral. Reopen Claude Code, then say `Start discussion`. A global Skill install or the phrase `Start discussion` alone does not activate an unconfigured project.
+This is pull-on-activation, not real-time push. WishGraph runs no daemon, terminal polling, cross-terminal IPC, or automatic popup. Safe results enter Discussion-local Integration automatically; conflict, risk, and product choices return as concrete questions.
 
-2. Let each role read only what it needs:
+## Is `CLAUDE.md` required?
 
-   - Discussion starts from the concise handoff, current Project Status, and active state; it opens product or architecture files only for the current question.
-   - Worker reads the exact Task or Revision, `prompts/EXECUTION_AI.md`, necessary state, and source files inside its scope.
-   - Integration reads selected reports and only the shared files they affect.
+No. The normal Skill + `--setup-project` path already provides activation, Hooks, the Worker definition, and project-state loading.
 
-   Existing repositories reuse equivalent native files and create Task, Revision, and report directories only when first needed.
+The [`CLAUDE.md`](CLAUDE.md) file in this directory is an optional always-loaded instruction bridge for teams that deliberately want every Claude session to know the WishGraph role rules. Copying it does not activate a project or install runtime, Hooks, or mechanical gates.
 
-3. Let Discussion explain whether the task is sequential or parallel and ask for Worker authorization. After authorization, the Claude Code adapter uses three capability levels:
+## Troubleshooting
 
-   - `background_session`: when the managed Agent, `agents --json`, worktree runtime, authorized Task, and current `HEAD` are compatible, run `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"`, then track the returned stable session ID with `claude agents --json --all --cwd <project>`.
-   - `forked_subagent`: reserve session forking for short, low-risk checks; do not use it as the formal business Worker.
-   - `manual_command_only`: output only `执行 <task-id> 任务`, then stop Discussion execution.
+If `Start discussion` does not respond after reopening the session:
 
-   The background Worker enters its isolated worktree, reads the exact Task and necessary context, then acquires the bound Claim before implementation. Returning from `claude --bg` is not enough to mark the Task `running`; a stable session ID and later Claim evidence are required. A launch failure never authorizes Discussion to modify business code.
+1. Say `Check WishGraph status` to run the fixed-path, read-only WishGraph Doctor.
+2. Run `claude doctor` when Claude Code itself may be misconfigured.
+3. If the global Skill is newer than the project runtime, say `Update this project's WishGraph`.
+4. If only the Claude adapter is missing, say `Repair WishGraph hooks for this host`.
 
-   `claude agents` shows native background sessions. `claude logs <id>` reads recent output and `claude attach <id>` resumes interactive control. `/tasks` only shows background work associated with the current Claude session; it does not create a WishGraph Task, grant execution authority, or replace Task Specs and Claims.
+Updating the global Skill never silently overwrites an existing project's `.wishgraph/hooks/`. Unknown or locally modified runtime files stop for review.
 
-   Claim release writes one idempotent pending notification to the shared Git runtime. The bound Discussion consumes it on its next activation; an explicit Discussion entry or status refresh adopts it after a host switch. This is pull-on-activation, not a real-time popup. Safe sequential and mechanically proven independent parallel results enter Discussion-local Integration automatically with a lease. Risk or conflict asks only the concrete decision; Integration never creates another window or uses a daemon, polling, IPC, or popup.
+## Boundaries
 
-4. If the discussion session must move, ask:
+- Hooks never launch Agents. The Host Adapter acts only after exact Task authority already exists.
+- Explore, Plan, `/fork`, and hidden subagents are Helpers by default and cannot receive a Worker Claim.
+- Write/build gates cover Claude tools exposed to Hooks; they are not an operating-system sandbox.
+- One Worker can bind only one Task or Revision at a time and must release the old Claim before reuse.
+- Claims coordinate worktrees sharing one local Git common directory; they are not distributed locks across machines.
 
-   ```text
-   迁移讨论窗口，把当前讨论提示词完整显示出来供我复制。
-   ```
+See the [state-machine specification](../../docs/orchestration-state-machine.md) and [External-Memory Hooks](../../docs/memory-sync-hooks.md) for protocol details.
+
+Official references: [Claude Code Skills](https://code.claude.com/docs/en/skills) · [`CLAUDE.md` memory](https://code.claude.com/docs/en/memory)
