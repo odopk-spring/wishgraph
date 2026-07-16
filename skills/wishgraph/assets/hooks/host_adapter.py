@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from git_state import (
+    HOST_OBSERVATION_EVENTS,
     LEGACY_PROJECT_STATUS_PATH,
     apply_session_runtime_patch,
     acquire_claim,
@@ -28,6 +29,7 @@ from git_state import (
     inspect_integration_lease,
     read_version,
     read_session_runtime,
+    record_host_observation,
     rebind_worker_claim,
     resolve_project_status_path,
     standard_project_status_conflict,
@@ -826,6 +828,11 @@ def hook_main(event: str, host: str = "unknown") -> int:
     if config is None or config.get("mode") == "off":
         emit({})
         return 0
+
+    if event in HOST_OBSERVATION_EVENTS and host in {"codex", "claude"}:
+        # This is runtime liveness evidence, not semantic project memory. Keep it
+        # outside the worktree and never add this write to high-frequency tool gates.
+        record_host_observation(root, host, event, config.get("runtime_version"))
 
     if event == "session-start":
         session_id = hook_session_id(payload)

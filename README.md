@@ -19,6 +19,14 @@ WishGraph records product intent, architecture, task scope, execution evidence, 
 
 > WishGraph is opt-in per project. Installing the Skill makes it available globally; a project remains an ordinary agent project until you explicitly enable WishGraph there.
 
+First use stays the same on every supported host:
+
+```text
+1. Enable WishGraph in the project
+2. Reopen the current Agent session
+3. Say: Start discussion
+```
+
 ## What using it feels like
 
 After enabling WishGraph in a project, the normal entry points are short natural-language commands:
@@ -45,12 +53,13 @@ Ask Codex to install the Skill:
 Use $skill-installer to install https://github.com/odopk-spring/wishgraph/tree/main/skills/wishgraph
 ```
 
-Then open the target project and say:
+Then open the target project and enable it:
 
 ```text
 Use WishGraph for this project.
-Start discussion.
 ```
+
+Reopen the Codex session and say `Start discussion`.
 
 To install the Skill and safe project Hooks from a terminal instead:
 
@@ -60,7 +69,7 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 
 ### Claude Code
 
-Run this inside the target project, then say `Start discussion`:
+Run this inside the target project, reopen the Claude Code CLI session, and say `Start discussion`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- claude-user --setup-project
@@ -73,6 +82,8 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 ```
 
 Safe setup uses `warn` mode and does not block commits. After one successful end-to-end run, enable strict checks with `--strict` on Bash or `-Strict` on PowerShell. See [Getting Started](GETTING_STARTED.md) for other installation targets and recovery steps.
+
+If `Start discussion` does not respond after reopening the session, run WishGraph Doctor. Claude Code CLI users may additionally run `claude doctor`. These are troubleshooting steps, not part of normal setup.
 
 ## One project, three responsibilities
 
@@ -106,11 +117,11 @@ In an enabled project, the Skill routes these requests to bounded maintenance ac
 
 | Request | Result |
 | --- | --- |
-| `Check WishGraph status` | Read-only diagnosis of installed runtime and host-adapter files |
+| `Check WishGraph status` | Read-only diagnosis of installed files and recently observed host execution |
 | `Update this project's WishGraph` | Fingerprint-verified safe runtime upgrade with rollback |
 | `Repair WishGraph hooks for this host` | Repairs only the current host adapter and preserves unrelated Hooks |
 
-The Doctor verifies project files; it cannot prove that a host has trusted or enabled those Hooks. Review Codex Hooks with `/hooks`. In Claude Code, inspect `/hooks` or `/doctor` when behavior differs from the installed files.
+Doctor distinguishes “configured correctly” from “recently invoked by this host.” If execution remains unverified, review Codex Hooks with `/hooks`; Claude Code CLI users can run `claude doctor`.
 
 ## Safety and current limits
 

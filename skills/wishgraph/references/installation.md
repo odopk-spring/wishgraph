@@ -19,7 +19,7 @@ Global Skill installation means WishGraph is available, not active in every fold
 - In a project with no config or `mode: off`, generic phrases such as `开始讨论`, `刷新项目状态`, and `执行 012 任务` are ordinary user requests. Do not bootstrap WishGraph, load its References, or create files from those phrases.
 - `使用 WishGraph`, `为这个项目启用 WishGraph`, `Use WishGraph`, or an equally explicit request naming WishGraph authorizes the recommended safe project setup unless the user names another mode.
 - Command-line `--setup-project` or `-SetupProject` is also explicit project activation.
-- After activation succeeds, keep the current session `neutral` and give exactly one next action: `开始讨论` / `Start discussion`.
+- After activation succeeds, keep the current session `neutral`. Give one next action: reopen the current Agent session; the first input in the reopened session is `开始讨论` / `Start discussion`.
 - A later `开始讨论` event enters Discussion only while the project remains enabled. It never enables an inactive project by itself.
 
 ## Default Decision
@@ -133,12 +133,14 @@ For first-time macOS or Linux installation, the repository bootstrap script supp
 
 Normal users may say `检查 WishGraph 状态`, `更新这个项目的 WishGraph`, or `修复当前宿主的 WishGraph Hooks`. Keep flags internal unless the user asks for them.
 
-Run Doctor first for an existing project. It reads only fixed WishGraph configuration, the five runtime files, the selected host adapter, the configured Python executable, and minimal governance entry files. It does not scan business source or write anything:
+For an explicit health check or recovery request in an existing project, run Doctor first. It reads only fixed WishGraph configuration, the five runtime files, the selected host adapter, the configured Python executable, minimal governance entry files, and bounded host receipts. It does not scan business source or write anything:
 
 ```bash
 python3 scripts/install_project_hooks.py --target PROJECT_ROOT --host codex --doctor --json
 python3 scripts/install_project_hooks.py --target PROJECT_ROOT --host claude --doctor --json
 ```
+
+Doctor separates static installation health from observed host execution. `SessionStart` and `UserPromptSubmit` write bounded liveness receipts under the Git common directory at `.git/wishgraph/host-observations/`; Doctor only reads them. A current receipt proves that the selected host recently invoked the installed runtime. No receipt, an older runtime version, or a receipt older than the host adapter yields `restart_agent_session` instead of a false active claim. Never write receipts from `PreToolUse`.
 
 Use `next_action` as the route:
 
@@ -146,6 +148,7 @@ Use `next_action` as the route:
 - `upgrade_project_runtime`: current bundled files only need metadata repair, or the installed fingerprints match a bundled known version, so a safe upgrade may continue.
 - `review_runtime_changes`: preserve incomplete, unknown, or locally modified runtime files and ask before `--force-assets`.
 - `repair_current_host_adapter`: repair only the host in the current window.
+- `restart_agent_session`: the files are current but this host has not recently invoked them; reopen the Agent session and try `开始讨论`.
 - `bootstrap_project_memory` or `start_discussion`: continue normal setup or entry.
 
 Safe project upgrade is atomic and preserves the configured `mode`. It snapshots the five runtime files, runtime manifest, and project config in memory; a failed write restores the snapshot and leaves no backup files:
@@ -173,5 +176,5 @@ After installation:
 2. Confirm only the current host file was installed: `.codex/hooks.json` or `.claude/settings.json`.
 3. Confirm the host commands use the exact Python executable recorded in `.wishgraph/config.json`; then run that interpreter with `.wishgraph/hooks/memory_sync.py check --scope worktree`.
 4. Treat a missing governance skeleton as a next setup step, not a dependency failure; safe mode remains non-blocking.
-5. Tell Codex users to trust the repository and review `/hooks`.
-6. Finish with the selected mode, verified host files, dependency status, and exactly one recommended next action: `开始讨论` / `Start discussion`. Do not enter Discussion in the activation turn and do not teach hook internals unless asked.
+5. Finish with the selected mode and one next action: reopen the current Agent session, then use `开始讨论` / `Start discussion`. Do not teach Hook internals during normal setup.
+6. Only if the reopened session does not respond, run Doctor. For an unverified Codex receipt, direct the user to `/hooks`; for Claude Code CLI, additionally allow `claude doctor`. Mention `--bare`, `--safe-mode`, or setting-source overrides only when the diagnosis requires them.

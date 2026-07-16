@@ -6,13 +6,21 @@ Use this guide when introducing WishGraph to an existing project or starting a n
 
 First opt the current project into WishGraph; project activation and Discussion entry are separate actions. A global installation alone never activates every folder.
 
-For the lowest-friction setup, say:
+The entire first-use path is:
+
+```text
+1. 在项目里启用 WishGraph
+2. 重新打开当前 Agent 会话
+3. 输入：开始讨论
+```
+
+For step 1, say:
 
 ```text
 在当前项目使用 WishGraph。
 ```
 
-This explicit request authorizes the recommended non-blocking safe setup. After verification, the agent remains neutral and asks for exactly one next command: `开始讨论` / `Start discussion`. Saying `开始讨论` in an unconfigured project does not enable WishGraph or create project files.
+This explicit request authorizes the recommended non-blocking safe setup. After verification, the agent remains neutral and asks the user to reopen the current Agent session. The first input in that reopened session is `开始讨论` / `Start discussion`. Saying `开始讨论` in an unconfigured project does not enable WishGraph or create project files.
 
 WishGraph defaults to non-blocking safe hooks. If the user says "只安装 Skill" it skips hooks; if the user says "严格配置" it enables blocking hooks and the Git pre-commit fallback. If the request is unclear, the agent asks only one choice question.
 
@@ -141,13 +149,13 @@ Hooks do not write PRD, architecture, CODEMAP, Project Status, or handoff prose.
 
 The read-only command `python3 .wishgraph/hooks/memory_sync.py status` defaults to a compact active view and reads only current candidate reports across refs. Use `status --task 012` for one exact Task and `status --full` only for historical diagnosis. Hooks do not start hidden Workers or create Integration windows.
 
-For maintenance, users should not need to remember flags. Say `检查 WishGraph 状态` for a fixed-path, read-only Doctor; `更新这个项目的 WishGraph` for an atomic safe upgrade; or `修复当前宿主的 WishGraph Hooks` after moving between Codex and Claude Code. A safe upgrade repairs current files with missing metadata or replaces only a bundled-known generated version. Local modifications are preserved for review, failed writes roll back, and host repair changes only the selected current-host JSON while retaining unrelated handlers.
+Normal setup does not require diagnostic commands. If `开始讨论` does not respond after reopening the session, say `检查 WishGraph 状态` for the fixed-path, read-only Doctor. It distinguishes current files from recently observed host execution. Codex users are routed to `/hooks` only when execution is unverified; Claude Code CLI users may additionally run `claude doctor`. For maintenance, `更新这个项目的 WishGraph` performs an atomic safe upgrade, while `修复当前宿主的 WishGraph Hooks` repairs only the selected host and retains unrelated handlers.
 
 ## 3. Use The Foreground Discussion Workflow
 
 ### Discussion AI Window
 
-After the project has been explicitly enabled, open any normal window and say `开始讨论` / `Start discussion`. The prompt hook enters Discussion and loads only the compact handoff, current integrated snapshot, and active status. New windows remain neutral by default. In projects without an active `.wishgraph/config.json`, the same phrase remains ordinary conversation. Say `刷新项目状态` / `Refresh project status` to refresh active state; detailed PRD, architecture, CODEMAP, old reports, and unrelated Tasks are loaded only when the current question requires them.
+After the project has been explicitly enabled, reopen the current Agent session and say `开始讨论` / `Start discussion`. The prompt hook enters Discussion and loads only the compact handoff, current integrated snapshot, and active status. New windows remain neutral by default. In projects without an active `.wishgraph/config.json`, the same phrase remains ordinary conversation. Say `刷新项目状态` / `Refresh project status` to refresh active state; detailed PRD, architecture, CODEMAP, old reports, and unrelated Tasks are loaded only when the current question requires them.
 
 Use it to:
 

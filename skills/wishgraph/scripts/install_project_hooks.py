@@ -14,6 +14,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -28,6 +29,8 @@ RUNTIME_FILES = (
     "host_adapter.py",
 )
 RUNTIME_MANIFEST_NAME = "runtime-manifest.json"
+HOST_OBSERVATION_EVENTS = ("session-start", "user-prompt-submit")
+RECENT_HOST_OBSERVATION_SECONDS = 120
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -376,6 +379,103 @@ def configured_python_diagnosis(config: dict[str, Any]) -> dict[str, Any]:
     return {"path": str(path.resolve()), "state": "available"}
 
 
+def project_git_common_dir(target: Path) -> Optional[Path]:
+    result = subprocess.run(
+        ["git", "-C", str(target), "rev-parse", "--git-common-dir"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    path = Path(result.stdout.strip())
+    return (path if path.is_absolute() else target / path).resolve()
+
+
+def _parse_observed_at(value: Any) -> Optional[datetime]:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
+def host_execution_diagnosis(
+    target: Path, host: str, expected_runtime_version: Optional[int]
+) -> dict[str, Any]:
+    common_dir = project_git_common_dir(target)
+    if common_dir is None:
+        return {"state": "unavailable", "events": []}
+    base = common_dir / "wishgraph" / "host-observations" / host
+    observations: list[dict[str, Any]] = []
+    for event in HOST_OBSERVATION_EVENTS:
+        path = base / f"{event}.json"
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (
+            isinstance(value, dict)
+            and value.get("kind") == "host_observation"
+            and value.get("host") == host
+            and value.get("event") == event
+            and _parse_observed_at(value.get("observed_at")) is not None
+        ):
+            observations.append(value)
+    if not observations:
+        return {
+            "state": "unverified",
+            "events": [],
+            "troubleshooting": "/hooks" if host == "codex" else "claude doctor",
+        }
+
+    latest = max(observations, key=lambda item: str(item.get("observed_at") or ""))
+    observed_at = _parse_observed_at(latest.get("observed_at"))
+    assert observed_at is not None
+    age_seconds = max(
+        0, int((datetime.now(timezone.utc) - observed_at).total_seconds())
+    )
+    observed_version = latest.get("runtime_version")
+    adapter_path = host_config_path(target, host)
+    adapter_newer = False
+    try:
+        adapter_updated_at = datetime.fromtimestamp(
+            adapter_path.stat().st_mtime, tz=timezone.utc
+        )
+        adapter_newer = (adapter_updated_at - observed_at).total_seconds() > 1
+    except OSError:
+        pass
+
+    stale = (
+        isinstance(observed_version, bool)
+        or not isinstance(observed_version, int)
+        or expected_runtime_version is None
+        or observed_version != expected_runtime_version
+        or adapter_newer
+    )
+    if stale:
+        state = "stale"
+    elif age_seconds <= RECENT_HOST_OBSERVATION_SECONDS:
+        state = "confirmed_recently"
+    else:
+        state = "observed"
+    diagnosis = {
+        "state": state,
+        "events": sorted(str(item["event"]) for item in observations),
+        "last_event": latest["event"],
+        "last_observed_at": latest["observed_at"],
+        "age_seconds": age_seconds,
+        "observed_runtime_version": observed_version,
+    }
+    if state != "confirmed_recently":
+        diagnosis["troubleshooting"] = (
+            "/hooks" if host == "codex" else "claude doctor"
+        )
+    return diagnosis
+
+
 def doctor_report(target: Path, selected_host: str) -> dict[str, Any]:
     config_path = target / ".wishgraph" / "config.json"
     config: dict[str, Any] = {}
@@ -398,6 +498,15 @@ def doctor_report(target: Path, selected_host: str) -> dict[str, Any]:
     host_adapters = {
         host: host_adapter_diagnosis(target, host, python_executable) for host in hosts
     }
+    expected_runtime_version = runtime.get("installed_runtime_version")
+    if isinstance(expected_runtime_version, bool) or not isinstance(
+        expected_runtime_version, int
+    ):
+        expected_runtime_version = None
+    for host, adapter in host_adapters.items():
+        adapter["execution"] = host_execution_diagnosis(
+            target, host, expected_runtime_version
+        )
     governance_ready = (
         (target / "reports" / "PROJECT_STATUS.md").is_file()
         or (target / "reports" / "DEV_REPORT.md").is_file()
@@ -421,6 +530,11 @@ def doctor_report(target: Path, selected_host: str) -> dict[str, Any]:
         next_action = "review_runtime_changes"
     elif any(item["state"] != "current" for item in host_adapters.values()):
         next_action = "repair_current_host_adapter"
+    elif any(
+        item["execution"]["state"] != "confirmed_recently"
+        for item in host_adapters.values()
+    ):
+        next_action = "restart_agent_session"
     elif not governance_ready:
         next_action = "bootstrap_project_memory"
     else:
@@ -432,10 +546,15 @@ def doctor_report(target: Path, selected_host: str) -> dict[str, Any]:
         and python_info["state"] == "available"
         and all(item["state"] == "current" for item in host_adapters.values())
     )
+    host_execution_confirmed = bool(host_adapters) and all(
+        item["execution"]["state"] == "confirmed_recently"
+        for item in host_adapters.values()
+    )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "wishgraph_doctor",
         "healthy": healthy,
+        "host_execution_confirmed": host_execution_confirmed,
         "project_root": str(target),
         "activation": {
             "state": config_state,
@@ -461,6 +580,17 @@ def print_doctor_report(report: dict[str, Any], json_output: bool) -> None:
     host_summary = ", ".join(
         f"{host}={value['state']}" for host, value in report["host_adapters"].items()
     )
+    execution_labels = {
+        "confirmed_recently": "confirmed recently",
+        "observed": "confirmed previously; recheck this session",
+        "stale": "needs recheck after configuration change",
+        "unverified": "not yet confirmed",
+        "unavailable": "unavailable",
+    }
+    execution_summary = ", ".join(
+        f"{host}={execution_labels.get(value['execution']['state'], value['execution']['state'])}"
+        for host, value in report["host_adapters"].items()
+    )
     print("WishGraph doctor")
     print(f"- Project: {report['project_root']}")
     print(f"- Activation: {activation['state']} ({activation['mode'] or 'N/A'})")
@@ -473,7 +603,35 @@ def print_doctor_report(report: dict[str, Any], json_output: bool) -> None:
     )
     print(f"- Python: {report['python']['state']}")
     print(f"- Host adapters: {host_summary or 'not checked'}")
-    print(f"- Next: {report['next_action']}")
+    print(f"- Host execution: {execution_summary or 'not observed'}")
+    if report["next_action"] == "restart_agent_session":
+        print("- Next: reopen the current Agent session, then say `Start discussion`.")
+        troubleshooting = sorted(
+            {
+                value["execution"].get("troubleshooting", "")
+                for value in report["host_adapters"].values()
+                if value["execution"].get("troubleshooting")
+            }
+        )
+        if troubleshooting:
+            print(f"- If it still does not respond: {' or '.join(troubleshooting)}")
+    else:
+        next_labels = {
+            "use_wishgraph": "enable WishGraph in this project",
+            "repair_project_config": "repair the WishGraph project configuration",
+            "enable_wishgraph": "enable WishGraph in this project",
+            "upgrade_project_runtime": "update this project's WishGraph runtime",
+            "install_project_runtime": "install the WishGraph project runtime",
+            "repair_skill_installation": "repair the global WishGraph Skill",
+            "update_global_wishgraph_skill": "update the global WishGraph Skill",
+            "review_runtime_changes": "review local WishGraph runtime changes",
+            "repair_current_host_adapter": "repair WishGraph Hooks for this host",
+            "bootstrap_project_memory": "say `Start discussion`",
+            "start_discussion": "say `Start discussion`",
+        }
+        print(
+            f"- Next: {next_labels.get(report['next_action'], report['next_action'])}"
+        )
 
 
 def merge_hook_config(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
@@ -1010,19 +1168,11 @@ def main() -> int:
         print(f"- {display}")
     if warning:
         print(warning, file=sys.stderr)
-    if "codex" in hosts:
-        print("Codex: trust the project, then review the hook definitions with /hooks.")
     print(f"Mode: {args.mode}")
-    if (
-        (target / "reports" / "PROJECT_STATUS.md").is_file()
-        or (target / "reports" / "DEV_REPORT.md").is_file()
-    ) and (target / "prompts" / "DISCUSSION_AI.md").is_file():
-        print("Next: open the project and say `开始讨论` (or `Start discussion`).")
-    else:
-        print(
-            'Next: ask your agent, "Use $wishgraph to set up this project." '
-            "Hooks remain non-blocking until project memory is initialized."
-        )
+    print(
+        "Next: reopen the current Agent session, then say `开始讨论` "
+        "(or `Start discussion`)."
+    )
     return 0
 
 

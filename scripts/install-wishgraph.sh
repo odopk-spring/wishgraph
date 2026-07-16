@@ -262,8 +262,4 @@ if [[ "$setup_project" -eq 1 ]]; then
   fi
   "$@"
 
-  echo "WishGraph project hook setup complete for $project_dir"
-  if [[ "$hook_mode" == "warn" ]]; then
-    echo "Memory sync starts in warn mode. Use --strict after one successful closeout."
-  fi
 fi

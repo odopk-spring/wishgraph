@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from unittest import mock
 from pathlib import Path
 from typing import Optional
@@ -4146,7 +4147,7 @@ class InstallerTests(unittest.TestCase):
 
             with mock.patch.object(installer_module, "ASSET_ROOT", asset_root):
                 manifest = installer_module.bundled_runtime_manifest()
-                self.assertEqual(manifest["runtime_version"], 12)
+                self.assertEqual(manifest["runtime_version"], 13)
 
                 policy_path = asset_root / "policy.py"
                 policy_path.write_bytes(policy_path.read_bytes() + b"# changed\r\n")
@@ -4197,7 +4198,152 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(payload["runtime"]["state"], "current")
             self.assertEqual(payload["python"]["state"], "available")
             self.assertEqual(payload["host_adapters"]["codex"]["state"], "current")
+            self.assertEqual(
+                payload["host_adapters"]["codex"]["execution"]["state"],
+                "unverified",
+            )
+            self.assertFalse(payload["host_execution_confirmed"])
+            self.assertEqual(payload["next_action"], "restart_agent_session")
+
+    def test_doctor_confirms_a_recent_real_host_hook_invocation(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            self.install_project_runtime(root)
+            hook = root / ".wishgraph" / "hooks" / "memory_sync.py"
+            invoked = subprocess.run(
+                [sys.executable, str(hook), "session-start", "--host", "codex"],
+                cwd=root,
+                input=json.dumps({"cwd": str(root), "session_id": "codex-live"}),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(invoked.returncode, 0, invoked.stderr)
+
+            process = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALLER),
+                    "--target",
+                    str(root),
+                    "--host",
+                    "codex",
+                    "--doctor",
+                    "--json",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+            payload = json.loads(process.stdout)
+            execution = payload["host_adapters"]["codex"]["execution"]
+            self.assertEqual(execution["state"], "confirmed_recently")
+            self.assertEqual(execution["last_event"], "session-start")
+            self.assertEqual(execution["observed_runtime_version"], 13)
+            self.assertTrue(payload["host_execution_confirmed"])
             self.assertEqual(payload["next_action"], "bootstrap_project_memory")
+
+    def test_doctor_routes_unverified_claude_cli_to_claude_doctor(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            installed = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALLER),
+                    "--target",
+                    str(root),
+                    "--host",
+                    "claude",
+                    "--mode",
+                    "warn",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(installed.returncode, 0, installed.stderr)
+
+            payload = installer_module.doctor_report(root, "claude")
+            execution = payload["host_adapters"]["claude"]["execution"]
+            self.assertEqual(execution["state"], "unverified")
+            self.assertEqual(execution["troubleshooting"], "claude doctor")
+            self.assertEqual(payload["next_action"], "restart_agent_session")
+
+    def test_doctor_marks_observation_stale_after_host_adapter_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            self.install_project_runtime(root)
+            hook = root / ".wishgraph" / "hooks" / "memory_sync.py"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(hook),
+                    "user-prompt-submit",
+                    "--host",
+                    "codex",
+                ],
+                cwd=root,
+                input=json.dumps(
+                    {
+                        "cwd": str(root),
+                        "session_id": "codex-live",
+                        "prompt": "检查 WishGraph 状态",
+                    }
+                ),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+            adapter_path = root / ".codex" / "hooks.json"
+            future = datetime.now().timestamp() + 10
+            os.utime(adapter_path, (future, future))
+
+            payload = installer_module.doctor_report(root, "codex")
+            execution = payload["host_adapters"]["codex"]["execution"]
+            self.assertEqual(execution["state"], "stale")
+            self.assertFalse(payload["host_execution_confirmed"])
+            self.assertEqual(payload["next_action"], "restart_agent_session")
+
+    def test_pre_tool_use_does_not_write_host_observation(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            self.install_project_runtime(root)
+            hook = root / ".wishgraph" / "hooks" / "memory_sync.py"
+            process = subprocess.run(
+                [sys.executable, str(hook), "pre-tool-use", "--host", "codex"],
+                cwd=root,
+                input=json.dumps(
+                    {
+                        "cwd": str(root),
+                        "session_id": "codex-live",
+                        "tool_name": "Bash",
+                        "tool_input": {"command": "pwd"},
+                    }
+                ),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(process.returncode, 0, process.stderr)
+            common_dir = Path(
+                subprocess.run(
+                    ["git", "-C", str(root), "rev-parse", "--git-common-dir"],
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    check=True,
+                ).stdout.strip()
+            )
+            if not common_dir.is_absolute():
+                common_dir = root / common_dir
+            self.assertFalse(
+                (common_dir / "wishgraph" / "host-observations").exists()
+            )
 
     def test_safe_upgrade_repairs_current_runtime_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -4247,12 +4393,12 @@ class InstallerTests(unittest.TestCase):
             payload = json.loads(upgraded.stdout)
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["after"]["state"], "current")
-            self.assertEqual(payload["after"]["installed_runtime_version"], 12)
+            self.assertEqual(payload["after"]["installed_runtime_version"], 13)
             config = json.loads(
                 (root / ".wishgraph" / "config.json").read_text(encoding="utf-8")
             )
             self.assertEqual(config["mode"], "enforce")
-            self.assertEqual(config["runtime_version"], 12)
+            self.assertEqual(config["runtime_version"], 13)
 
     def test_safe_upgrade_replaces_only_a_bundled_known_old_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -4576,7 +4722,7 @@ class InstallerTests(unittest.TestCase):
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["version"], 11)
-            self.assertEqual(config["runtime_version"], 12)
+            self.assertEqual(config["runtime_version"], 13)
             self.assertTrue(
                 (root / ".wishgraph" / "hooks" / "runtime-manifest.json").is_file()
             )
@@ -4804,7 +4950,7 @@ class OneCommandInstallerTests(unittest.TestCase):
                 stderr=subprocess.PIPE,
             )
             self.assertEqual(process.returncode, 0, process.stderr)
-            self.assertIn("Hooks remain non-blocking", process.stdout)
+            self.assertIn("Next: reopen the current Agent session", process.stdout)
             self.assertTrue((codex_home / "skills" / "wishgraph" / "SKILL.md").exists())
             self.assertTrue((project / ".codex" / "hooks.json").exists())
             config = json.loads((project / ".wishgraph" / "config.json").read_text())

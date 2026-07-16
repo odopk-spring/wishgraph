@@ -23,8 +23,8 @@ continue without chat history.
 - WishGraph is active only when that file exists and `mode` is `warn` or `enforce`; missing config or `mode: off` means inactive.
 - In an inactive project, do not reinterpret `开始讨论`, `刷新项目状态`, or `执行 NNN 任务` as WishGraph commands. Do not read References, create project files, or install hooks.
 - Only an explicit request naming WishGraph, such as `使用 WishGraph` or `Use WishGraph`, may begin first-time project setup.
-- First-time activation completes setup but keeps the window `neutral`. Require a later explicit `开始讨论` / `Start discussion` event to enter Discussion.
-- Route `检查 WishGraph 状态` / `Check WishGraph status` to the read-only Doctor before loading workflow context.
+- First-time activation completes setup but keeps the window `neutral`. Tell the user to reopen the current Agent session. Require a later explicit `开始讨论` / `Start discussion` event to enter Discussion.
+- Keep Doctor out of the normal first-use path. Route an explicit `检查 WishGraph 状态` / `Check WishGraph status`, or a reopened session that still does not respond, to the read-only Doctor before loading workflow context.
 - Route an explicit project update to the fingerprinted safe-upgrade path; preserve unknown or locally modified runtime files and ask before any forced replacement.
 - In an active project with a current runtime, repair only the current host's missing or outdated adapter; never install the other host as a side effect.
 

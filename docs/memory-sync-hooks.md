@@ -90,11 +90,13 @@ The installer writes the exact Python executable used during setup into the host
 
 For an enabled project, the bundled installer also provides three bounded maintenance actions: `--doctor --json` performs a fixed-path read-only health check; `--upgrade --json` repairs missing metadata for current files or atomically replaces a bundled-known generated runtime and rolls back on failure; `--repair-host-adapter --host codex|claude --json` repairs only the selected current-host adapter while preserving unrelated hooks. Unknown or locally modified runtime files stop for review instead of being overwritten.
 
+Normal users only enable WishGraph, reopen the current Agent session, and say `Start discussion`. If that does not respond, Doctor distinguishes static installation health from host execution observed through bounded `SessionStart` and `UserPromptSubmit` receipts under `.git/wishgraph/host-observations/`. Receipts never enter the worktree and are not written by `PreToolUse`. An unverified Codex session is routed to `/hooks`; Claude Code CLI may additionally use `claude doctor`.
+
 `memory_sync.py` is a stable entrypoint over four explicit boundaries: `workflow_state.py` defines Session Role, Task Lifecycle, Flow Phase, Expected Transition, events, and plans; `policy.py` implements the pure `reduce(current_state, user_event, host_capability)` transition function; `host_adapter.py` maps one authorized next action to Codex, Claude Code, CLI, and Hook behavior; `git_state.py` persists Git facts, session runtime, Worker Claims, and the Discussion-local Integration lease. Semantic project truth remains in Markdown and Git.
 
 Start with `warn`. After one successful Task-backed Worker closeout and one Discussion-local integration, change `.wishgraph/config.json` to `enforce`.
 
-Codex users must trust the repository and review new hook definitions with `/hooks`. Project hooks do not run in an untrusted repository.
+Codex project Hooks do not run before repository trust is granted; this detail is surfaced through Doctor only when normal entry fails.
 
 ## Parallel closeout rules
 

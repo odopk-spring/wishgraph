@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": 11,
-    "runtime_version": 12,
+    "runtime_version": 13,
     "mode": "enforce",
     "paths": {
         "prd": "PRD.md",
@@ -497,6 +497,74 @@ def rebind_worker_claim(
 
 
 RUNTIME_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+HOST_OBSERVATION_EVENTS = ("session-start", "user-prompt-submit")
+
+
+def host_observation_root(root: Path) -> Path:
+    """Keep host liveness evidence outside the worktree and project history."""
+    return git_common_dir(root) / "wishgraph" / "host-observations"
+
+
+def _host_observation_path(root: Path, host: str, event: str) -> Path:
+    if host not in {"codex", "claude"}:
+        raise ValueError("invalid_host_observation_host")
+    if event not in HOST_OBSERVATION_EVENTS:
+        raise ValueError("invalid_host_observation_event")
+    return host_observation_root(root) / host / f"{event}.json"
+
+
+def record_host_observation(
+    root: Path, host: str, event: str, runtime_version: Any
+) -> dict[str, Any]:
+    """Record one low-frequency proof that the selected host invoked WishGraph."""
+    try:
+        path = _host_observation_path(root, host, event)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    if isinstance(runtime_version, bool) or not isinstance(runtime_version, int):
+        return {"ok": False, "error": "invalid_host_observation_runtime_version"}
+    record = {
+        "schema_version": 1,
+        "kind": "host_observation",
+        "host": host,
+        "event": event,
+        "runtime_version": runtime_version,
+        "observed_at": utc_now(),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(record, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+    except OSError as exc:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        return {"ok": False, "error": "host_observation_write_failed", "detail": str(exc)}
+    return {"ok": True, "observation": record}
+
+
+def read_host_observations(root: Path, host: str) -> list[dict[str, Any]]:
+    """Read only the two bounded host-observation files used by Doctor."""
+    observations: list[dict[str, Any]] = []
+    for event in HOST_OBSERVATION_EVENTS:
+        try:
+            path = _host_observation_path(root, host, event)
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (ValueError, OSError, json.JSONDecodeError):
+            continue
+        if (
+            isinstance(value, dict)
+            and value.get("kind") == "host_observation"
+            and value.get("host") == host
+            and value.get("event") == event
+        ):
+            observations.append(value)
+    return observations
 
 
 def session_runtime_root(root: Path) -> Path:

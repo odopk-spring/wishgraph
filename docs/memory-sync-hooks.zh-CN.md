@@ -98,11 +98,13 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
 
 对已启用项目，Skill 内的安装器还提供三个有界维护动作：`--doctor --json` 只读取固定路径并输出健康状态；`--upgrade --json` 可以为当前文件补齐缺失元数据，或原子替换内置已知版本的生成运行时，失败时自动回滚；`--repair-host-adapter --host codex|claude --json` 只修复所选当前宿主并保留其他 Hook。未知或本地修改过的运行时会停止并交给用户检查，不会直接覆盖。
 
+正常用户只需要启用 WishGraph、重新打开当前 Agent 会话、输入“开始讨论”。如果没有响应，Doctor 会通过 `.git/wishgraph/host-observations/` 下有界的 `SessionStart` 与 `UserPromptSubmit` 回执，区分静态安装健康和宿主实际执行。回执不会进入 worktree，`PreToolUse` 也不会写回执。Codex 未确认时才引导 `/hooks`；Claude Code CLI 可以额外运行 `claude doctor`。
+
 `memory_sync.py` 现在只是稳定入口，内部拆成四个明确边界：`workflow_state.py` 定义 Session Role、Task Lifecycle、Flow Phase、Expected Transition、事件和计划；`policy.py` 实现纯函数 `reduce(current_state, user_event, host_capability)`；`host_adapter.py` 把唯一下一动作映射为 Codex、Claude Code、CLI 与 Hook 行为；`git_state.py` 保存 Git 事实、session runtime、Worker Claim 和 Discussion-local Integration lease。项目语义真相仍保存在 Markdown 和 Git 中。
 
 建议先用 `warn`。完成一次 Task-backed Worker 收尾和一次 Discussion-local Integration 后，再把 `.wishgraph/config.json` 改成 `enforce`。
 
-Codex 用户还需要信任目标仓库，并通过 `/hooks` 审阅新 hook；未信任项目不会运行项目级 hooks。
+Codex 项目 Hook 需要仓库信任后才能运行；只有正常入口失败时，Doctor 才向用户显示这项排障信息。
 
 ## 并行收尾规则
 

@@ -188,8 +188,4 @@ if ($SetupProject) {
     & $pythonExecutable @installerArguments
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    Write-Host "WishGraph project hook setup complete for $Project"
-    if (-not $Strict) {
-        Write-Host "Memory sync starts in warn mode. Ask your agent for strict mode after one successful closeout."
-    }
 }

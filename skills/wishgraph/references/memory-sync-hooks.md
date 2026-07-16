@@ -76,6 +76,15 @@ Updating the global Codex or Claude Skill refreshes the bundled runtime for futu
 
 The two host files are thin adapters over the same `.wishgraph/hooks/` runtime. A Worker Claim records both the machine hostname and `agent_platform`; an idle thread is reusable only by the same agent platform. Switching between Codex and Claude keeps repository truth, Tasks, reports, Claims, and status portable, but never sends a Codex route to a Claude thread ID or vice versa.
 
+`SessionStart` and `UserPromptSubmit` record bounded host-liveness evidence outside the worktree:
+
+```text
+.git/wishgraph/host-observations/<host>/session-start.json
+.git/wishgraph/host-observations/<host>/user-prompt-submit.json
+```
+
+Each receipt contains only host, event, runtime version, and observation time. Doctor reports `unverified`, `stale`, `observed`, or `confirmed_recently` by comparing these receipts with the installed runtime and current host adapter. This proves only that the host recently invoked WishGraph; it is not a permanent trust guarantee. Do not write a receipt from `PreToolUse`, enumerate logs, or add files to the worktree.
+
 Use `warn` for first adoption. Use `enforce` only after a clean successful closeout. Add the Git pre-commit fallback for strict enforcement outside host lifecycle hooks. Follow `installation.md` for commands and prerequisites.
 
 ## Configuration
@@ -167,6 +176,7 @@ Do not put wall-clock assertions in ordinary unit tests. If absolute p95 fails b
 
 - Invalid configuration: report the specific field and stop semantic claims.
 - Missing or outdated current-host adapter: repair only that host after Doctor confirms a current runtime.
+- Current adapter with no recent host receipt: reopen the Agent session. If it still does not respond, use `/hooks` in Codex or `claude doctor` in Claude Code CLI.
 - Recognized older runtime: use the atomic safe upgrade; a failed write restores the previous runtime, manifest, and config.
 - Modified generated runtime: compare before using `--force-assets`; preserve intentional local changes.
 - Incorrect repository rule: switch to `warn` while repairing configuration rather than fabricating reports.
