@@ -40,7 +40,7 @@ Responsibilities:
 - Fill the Run Report's versioned `wishgraph:run-state` JSON block for machine lifecycle facts. Keep evidence, risks, and impact reasoning in Markdown.
 - Use the versioned task-state lifecycle `draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`. Discussion records explicit Worker authorization and human review, Workers record execution states, and Integration records `integrated`.
 - Create one atomic commit per completed task unless the project owner explicitly says not to commit.
-- Never start workers in the background by default.
+- Never create an unauthorized or hidden background Worker. A managed background Agent is allowed only when it is user-visible, inspectable, controllable, bound to a real thread/session ID, and follows the same Claim and closeout gates.
 
 ### Discussion-Local Integration Phase
 

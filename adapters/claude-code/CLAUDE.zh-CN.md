@@ -4,6 +4,8 @@
 
 ## 启动模式
 
+- 全局 `/wishgraph` Skill 只表示可用，不会自动在每个项目启用。没有已启用的 `.wishgraph/config.json` 时，不要把“开始讨论”或“执行 012 任务”这类通用短语解释成 WishGraph 命令。
+- 只有明确点名 WishGraph 的请求才能启用项目。安全配置完成后保持 neutral，请用户重新打开 Claude Code 会话，之后再通过“开始讨论”进入 Discussion。
 - 如果项目没有可用的 `PRD.md`，不要先实现代码。
 - 默认使用用户语言。如果用户要求双语，关键提示、摘要和任务解释按中文在前、英文在后写。
 - 不要翻译文件路径、命令、代码标识符、符号、路由、包名或环境变量。
@@ -13,17 +15,12 @@
 - 一次 grill 一个决策，每个问题都带推荐默认值。
 - 先写项目框架，再进入执行工作。
 
-## 阅读顺序
+## 按角色读取
 
-做规划、任务编写或执行时，依次阅读：
-
-1. `PRD.md`
-2. `ARCHITECTURE.md`
-3. `CODEMAP.md`
-4. `CONVENTIONS.md`
-5. 规划 session 阅读 `prompts/DISCUSSION_AI.md`
-6. 执行 session 阅读 `prompts/EXECUTION_AI.md` 和指定 `tasks/build/*.md`；旧项目已有 `.tasks/build/*.md` 时保持兼容
-7. `reports/PROJECT_STATUS.md` 读取当前已集成项目状态概览
+- **进入 Discussion：**先读 `prompts/DISCUSSION_AI.md` 的精简动态区、`reports/PROJECT_STATUS.md` 和紧凑 active status。只有当前问题需要时，才打开 `PRD.md`、`ARCHITECTURE.md`、`CODEMAP.md`、`CONVENTIONS.md` 或某一个 Task。
+- **Worker：**只读 `prompts/EXECUTION_AI.md`、准确分配的 Task 或 Revision、必要的 Project Status 小节，以及其范围明确要求的 Reference 和源码。不要扫描无关 Task、历史报告或完整源码树。
+- **Integration：**只读被选中的 Run Report、对应 Task/Revision，以及报告指出需要更新的共享记忆文件。
+- `.tasks/build/*.md` 只作为旧项目兼容路径；新任务使用 `tasks/build/*.md`。
 
 ## 协作规则
 

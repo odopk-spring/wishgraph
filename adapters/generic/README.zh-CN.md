@@ -27,6 +27,8 @@ cp adapters/generic/AGENTS.zh-CN.md /path/to/project/AGENTS.md
 Follow AGENTS.md. Start WishGraph for this project. If there is no PRD, run the WishGraph intake prompt and grill it into a PRD before writing code.
 ```
 
+项目明确启用后，用户侧仍保持简单：重新打开会话，输入“开始讨论”，执行某个准确 Task 时输入“执行 012 任务”。通用适配器本身不会创建原生 Worker；除非当前宿主另有等价、可检查的 thread 集成，否则只降级为一行执行命令。
+
 如果需要中英双语交接，追加：
 
 ```text
@@ -52,7 +54,7 @@ reports/runs/<work-unit-id>.md
 
 ## 工具无关规则
 
-不要依赖某个聊天产品。稳定协议是上面的文件集。任何能读写文件的 agent，只要遵守规划 / 执行分工，就可以参与。
+持久项目事实不依赖某个聊天产品。任何能读写这些文件的 Agent 都可以参与协议，但不同宿主的安全性和自动化程度并不相同。仅复制本适配器不会获得原生 Worker 创建、生命周期 Hook 注册、写入／构建拦截或完成提醒。
 
 安装 WishGraph hook runtime 后，通用 Agent 可以直接运行确定性检查：
 
@@ -60,5 +62,7 @@ reports/runs/<work-unit-id>.md
 python3 .wishgraph/hooks/memory_sync.py check --scope worktree
 python3 .wishgraph/hooks/memory_sync.py check --scope staged
 ```
+
+这些命令检查收尾状态，不能替代宿主的 `PreToolUse` 集成，也不能描述成写入／构建硬门禁。
 
 安装方式和可选 Git pre-commit 强制策略见 [`docs/memory-sync-hooks.zh-CN.md`](../../docs/memory-sync-hooks.zh-CN.md)。

@@ -1,42 +1,50 @@
-# WishGraph 流程控制状态机规格
+# WishGraph 流程控制状态机
 
-- 状态：Frozen / Implemented（2026-07-15）
-- 范围：Discussion、Worker、Integration、Review 的流程控制层
-- 目标：以已冻结语义和状态转换统一 Hook、运行时、模板与宿主适配器
+- 状态：Implemented
+- 范围：Discussion、Formal Worker、Helper、Integration 与 Review
+- 权威实现：`skills/wishgraph/assets/hooks/`
+- 详细规则：`skills/wishgraph/references/orchestration-state-machine.md`、`worker-execution.md`、`task-revisions.md`、`integration-flow.md`
 
-## 1. 设计原则
+本页说明用户会遇到的流程和当前实现边界。它不复制全部内部字段，也不固定 runtime 版本号；安装版本以 `.wishgraph/hooks/runtime-manifest.json` 和 Doctor 输出为准。
 
-WishGraph 的流程控制必须由机器可读状态和纯转换函数决定。提示词负责解释 `FlowPlan`，不能创造、跳过或覆盖状态转换。
+## 1. 最短使用流程
 
-本规格采用四个原则：
+WishGraph 按项目显式启用。全局安装 Skill 只表示“可用”，不会改变所有项目。
 
-1. 窗口、角色、阶段和宿主动作分离。
-2. Discussion 永远不能因为宿主缺少多 Agent 能力而接管 Worker 工作。
-3. Integration 是 Discussion-local 临时阶段，不是独立窗口或永久角色。
-4. 用户的简短肯定回复只在存在唯一 `expected_transition` 时才有确定含义。
+```text
+1. 在项目里明确说：使用 WishGraph
+2. 完成安全配置后重新打开当前 Agent 会话
+3. 输入：开始讨论
+```
 
-## 2. 规范术语
+项目没有已启用的 `.wishgraph/config.json` 时，“开始讨论”“刷新项目状态”“执行 012 任务”都只是普通文本，不触发 WishGraph，也不创建文件。
 
-| 术语 | 定义 |
+| 意图 | 命令 | 读取范围 |
+| --- | --- | --- |
+| 进入讨论 | `开始讨论` / `Start discussion` | 精简交接、当前 Project Status、active state |
+| 执行任务 | `执行 012 任务` / `Execute task 012` | 精确 Task；授权后再路由 Worker |
+| 刷新状态 | `刷新项目状态` / `Refresh project status` | 当前候选 Task、Claim 和相关终态报告 |
+
+默认刷新不会读取完整源码树、全部历史报告或无关 Task。只有 `status --full` 用于显式历史诊断。
+
+## 2. 角色、阶段与 Agent 类型
+
+| 概念 | 当前定义 |
 | --- | --- |
-| Window / 窗口 | Codex、Claude Code 或其他宿主提供的用户界面与会话容器。 |
-| Role / 角色 | 当前窗口被允许承担的职责。角色决定可执行的操作边界。 |
-| Phase / 阶段 | 当前流程正在处理的临时步骤。阶段可以变化，但不必改变窗口角色。 |
-| Host action / 宿主动作 | 宿主为落实状态机动作而实际执行的 UI、task、thread 或文本输出操作。 |
-| Discussion | 用户可见的长期窗口角色，负责规划、授权路由、Discussion-local Integration 和结果呈现。 |
-| Worker | 必须在独立执行窗口运行的角色，负责实现、任务验证、Run Report 和原子提交。 |
-| Integration | Discussion 内部的临时 phase，负责合并、组合验证、共享状态更新和集成提交。不是独立窗口角色。 |
-| Review | Discussion 中向用户呈现结果并等待接受或后续意见的状态。不是第四个 Agent。 |
+| Discussion | 用户长期使用的讨论角色；负责规划、Task、路由、Integration 和结果呈现，不实现业务代码 |
+| Formal Worker | 独立、用户可见、可检查、可控制的 Agent thread 或窗口；一次绑定一个 Task 或 Revision |
+| Helper Subagent | 探索、检索、日志分析、审查或短时验证辅助；默认只读，没有 Worker Claim |
+| Hidden/Internal Agent | 用户无法独立检查和追踪；不能成为 Formal Worker |
+| Integration | Discussion 内部的临时 phase，不是角色，也不创建第四个窗口 |
+| Review | Discussion 向用户呈现结果的状态，不是第四个 Agent |
 
-原“静默 Integration”统一改称：
+Formal Worker 不要求一定是“物理新窗口”，但必须有稳定 thread/session ID、独立上下文、可查看与控制的过程、精确 Task/Claim/branch/worktree 绑定、写入和构建门禁，以及结构化终态与 Run Report。
 
-> 自动触发、Discussion-local、safe-when-silent Integration
+Agent 身份不会自动产生权限。Codex Explorer、Reviewer，Claude Explore、Plan、`/fork` 和隐藏子代理默认都是 Helper，不能取得 Worker Claim。Formal Worker 也不得继续创建另一个 Formal Worker。
 
-它同时表示：Worker 完成后自动触发；在 Discussion 窗口内部执行；只有所有门禁安全时才不询问用户。
+## 3. 四个正交状态
 
-## 3. 四个正交状态维度
-
-### 3.1 Session Role
+### Session Role
 
 ```text
 neutral
@@ -44,43 +52,21 @@ discussion
 worker
 ```
 
-- 新窗口默认 `neutral`。
-- `neutral` 收到“开始讨论”后进入 `discussion`。
-- `neutral` 收到精确的 `执行 <task-id> 任务`，并通过执行 preflight 后进入 `worker`。
-- 已是 `discussion` 的窗口收到执行授权时，只路由独立 Worker，不把自身改成 `worker`。
-- Integration 不出现在 Session Role 中。
+新会话默认 `neutral`。启用项目后仍需明确“开始讨论”才能进入 `discussion`；精确执行命令通过 preflight 和 Claim 后才能进入 `worker`。
 
-### 3.2 Task Lifecycle
+### Task Lifecycle
 
 ```text
-draft
-approved
-running
-completed
-blocked
-incomplete
-integrated
-reviewed
+draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed
 ```
 
-标准路径：
+- `approved`：Task 已获得准确 Worker 启动授权。
+- `running`：存在真实 Worker 和有效 Claim。
+- `completed`：存在终态记录与预期 Run Report。
+- `integrated`：Integration lease、合并、组合验证和共享状态收尾完成。
+- `reviewed`：Discussion 已呈现，用户接受结果。
 
-```text
-draft -> approved -> running -> completed -> integrated -> reviewed
-                         |-> blocked
-                         |-> incomplete
-```
-
-约束：
-
-- `approved` 表示 Task Spec 已冻结且 Worker 启动已获授权。
-- `running` 必须有有效 Worker Claim。
-- `completed` 必须有终态 Run Report 和规定验证证据。
-- `integrated` 必须有有效 Integration lease、集成提交和共享状态收尾。
-- `reviewed` 只表示 Discussion 已向用户呈现，且用户接受结果。
-- 缺少报告、验证失败或执行未闭环的任务不能保持 `completed`；应归一化为 `blocked` 或 `incomplete`。
-
-### 3.3 Flow Phase
+### Flow Phase
 
 ```text
 planning
@@ -94,360 +80,101 @@ decision_required
 presenting_result
 ```
 
-| Flow Phase | 含义 | Discussion 可做什么 |
-| --- | --- | --- |
-| `planning` | 澄清需求、写规格、判断执行形态 | 读取项目事实；写治理文档和 draft Task |
-| `awaiting_worker_authorization` | Task 已就绪，等待用户授权 | 只解释 Task、回答问题、更新授权状态；停止新的源码探索 |
-| `routing_worker` | 已授权，正在请求宿主启动 Worker | 调用 Host Adapter；不得实现 Task |
-| `waiting_for_user_launch` | 宿主不能自动创建 Worker | 只展示一行执行命令并等待 |
-| `waiting_for_worker` | Worker 已启动或由用户另开窗口执行 | 读取状态、观察、停止、重试、接管；不得重复执行 |
-| `integration_pending` | Worker 已终态，必须进行集成评估 | 自动评估门禁；不询问“是否集成” |
-| `integrating` | Discussion-local Integration 正在进行 | 持有 Integration lease 后合并、组合验证、更新共享状态和提交 |
-| `decision_required` | 集成评估发现实质风险或多方案 | 只询问具体风险决策，不询问是否启动流程 |
-| `presenting_result` | 集成完成，向用户展示结果 | 呈现结果、接受 review、生成 follow-up |
+### Expected Transition
 
-### 3.4 Expected Transition
-
-`expected_transition` 是零个或一个带参数的结构化值，不是自由文本。
+同一 Discussion 最多保存一个结构化 `expected_transition`，例如：
 
 ```text
-none
-approve_worker_launch(task_id)
-launch_worker_manually(task_id)
-wait_for_worker(task_id)
-auto_integrate(task_id, report_id)
-resolve_conflict(task_id, decision_id)
-repair_worker_closeout(task_id)
-accept_result(task_id, integration_id)
+approve_worker_launch(012)
+wait_for_worker(012)
+auto_integrate(012, reports/runs/012-attempt-1.md)
+resolve_conflict(012, api-compatibility)
+accept_result(012, integration-012)
 ```
 
-不变量：
+“可以”“开始吧”“执行吧”只有在 transition 唯一且仍有效时才有意义。两个 Task 同时等待授权时，系统必须询问准确 ID。
 
-- 同一 Session runtime 最多存在一个 `expected_transition`。
-- 上下文批准只有在该值唯一、参数完整且仍然有效时才能消费。
-- 多个 Task 同时等待授权时，不得把多个候选压成一个模糊 transition。
-- `expected_transition` 由 reducer 产生；提示词不得自行改写。
+## 4. 命令识别边界
 
-## 4. 规范状态结构
+低风险入口可以归一化大小写、空格、终止标点、引号和少量礼貌词，但仍只与有限 alias 做整句相等匹配。
 
-建议控制层使用以下逻辑结构；具体序列化格式在实现阶段决定。
+- 可识别：`进入讨论模式`、`回到 Discussion`、`Begin discussion`、`Reload project status`。
+- 不识别：`我们讨论一下颜色`、`刷新项目状态并执行 012`。
 
-```text
-OrchestrationState
-  session
-    session_id
-    role
-    host
-    phase
-    expected_transition
-  task
-    task_id
-    lifecycle
-    attempt
-    worker_authorized
-    run_report
-  worker_runtime
-    claim_id
-    branch
-    worktree
-    host_window_or_thread_id
-    active_task_id
-    active_revision_id
-    previous_task_id
-    previous_claim_id
-    worker_session_id
-    worker_availability
-    binding_status
-    allowed_scope
-    validation_plan
-    execution_ownership
-  integration_runtime
-    lease_id
-    base_branch
-    worktree
-    selected_reports
-    integration_id
-  pending_decision
-    decision_id
-    kind
-    options
-    recommended_option
-```
-
-事实归属：
-
-| 状态 | 真相源 |
-| --- | --- |
-| Task Lifecycle、授权、attempt、Run Report | 版本化 Task/Run Report 文件 |
-| Session Role、Flow Phase、Expected Transition | Git common directory 下的 session runtime |
-| Worker Claim | Git common directory 下的 Claim runtime |
-| Integration lease | Git common directory 下的 Integration runtime |
-| 已集成结果 | Git、`reports/PROJECT_STATUS.md` 与 integration-state |
-
-只有真实存在的宿主窗口或 thread ID 才能写入 runtime。手动等待状态不得虚构 ID。
-
-## 5. 用户事件与解析优先级
-
-### 5.1 明确命令优先
+执行、停止、重试和接管属于高风险命令，保持严格匹配：
 
 ```text
 执行 002 任务
 停止 002 任务
 重新执行 002 任务
 接管 002 任务
-查看 002 任务
-观察 002 任务
 ```
 
-- Task ID 必须精确匹配结构化 `task_id`。
-- `002`、`002b`、`002ba` 是三个不同 ID。
-- 不允许按文件名前缀、suffix 长度或最近任务猜测。
-- 明确命令仍需通过授权、依赖、Claim、branch 和 worktree 门禁。
+`002`、`002b`、`002ba`、`002-r1` 和 `002-r10` 都是不同结构化 ID，不能按文件名前缀猜测。
 
-### 5.2 上下文批准其次
-
-```text
-可以
-开始吧
-执行吧
-继续
-按这个做
-创建吧
-```
-
-解析规则：
-
-1. 当前必须存在唯一 `expected_transition`。
-2. transition 的目标 Task 或 decision 必须唯一且仍有效。
-3. 回复只消费该 transition，不产生额外授权。
-4. `approve_worker_launch(002)` 使“执行吧”表示启动 Worker 002。
-5. `accept_result(002, integration-7)` 使“可以”表示接受已呈现结果。
-
-### 5.3 无法唯一解析时询问
-
-示例：
-
-```text
-当前有 002 和 003 两个任务等待启动，你希望执行哪一个？
-```
-
-任何解析路径都禁止产生 `discussion_window_implements_business_code`。
-
-## 6. 纯状态转换核心
-
-控制层核心是纯函数：
+## 5. 状态机与宿主的分工
 
 ```text
 FlowPlan = reduce(current_state, user_event, host_capability)
 ```
 
-`reduce`：
+- `workflow_state.py`：类型、结构化状态、命令解析。
+- `policy.py`：纯状态转换和拒绝理由。
+- `host_adapter.py`：把唯一下一动作映射到当前宿主。
+- `git_state.py`：Git 事实、session runtime、Claim、notification 和 Integration lease。
 
-- 不读写文件；
-- 不调用宿主 API；
-- 不运行 Git、构建或测试；
-- 对同一输入产生相同输出；
-- 必须输出唯一的下一动作或唯一的澄清问题；
-- 必须同时返回允许的状态变更和拒绝原因。
+`codex_worker_provider.py` 是 `host_adapter.py` 背后的私有延迟加载实现，不是第五个公共边界。状态机决定“应该创建 Worker”；Host Adapter 决定“当前宿主怎么做”。宿主能力不能扩大 Discussion 权限。
 
-建议 `FlowPlan` 至少包含：
+## 6. Worker 启动的真实行为
 
-```text
-FlowPlan
-  accepted
-  next_action
-  state_patch
-  task_id
-  required_claim
-  required_integration_lease
-  host_route
-  user_message
-  stop_after_action
-  denial_reason
-  revision_id
-  target_worker_id
-  work_payload
-```
+### Codex
 
-语义动作示例：
+Codex App、CLI 和 IDE 能显示可检查的 Agent thread；CLI 可用 `/agent` 切换。WishGraph 安装项目级 `.codex/agents/wishgraph-worker.toml`。
 
 ```text
-ask_for_worker_authorization
-launch_worker
-show_manual_worker_command
-wait_for_worker
-evaluate_integration
-enter_discussion_local_integration
-ask_material_decision
-present_result
-deny_role_violation
-append_feedback_to_active_task
-create_lightweight_revision
-route_to_active_worker
-route_to_previous_worker
-rebind_worker
-request_formal_followup_task
-fallback_manual_worker_command
+codex-worker prepare
+-> Host Adapter 返回准确 Task、scope、validation、report path 和 Agent payload
+-> 当前 Codex 宿主创建原生 Agent thread
+-> 宿主返回真实 thread ID
+-> codex-worker register 持久化 ID 和可检查/可控制证明
+-> Worker preflight 并取得 Claim
 ```
 
-Host Adapter 只能落实 `FlowPlan.next_action`，不能把拒绝改成允许，也不能把 `launch_worker` 改成 Discussion 直接执行。
+Hook 不创建 Agent。`prepare` 成功不等于 Worker 已创建；真实 thread ID 注册前不得进入 `waiting_for_worker`。创建或注册失败时只输出 `执行 <task-id> 任务`。
 
-## 7. Worker 路由
+### Claude Code CLI
 
-### 7.1 Discussion 中的启动
+| 能力 | 当前行为 |
+| --- | --- |
+| `background_session` | 运行 `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"` |
+| `forked_subagent` | 只用于短时、低风险 Helper 检查 |
+| `manual_command_only` | 只输出 `执行 <task-id> 任务` |
+
+进入 `background_session` 需要：`--bg`、`agents --json`、受管 Agent、Worktree `baseRef: head`、隔离 worktree 可见的 `.wishgraph`、以及与当前 `HEAD` 一致的已授权 Task。
+
+启动后保存稳定完整 session ID，并可使用：
 
 ```text
-planning
--> awaiting_worker_authorization
--> routing_worker
--> waiting_for_worker | waiting_for_user_launch
+claude agents --json --all --cwd <project>
+claude logs <id>
+claude attach <id>
+claude stop <id>
 ```
 
-授权后：
+`claude --bg` 返回不等于 Task 已 `running`。Worker 进入实际 worktree 后仍需取得绑定 Claim。`/tasks` 只查看当前 Claude session 关联的后台工作，不创建 WishGraph Task，也不授予权限。
 
-- Codex 支持可见 task/thread：自动创建独立 Worker，成功后进入 `waiting_for_worker`。
-- Codex 自动创建失败：进入 `waiting_for_user_launch`，只输出 `执行 <task-id> 任务`。
-- Claude Code：Host Adapter 能力为 `background_session` 时启动受管 `wishgraph-worker` 并进入 `waiting_for_worker`；能力不可用或启动失败时进入 `waiting_for_user_launch`，只输出 `执行 <task-id> 任务`。`forked_subagent` 不承担正式业务 Worker。
-- 未知宿主：进入 `waiting_for_user_launch`，只输出同一行命令。
+### 未知或不支持的宿主
 
-降级输出必须严格为一行，例如：
+只输出一行命令，让用户在新的可检查执行会话中运行。Discussion 到此停止执行动作，不附带“我也可以直接修改”。
+
+## 7. Claim、worktree 与并行
+
+业务写入、依赖安装、实现构建／测试和 Worker commit 都需要有效 Claim，至少绑定：
 
 ```text
-执行 002 任务
-```
-
-输出后 Discussion 停止执行动作。禁止附带“也可以在当前窗口直接修改”、完整提示词包或虚构的运行状态。
-
-### 7.2 Neutral 窗口中的启动
-
-`neutral` 窗口收到精确命令 `执行 002 任务` 后：
-
-1. 精确解析 Task；
-2. 读取 `CONVENTIONS.md`、`prompts/EXECUTION_AI.md` 和 Task Spec；
-3. 验证 `approved`、授权、依赖、attempt、branch/worktree 和 Claim；
-4. 原子获取 Worker Claim；
-5. Session Role 变为 `worker`；
-6. Task Lifecycle 变为 `running`；
-7. 执行、验证、写 Run Report、提交并进入终态。
-
-### 7.3 执行窗口复用
-
-Worker Window 是可复用容器，不永久属于某个 Task，但同一时刻只能绑定一个 Task 或 Revision。正式 rebind 顺序固定为：
-
-```text
-旧工作进入终态、停止或明确挂起
--> 释放旧 Worker Claim
--> 清空旧 allowed_scope 与 validation_plan
--> 读取新 Task 或 Revision 记录
--> 绑定 task_id / revision_id / branch / worktree
--> 获取包含新 scope 与 validation 的新 Worker Claim
--> 原子更新 session runtime
--> 开始新工作
-```
-
-旧 Claim 仍为 active、旧工作仍为 running、或新工作缺少 scope/validation 时，`TASK_REBIND_REQUESTED` 必须返回 `deny_worker_rebind`。若旧 Claim 已释放但新 Claim 获取失败，窗口保持 idle/unbound；系统不得恢复旧权限。
-
-正式 Task 的 `allowed_scope` 从标准 `Change Set` 表格的 `Target` 列读取，Validation 清单会去掉 Markdown checkbox 标记后写入新 Claim。历史 Worker thread 若已持有其他 active Claim，则视为 busy，不得接收旧 Task 的 Revision。
-
-### 7.4 Task Revision / 任务修订
-
-Task Revision 是原 Task 的低风险、小范围后续，不是新的产品 Task。ID 严格匹配：
-
-```text
-<parent-task-id>-r<positive-integer>
-012-r1
-012-r10
-```
-
-`012-r1` 与 `012-r10` 必须精确匹配。记录位于 `tasks/revisions/<revision-id>.md`，只包含一个 `wishgraph:revision-state` JSON 块及简短说明：
-
-```json
-{
-  "schema_version": 1,
-  "kind": "revision",
-  "revision_id": "012-r1",
-  "parent_task_id": "012",
-  "status": "pending",
-  "user_request": "将阅读页主题色从亮蓝改为深蓝",
-  "allowed_scope": ["ui/ReaderTheme.swift"],
-  "validation_plan": ["Reader preview"],
-  "run_report": "reports/runs/012-r1-attempt-1.md",
-  "worker_creation_authorized": true
-}
-```
-
-运行中的原 Task 收到符合条件的反馈时，执行 `append_feedback_to_active_task`，不创建 Revision 文件；反馈写进当前 Run Report。已完成、已集成或已呈现的 Task 收到符合条件的反馈时，创建上述轻量记录及独立修订报告。
-
-只有请求明确、属于原 Task、范围小、可独立撤销、有明确 scope/validation，且 API、schema、持久化、迁移、依赖、权限、安全、隐私和产品决策风险全部显式为 false 时，纯 reducer 才能选择 Revision。否则动作固定为 `request_formal_followup_task`。
-
-Revision 可附着于 `completed`、`integrated` 或 `reviewed` 的父 Task。Revision 的 `revision_id` 必须随 `integration_pending -> integrating` 持久化；集成完成只更新 Revision 状态，不得把已经 `integrated` 或 `reviewed` 的父 Task 回退到更早生命周期。
-
-新增事件为 `user_requested_revision`、`worker_feedback_received`、`task_rebind_requested`、`task_rebind_completed`、`revision_completed`、`revision_blocked` 和 `host_revision_route_failed`。这些事件只能由结构化分类或真实宿主结果产生；提示词不得把普通文字直接伪装成风险已检查的 Revision 事件。
-
-## 8. 自动集成
-
-Worker 进入任何终态后都触发集成评估：
-
-```text
-worker terminal
--> integration_pending
--> evaluate_integration
-```
-
-评估分流：
-
-| 评估结果 | 状态转换 | 用户交互 |
-| --- | --- | --- |
-| 报告完整、验证通过、范围安全、无冲突、无新实质决策 | `integration_pending -> integrating` | 不询问 |
-| 公共 API、schema、安全、迁移、冲突或新产品/架构决定 | `integration_pending -> decision_required` | 只询问具体决定 |
-| 缺少报告、验证失败、状态矛盾 | Task 归一化为 `blocked` 或 `incomplete`，Phase 回到 `waiting_for_worker` | 呈现机械阻塞与修复动作 |
-
-安全路径：
-
-```text
-integration_pending
--> acquire Integration lease
--> integrating
--> merge/cherry-pick without premature commit
--> combined validation
--> update shared state
--> integration commit
--> Task integrated
--> presenting_result
-```
-
-不再询问“是否开始集成”。只有出现实质选择时才提问，例如：
-
-```text
-002 修改了公共 API，有 A/B 两种兼容方案。我推荐 A，是否采用？
-```
-
-### 8.1 宿主差异
-
-| 状态机动作 | Codex | Claude Code |
-| --- | --- | --- |
-| `launch_worker` | 自动创建可见 Worker task/thread | 优先受管原生后台 Worker |
-| Worker 自动创建失败 | 输出一行执行命令 | 输出一行执行命令 |
-| `auto_integrate`，Discussion 活跃 | 当前 Discussion 临时进入 Integration phase | 当前 Discussion 临时进入 Integration phase |
-| `auto_integrate`，Discussion 不活跃 | 持久化 `integration_pending`，下次 Discussion resume 时自动进入 | 同左 |
-| `decision_required` | Discussion 询问具体风险决定 | Discussion 询问具体风险决定 |
-| `route_to_active_worker` / `route_to_previous_worker` | 向真实可见 Worker task/thread 发送结构化 payload | 不支持自动路由，输出最短恢复命令 |
-| `rebind_worker` | 复用真实 Worker，重新获取 Claim 并更新 runtime | 用户在对应执行窗口运行精确命令 |
-
-Integration 不创建用户可见窗口。
-
-## 9. Claim、Lease 与机械门禁
-
-### 9.1 Worker Claim
-
-Worker 修改业务文件或运行实现验证前，必须持有有效 Claim，且 Claim 绑定：
-
-```text
-task_id
-revision_id（可选）
-work_unit_id
+task_id / revision_id
 attempt
-session_id / worker_id
+worker/session/thread identity
 branch
 absolute worktree
 allowed_scope
@@ -456,154 +183,82 @@ execution_ownership
 lease status / heartbeat
 ```
 
-Discussion 没有 Worker Claim，因此不能进行业务实现。
+一个 Worker thread 同一时刻只能绑定一个工作单元。复用前必须让旧工作进入终态或明确停止、释放旧 Claim、清空旧 scope/validation，再取得新 Claim。
 
-### 9.2 Integration Lease
+并行写入必须使用独立 worktree。Claim 只协调共享同一本地 Git common directory 的进程和 worktree，不是跨机器分布式锁。
 
-Discussion 进入 `integrating` 前必须原子获取独占 Integration lease，绑定：
+## 8. 轻量 Revision
+
+明确、低风险、属于原 Task 的局部修改使用 `tasks/revisions/<task-id>-rN.md`，不创建完整 Task Spec。
 
 ```text
-session_id
-integration_id
-base branch
-absolute worktree
-selected Task IDs
-selected Run Reports
-lease status / heartbeat
+用户提出局部修正
+-> 识别唯一 parent Task
+-> 创建或合并一个轻量 Revision
+-> 路由到空闲原 Worker，或创建新的可检查 Revision Worker
+-> 局部验证和短 Run Report
+-> 安全时自动集成
 ```
 
-Integration lease 只授权：
+运行中的原 Task 可直接吸收同范围反馈，不创建 Revision 文件。公共 API、schema、持久化、迁移、依赖、权限、安全、隐私或新产品决定必须升级为正式 Follow-up Task。
 
-- 合并或 no-commit cherry-pick 已选择 Worker 结果；
-- 在已选择 diff 范围内解决合并冲突；
-- 运行组合验证；
-- 更新共享项目状态；
-- 创建集成提交。
+当前 Codex 路径可以复用或创建 Revision thread。Claude Code 没有完整原生 Revision 回送控制路径时，只输出 `在任务 <task-id> 的执行窗口执行修订 <revision-id>`。
 
-它不授权实现新的业务需求。
+## 9. Worker 终态、提醒与 Integration
 
-### 9.3 操作门禁矩阵
+Worker 写结构化终态、Run Report 并释放 Claim 后，Claim release 写一条幂等 pending notification：
 
-| 操作 | neutral | discussion，无 lease | worker + Claim | discussion + Integration lease |
-| --- | --- | --- | --- | --- |
-| 写治理文档 / draft Task | 拒绝 | 允许 | 按 Task 范围 | 仅集成收尾所需 |
-| 写业务文件 | 拒绝 | 拒绝 | 允许，必须绑定 Claim | 仅 merge/conflict-resolution 范围 |
-| 安装依赖 | 拒绝 | 拒绝 | Task 明确授权时允许 | 默认拒绝；除非集成验证明确需要且无依赖变更 |
-| 构建 / 实现测试 | 拒绝 | 拒绝 | 允许，必须绑定 Claim | 只允许组合验证 |
-| 更新共享状态 | 拒绝 | 讨论规划范围内有限允许 | 拒绝 | 允许 |
-| 集成提交 | 拒绝 | 拒绝 | 拒绝 | 允许 |
+```text
+Worker terminal evidence + released Claim
+-> .git/wishgraph/notifications/inbox.json
+-> 绑定 Discussion 下次 SessionStart 或下一条输入时消费
+-> 切换宿主后，明确开始讨论或刷新可以接管
+-> 标记已读
+```
 
-硬度声明：
+这是“下次激活时拉取”，不是实时推送。没有 daemon、轮询、跨终端 IPC 或自动弹窗。宿主被强制结束可能绕过 terminal Hook；下一次 Discussion 只能根据 stale Claim 或结构化宿主状态恢复。
+
+```text
+completed|blocked|incomplete
+-> integration_pending
+-> evaluate_integration
+```
+
+- 报告、验证、范围、冲突和风险门禁通过：Discussion 取得 Integration lease，自动进行 safe-when-silent Integration。
+- 公共接口、数据、安全、产品决定或冲突：进入 `decision_required`，只问具体选择。
+- 缺报告、验证失败、Claim 未释放或状态矛盾：进入 Worker repair / `blocked`，不集成。
+
+宿主的 `completed` 状态或自然语言“做完了”都不是充分证据。Integration 必须重新读取准确 Task/Revision、预期 Run Report、Claim、branch 和 worktree。
+
+## 10. 门禁能力的真实边界
 
 ```text
 write/build gate: required
 read gate: host capability dependent
 ```
 
-进入 `awaiting_worker_authorization` 后，Discussion 按策略停止进一步源码探索。只有宿主对所有读取工具提供 Hook 时，这一点才能机械强制；否则必须诚实标记为策略约束，不能宣传为已实现硬门禁。
+WishGraph 能拦截受支持的原生写入工具、可识别的 shell 写入／构建命令，以及名称暴露写意图的 MCP 工具。它不是操作系统沙箱：不透明脚本或 MCP 工具可能隐藏副作用；宿主没有覆盖所有读取工具时，也不能把“Worker 只读相关文件”宣传成机械硬门禁。
 
-## 10. 四个现有边界的职责
+普通非 commit `PreToolUse` 只检查请求操作、session、Claim、branch/worktree 和固定配置，不遍历业务源码树。SessionStart 的 worktree 检查范围更广，因此有独立性能预算。
 
-### `workflow_state.py`
+## 11. 验收不变量
 
-- 定义 `SessionRole`、`TaskLifecycle`、`FlowPhase`、`ExpectedTransition`、事件和 `OrchestrationState`。
-- 只负责类型、解析、规范化和序列化。
-- 不决定宿主动作，不执行 Git。
+1. 未启用项目不会因通用短语进入 WishGraph。
+2. Discussion 中“执行吧”只有唯一 transition 时才路由准确 Worker。
+3. Discussion 不修改业务代码，也不运行实现验证。
+4. Codex/Claude 只有保存真实 thread/session ID 后才进入 `waiting_for_worker`。
+5. Worker 没有 Claim 不能写业务代码或构建。
+6. Helper 和 Hidden Agent 不能取得 Worker Claim。
+7. 启动失败只输出一行执行命令，Discussion 不接管实现。
+8. 没有 Run Report 或 Claim 未释放时不能集成。
+9. 安全结果不再询问“是否开始集成”。
+10. Revision 不会让已集成或已 review 的 parent Task 生命周期回退。
+11. 两个并行写入 Worker 必须使用独立 worktree。
+12. Project Status 是当前快照，历史留在不可变 Run Report 和 Git。
+13. 提醒在下次 Discussion 激活时消费，不承诺主动唤醒。
 
-### `policy.py`
+## 12. 核对当前安装
 
-- 实现纯 `reduce` 和状态不变量。
-- 输出唯一 `FlowPlan`。
-- 实现授权解析、角色门禁、Task/Phase 转换和集成评估。
-- 不写文件，不调用宿主 API。
+普通用户不需要记诊断命令。重新打开会话后仍无法“开始讨论”时，再说“检查 WishGraph 状态”。Doctor 只读固定路径，区分文件安装、最近宿主调用、runtime 升级、当前宿主 adapter 修复和需人工检查的本地修改。
 
-### `host_adapter.py`
-
-- 把 `FlowPlan` 映射为 Codex、Claude Code 或 unknown host 的真实动作。
-- 将成功、失败、用户需手动启动等结果作为 Host Event 重新送回 reducer。
-- 不改变流程授权，不提供 Discussion 执行降级。
-
-### `git_state.py`
-
-- 原子保存和检查 Worker Claim。
-- 保存 session runtime。
-- 原子保存和检查 Integration lease。
-- 绑定 branch、worktree、session、heartbeat，并处理 stale/revoke。
-- 不解释用户语言，不决定下一步。
-
-## 11. 状态机规格验收
-
-以下测试必须先于模板改写和运行时接线完成。
-
-| ID | 场景 | 预期结果 | 禁止结果 |
-| --- | --- | --- | --- |
-| OSM-01 | Discussion 在唯一待启动 Task 上收到“执行吧” | `routing_worker`，动作 `launch_worker(002)` | Discussion 修改源码或运行测试 |
-| OSM-02 | Neutral 新窗口收到“执行 002 任务” | 精确 preflight 后 `role=worker`，获取 Claim | 进入 Discussion 或模糊匹配 |
-| OSM-03 | Claude Code 收到 Worker 启动授权 | 优先受管后台 Worker；不可用或失败时 `waiting_for_user_launch`，只输出 `执行 002 任务` | Hook 自动启动、完整提示词包或 Discussion 继续执行 |
-| OSM-04 | Codex 自动创建 Worker 失败 | 同 OSM-03 | Discussion 接管实现 |
-| OSM-05 | Worker 安全完成 | 自动 `integration_pending -> integrating` | 询问“是否集成” |
-| OSM-06 | Integration 执行 | 当前 Discussion 临时 phase + Integration lease | 新建用户可见 Integration 窗口 |
-| OSM-07 | 高风险 Worker 结果 | 先进入集成评估，再 `decision_required`，询问具体风险决定 | 询问是否启动集成 |
-| OSM-08 | Discussion 写业务代码或运行构建 | Policy/Hook 拒绝，理由为缺少 Worker Claim 或 Integration lease | 只提示但仍执行 |
-| OSM-09 | 002 和 003 同时等待授权，用户说“可以” | 询问准确 Task ID | 任意选择或同时启动 |
-| OSM-10 | 存在 002、002b、002ba | 所有命令只精确匹配一个结构化 ID | prefix match |
-
-建议补充的失败恢复测试：
-
-| ID | 场景 | 预期结果 |
-| --- | --- | --- |
-| OSM-11 | Worker thread 创建成功但 runtime 写入失败 | 不宣称 `waiting_for_worker`；返回可恢复错误并根据真实 thread ID 重放状态写入 |
-| OSM-12 | Integration lease 已被另一 Session 持有 | 保持 `integration_pending`，观察或等待，不并发集成 |
-| OSM-13 | Worker 报告声称 completed 但验证失败 | 归一化为 `blocked/incomplete`，不集成 |
-| OSM-14 | Refresh / Inspect | 只读，不消费 `expected_transition`，不启动 Worker 或 Integration |
-| OSM-15 | Discussion 中用户要求“就在当前窗口直接修改” | 仍拒绝 Discussion 实现；创建或确认 Task 后路由独立 Worker |
-
-执行窗口复用与轻量修订的冻结验收：
-
-| ID | 场景 | 预期结果 |
-| --- | --- | --- |
-| RWR-01 | Worker 完成 012 后请求 013 | 释放 012 Claim，读取并绑定 013，获取新 Claim |
-| RWR-02 | 012 仍 running 时请求 013 | 拒绝 rebind |
-| RWR-03 | rebind 成功 | 旧 Claim 为 released，新 Claim 绑定 013 |
-| RWR-04 | 新绑定启动 | 不沿用 012 的 scope/validation |
-| RWR-05 | 012 运行中收到局部颜色反馈 | 追加到当前 Task，不创建 Revision |
-| RWR-06 | Discussion 提出同一反馈且宿主可路由 | 发送到 012 Worker，Discussion 停止执行 |
-| RWR-07 | 012 完成后收到局部反馈 | 创建 012-r1，不生成完整 Task Spec |
-| RWR-08 | 012-r1 安全完成 | 写修订报告并自动进入 integration_pending |
-| RWR-09 | 颜色修改扩大为主题系统重构 | 创建正式后续 Task |
-| RWR-10 | 找不到原 Worker | 只输出 `在任务 012 的执行窗口执行修订 012-r1` |
-| RWR-11 | 同时存在两个可能的 parent Task | 询问准确 Task，不猜测 |
-| RWR-12 | 现有 Worker 正忙于无关 Task | 不把 Revision 强行发送到该 Worker |
-| RWR-13 | 涉及 API/schema/依赖/迁移等风险 | 禁止 Revision，升级正式 Task |
-| RWR-14 | 012-r1 与 012-r10 同时存在 | 精确匹配，不按前缀解析 |
-| RWR-15 | Revision 安全集成 | Revision 变为 integrated，项目状态更新，不询问是否集成 |
-
-## 12. 实施结果
-
-本规格确认后已按以下顺序实施：
-
-1. OSM-01 至 OSM-15 规格测试先行。
-2. `workflow_state.py` 定义正交状态、事件、序列化与 `FlowPlan`。
-3. `policy.py` 实现纯 reducer、授权解析、角色门禁和恢复转换。
-4. `git_state.py` 增加 Git-common-dir session runtime 与独占 Integration lease。
-5. `host_adapter.py` 接入 Codex / Claude Code 动作、CLI、Hook 门禁和 runtime patch 持久化。
-6. 业务写入、构建／测试、Claim、lease 与伪造 runtime 校验均有机械测试；源码读取仍明确标记为宿主能力相关。
-7. `CONVENTIONS.md`、prompts、Task/Report 模板、Skill、adapters、bootstrap 与中英文镜像已同步。
-8. 完整测试套件通过，包含状态机、Claim/lease、Hook、安装迁移和模板镜像场景。
-
-运行时配置版本为 10。`memory_sync.py` 仍是稳定入口，四个纯边界没有增加第五个大型模块。
-
-## 13. 冻结检查表
-
-进入实现前必须确认：
-
-- [x] Integration 固定为 Discussion-local phase，不创建独立窗口。
-- [x] Review 固定为 Discussion 状态，不是 Agent。
-- [x] 四个状态维度的名称和语义已经冻结。
-- [x] `expected_transition` 始终唯一且结构化。
-- [x] 通用肯定回复只消费唯一 transition。
-- [x] Discussion 永不成为 Worker 降级路径。
-- [x] Worker Claim 是业务写入和实现验证的必要条件。
-- [x] Integration lease 是合并、组合验证、共享状态更新和集成提交的必要条件。
-- [x] 自动集成只询问实质风险决定，不询问是否启动流程。
-- [x] write/build gate 与 host-dependent read gate 的能力声明真实可验证。
+Codex 触发未确认时检查 `/hooks`；Claude Code CLI 可额外运行 `claude doctor`。更新全局 Skill 不会自动改写已有项目的 `.wishgraph/hooks/`；项目 runtime 需要单独执行指纹校验的安全升级。

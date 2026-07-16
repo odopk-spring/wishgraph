@@ -6428,6 +6428,37 @@ class OneCommandInstallerTests(unittest.TestCase):
 
 
 class TemplateMirrorTests(unittest.TestCase):
+    def test_public_guides_match_native_worker_contract(self) -> None:
+        readme_en = (ROOT / "README.md").read_text(encoding="utf-8")
+        readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+        getting_started = (ROOT / "GETTING_STARTED.md").read_text(
+            encoding="utf-8"
+        )
+        state_machine = (
+            ROOT / "docs" / "orchestration-state-machine.md"
+        ).read_text(encoding="utf-8")
+        claude_adapter = (
+            ROOT / "adapters" / "claude-code" / "CLAUDE.md"
+        ).read_text(encoding="utf-8")
+        generic_adapter = (
+            ROOT / "adapters" / "generic" / "README.md"
+        ).read_text(encoding="utf-8")
+        conventions = (ROOT / "templates" / "CONVENTIONS.md").read_text(
+            encoding="utf-8"
+        )
+
+        for content in (readme_en, readme_zh, state_machine):
+            self.assertIn("claude --bg --agent wishgraph-worker", content)
+            self.assertIn("thread ID", content)
+            self.assertIn("Claim", content)
+        self.assertIn("Hooks never create Agents", getting_started)
+        self.assertIn("Role-Specific Read Scope", claude_adapter)
+        self.assertIn("complete source tree", claude_adapter)
+        self.assertIn("supplies no native Worker creation", generic_adapter)
+        self.assertIn("managed background Agent is allowed", conventions)
+        self.assertNotIn("Never start workers in the background by default", conventions)
+        self.assertNotIn("运行时配置版本为 10", state_machine)
+
     def test_new_task_templates_use_versioned_task_state(self) -> None:
         for relative in (
             "tasks/build/001-bootstrap-project.md",

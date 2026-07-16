@@ -12,7 +12,7 @@ Task templates start with a versioned `wishgraph:task-state` block. The checked 
 
 Worker threads or windows can be rebound after terminal closeout. Low-risk corrections use `tasks/revisions/<task-id>-rN.md` and a `wishgraph:revision-state` block instead of a full Task Spec.
 
-Discussion 先判断工作类型；人类明确命令后，Codex 优先创建用户可见且可检查的 `wishgraph-worker` Agent thread，Claude Code 优先创建受管后台 Worker；宿主不支持或创建失败时只输出 `执行 <task-id> 任务`。安全串行和机械检查证明独立的 `parallel_independent` 结果自动进入 Discussion-local Integration；高风险、冲突、阻塞、竞争或歧义只询问具体决定。Integration 不创建独立窗口。
+Discussion 先判断工作类型；人类明确命令后，请求当前 Codex 宿主创建用户可见且可检查的 `wishgraph-worker` Agent thread，Claude Code 在能力检查通过时优先创建受管后台 Worker；宿主不支持或创建失败时只输出 `执行 <task-id> 任务`。安全串行和机械检查证明独立的 `parallel_independent` 结果自动进入 Discussion-local Integration；高风险、冲突、阻塞、竞争或歧义只询问具体决定。Integration 不创建独立窗口。
 
 任务模板使用版本化 `wishgraph:task-state` 状态块，受检生命周期为 `draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`；只有人类明确命令才能把 Worker 创建授权改为 true。
 

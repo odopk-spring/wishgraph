@@ -117,7 +117,7 @@ Human idea
 -> Discussion AI presents the integrated result for human review
 ```
 
-Discussion 控制方向并推荐串行或并行；人类明确授权后，Codex 创建用户可见 Worker，Claude Code、宿主不支持或创建失败时只输出 `执行 <task-id> 任务`。不得静默创建或使用隐藏 subagent。每个 Worker terminal 事件都进入集成评估；安全结果在 Discussion-local 阶段集成，风险或歧义只询问具体决定。
+Discussion 控制方向并推荐串行或并行；人类明确授权后，当前 Codex 宿主可以创建可检查 Agent thread，Claude Code 在能力检查通过时优先使用受管后台 Worker。宿主不支持或创建失败时只输出 `执行 <task-id> 任务`。不得静默创建或使用隐藏 subagent。每个 Worker terminal 事件都进入集成评估；安全结果在 Discussion-local 阶段集成，风险或歧义只询问具体决定。
 
 ## 示例首个实现任务
 

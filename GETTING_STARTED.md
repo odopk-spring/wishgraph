@@ -14,6 +14,16 @@ The entire first-use path is:
 3. 输入：开始讨论
 ```
 
+After that, the ordinary loop stays at three commands:
+
+| User intent | Command | What actually happens |
+| --- | --- | --- |
+| Enter planning | `开始讨论` / `Start discussion` | Loads the concise handoff, current Project Status, and active state |
+| Run one exact Task | `执行 012 任务` / `Execute task 012` | Records authority and asks the Host Adapter for the best valid Formal Worker route |
+| Refresh | `刷新项目状态` / `Refresh project status` | Reads current candidates and relevant terminal evidence, not the complete source tree or report history |
+
+“Automatic” means bounded routing, evidence evaluation, safe Integration, and next-activation reminders. It does not mean that Hooks spawn Agents, that Discussion implements a failed route, or that a daemon pushes real-time popups.
+
 For step 1, say:
 
 ```text
@@ -134,7 +144,7 @@ For a first-time command-line installation, add `--setup-project` to install the
 curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- codex --setup-project
 ```
 
-The lower-level installer remains available for custom paths or dual-host repositories:
+The lower-level installer remains available for an explicit custom-path or dual-host setup:
 
 ```bash
 python3 skills/wishgraph/scripts/install_project_hooks.py \
@@ -142,6 +152,8 @@ python3 skills/wishgraph/scripts/install_project_hooks.py \
   --host all \
   --mode warn
 ```
+
+Normal setup installs only the current host adapter. Use `--host all` only when the user deliberately wants both project adapters; maintenance and automatic recovery repair the current host only.
 
 The hooks route exact natural-language entry commands, check pending state at session start, gate supported write/build tools before use, check staged memory before `git commit`, and check worktree memory before an agent stops. Start in `warn`; switch `.wishgraph/config.json` to `enforce` after one successful closeout. Codex users must trust the project and review the new definitions with `/hooks`.
 
@@ -202,7 +214,9 @@ Use it to:
 
 The Worker should not redesign the feature. If the Task Spec is wrong, it stops and reports the conflict.
 
-Workers do not start before authorization or as hidden substitutes for an inspectable execution surface. After authorization, Codex prefers a user-visible custom-Agent thread from `.codex/agents/wishgraph-worker.toml`; Claude Code CLI prefers its native background session with the managed `wishgraph-worker` Agent. Codex App/IDE surfaces the thread and CLI users can switch with `/agent`; Claude users can inspect background work with `claude agents`. `/tasks` only views current-session Claude background work and does not create a WishGraph Task. Explorer, Reviewer, Plan, `/fork`, and hidden agents are Helpers, not Formal Workers. If native launch is unavailable, Discussion outputs only `执行 <task-id> 任务`. The user does not edit project-memory or integration files.
+Workers do not start before authorization or as hidden substitutes for an inspectable execution surface. After authorization, WishGraph prepares the route and asks the active host to realize it; Hooks never create Agents. Codex prefers a user-visible custom-Agent thread from `.codex/agents/wishgraph-worker.toml`; Claude Code CLI prefers its native background session with the managed `wishgraph-worker` Agent only after capability, worktree, Task, and `HEAD` checks pass. Codex App/IDE surfaces the thread and CLI users can switch with `/agent`; Claude users can inspect background work with `claude agents`. `/tasks` only views current-session Claude background work and does not create a WishGraph Task. Explorer, Reviewer, Plan, `/fork`, and hidden agents are Helpers, not Formal Workers. If native launch is unavailable, Discussion outputs only `执行 <task-id> 任务`. The user does not edit project-memory or integration files.
+
+The Formal Worker is not considered created until a real stable thread/session ID is persisted. The Task is not considered `running` until execution preflight and Claim acquisition succeed. A `claude --bg` return value or a natural-language “done” message is insufficient evidence.
 
 ### Discussion-Local Integration Phase
 
@@ -230,7 +244,7 @@ For a ready parallel batch, one explicit batch command can authorize exactly the
 为 012、013、014 分别启动 Worker
 ```
 
-The discussion Agent then creates one user-visible task per authorized Worker, automatically provides the execution prompt and corresponding task specification, prefers an isolated branch or worktree, and names each task `<task-id> · <short title> · WG Worker` so the useful task identity appears before any sidebar truncation. This is still explicit execution: the Agent cannot create a Worker before the human command, cannot create unlisted Workers, and cannot substitute hidden subagents.
+The discussion Agent then asks the current host to create one user-visible and inspectable thread per authorized Worker, provides the bounded execution payload, prefers an isolated branch or worktree, and requests the title `<task-id> · <short title> · WG Worker`. Only a real returned thread/session ID may be persisted as created. This is still explicit execution: the Agent cannot create a Worker before the human command, cannot create unlisted Workers, and cannot substitute hidden subagents.
 
 If the current platform cannot create user-visible tasks, or a creation attempt fails, Discussion outputs exactly one line and stops:
 
@@ -250,7 +264,8 @@ Human intent
 -> Discussion AI writes task spec
 -> Discussion AI explains discussion / sequential / parallel_batch / high_risk
 -> Human explicitly authorizes creation of the named Worker task(s)
--> Discussion AI creates and configures user-visible and inspectable Worker thread(s) or window(s)
+-> Host Adapter prepares the authorized route and the active host creates inspectable Worker thread(s) when supported
+-> WishGraph persists only real returned thread/session IDs; otherwise it shows the one-line manual command
 -> Worker AI implements task spec in an isolated branch or worktree
 -> Worker AI validates and creates an immutable run report
 -> Worker terminal event creates integration_pending
@@ -290,13 +305,13 @@ If an agent cannot update a required file, it must say so and provide the exact 
 
 ## 6. First Task Recommendation
 
-For an existing project, the first task should usually be governance setup, not feature implementation:
+For an existing project, first map existing authoritative files and create only the missing entry state. Do not create a bootstrap Task merely to prove WishGraph is installed. Use a tracked governance setup Task only when repository inspection shows real setup work that needs its own scope, validation, and audit trail:
 
 ```text
 001-wishgraph-bootstrap
 ```
 
-It should create the external memory skeleton, summarize current structure, and define the first real implementation task.
+When needed, it creates only the missing external-memory pieces, summarizes current structure, and defines the first real implementation Task. Otherwise, Discussion can write the first bounded implementation Task directly after the project frame is clear.
 
 For a new project, the first discussion should grill the idea into PRD and architecture before code. The first tracked task can be:
 

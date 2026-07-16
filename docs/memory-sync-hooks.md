@@ -66,6 +66,8 @@ python3 skills/wishgraph/scripts/install_project_hooks.py \
   --mode warn
 ```
 
+Use `--host all` only for an explicit dual-host project setup. Normal setup, Doctor recovery, and adapter repair target the current host only.
+
 From a Codex user-skill installation:
 
 ```bash
@@ -92,7 +94,7 @@ For an enabled project, the bundled installer also provides three bounded mainte
 
 Normal users only enable WishGraph, reopen the current Agent session, and say `Start discussion`. If that does not respond, Doctor distinguishes static installation health from host execution observed through bounded `SessionStart` and `UserPromptSubmit` receipts under `.git/wishgraph/host-observations/`. Receipts never enter the worktree and are not written by `PreToolUse`. An unverified Codex session is routed to `/hooks`; Claude Code CLI may additionally use `claude doctor`.
 
-`memory_sync.py` is a stable entrypoint over four explicit boundaries: `workflow_state.py` defines Session Role, Task Lifecycle, Flow Phase, Expected Transition, events, and plans; `policy.py` implements the pure `reduce(current_state, user_event, host_capability)` transition function; `host_adapter.py` maps one authorized next action to Codex, Claude Code, CLI, and Hook behavior; `git_state.py` persists Git facts, session runtime, Worker Claims, and the Discussion-local Integration lease. Semantic project truth remains in Markdown and Git.
+`memory_sync.py` is a stable entrypoint over four public boundaries: `workflow_state.py` defines Session Role, Task Lifecycle, Flow Phase, Expected Transition, events, and plans; `policy.py` implements the pure `reduce(current_state, user_event, host_capability)` transition function; `host_adapter.py` maps one authorized next action to Codex, Claude Code, CLI, and Hook behavior; `git_state.py` persists Git facts, session runtime, Worker Claims, and the Discussion-local Integration lease. The lazy `codex_worker_provider.py` is a private implementation detail behind `host_adapter.py`, not a fifth public boundary. Semantic project truth remains in Markdown and Git.
 
 Start with `warn`. After one successful Task-backed Worker closeout and one Discussion-local integration, change `.wishgraph/config.json` to `enforce`.
 
@@ -130,7 +132,9 @@ Existing `paths.dev_report` settings migrate to `paths.project_status` while pre
 
 Task and run-report metadata distinguish `sequential`, `parallel_batch`, and `high_risk`, while execution mode distinguishes `exclusive`, `parallel_independent`, and `competitive`. Every Worker terminal event first enters `integration_pending`. Safe sequential results and mechanically proven independent parallel batches enter Discussion-local Integration automatically under existing Worker authority. High-risk, conflicting, blocked, competitive, or mechanically ambiguous results enter a concrete `decision_required` or `blocked` state. Hooks calculate and enforce recorded gates but do not grant authority or launch Agents.
 
-Worker creation always requires an explicit human command. Codex may then create a user-visible Worker task. Claude Code, unsupported creation, and failed creation output exactly `执行 <task-id> 任务` and stop. Hidden subagents are not Worker windows. Integration is an automatically triggered, Discussion-local, safe-when-silent phase: it never creates a user-visible window. If Discussion is inactive, persist `integration_pending` until the next Discussion entry or refresh.
+Worker creation always requires an explicit human command. For Codex, the adapter prepares an authorized `wishgraph-worker` payload, the active host creates the inspectable Agent thread, and WishGraph registers the real returned thread ID; the Hook never spawns it. For Claude Code, the Host Adapter uses `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"` only when the `background_session` capability checks pass. Unsupported or failed creation outputs exactly `执行 <task-id> 任务` and stops. Hidden subagents are not Worker threads. Integration is an automatically triggered, Discussion-local, safe-when-silent phase: it never creates a user-visible window. If Discussion is inactive, persist `integration_pending` until the next Discussion entry or refresh.
+
+Neither launch path makes a Task `running` from intent or prose. Codex requires a real registered thread ID; Claude requires a stable saved session ID; both still require the Worker's exact preflight and Claim before business work. Terminal host state alone is also insufficient for Integration without the Task/Revision terminal record, expected Run Report, and released Claim.
 
 New sessions are neutral. With the default `session_start_context_mode: safety_only`, hooks emit context only when they find safety or synchronization issues; they do not load the discussion prompt or activate a role. Say `Start discussion` to load Discussion state in the current visible window, or `Refresh WishGraph project state and present the latest integrated results` to refresh an active discussion. Existing installations that explicitly retain `discussion_summary` compatibility mode can still receive the old concise injection.
 
@@ -148,7 +152,7 @@ python3 .wishgraph/hooks/memory_sync.py status --task 012
 python3 .wishgraph/hooks/memory_sync.py status --full
 ```
 
-The default status command emits a compact active view and resolves only current candidate report paths on visible refs. `--task` selects one exact Task; `--full` is the explicit historical scan. No mode writes a shared queue file. Discussion entry and refresh use the active view; SessionStart only includes it in opt-in compatibility mode.
+The default status command emits a compact active view and resolves only current candidate report paths on visible refs. `--task` selects one exact Task; `--full` is the explicit historical scan. Status commands do not create a project queue or mutate semantic state; the separate Git-common notification inbox is written only by verified Worker closeout. Discussion entry and refresh use the active view; SessionStart only includes it in opt-in compatibility mode.
 
 It also emits `auto_integration_eligible` and one of `nothing_to_integrate`, `wait_for_worker`, `auto_integrate`, `await_user_confirmation`, `discuss_blocker`, or `compare_candidates` as `next_action`. These are internal routing fields; normal users should see only Discussion and explicit Worker windows.
 

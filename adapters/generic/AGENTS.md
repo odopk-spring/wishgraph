@@ -4,6 +4,8 @@ Use WishGraph to manage this project through external memory files instead of ch
 
 ## First Conversation
 
+This file is an instruction adapter, not proof that WishGraph is active or mechanically enforced. Require an explicit request naming WishGraph before creating governance files. If an active `.wishgraph/config.json` exists, use its runtime; otherwise treat these rules as policy guidance and do not claim that Hooks, native Worker launch, or hard gates are installed.
+
 If there is no usable `PRD.md`, do not start coding.
 
 Use the user's language by default. If the user requests bilingual output, write key prompts, summaries, and task explanations in Chinese first, then English. Do not translate file paths, commands, code identifiers, symbols, routes, package names, or environment variables.
@@ -32,6 +34,13 @@ If bilingual output is requested, ask both lines together.
 
 Then ask one decision at a time. Each question must include a recommended default. Continue until you can write a concrete PRD and a bounded first task.
 
+## Role-Specific Read Scope
+
+- Discussion starts from `prompts/DISCUSSION_AI.md`, `reports/PROJECT_STATUS.md`, and current active state. Open other governance files only for the current question.
+- A Worker reads only `prompts/EXECUTION_AI.md`, its exact Task or Revision, necessary current-state sections, and source files inside its allowed scope.
+- Integration reads only selected reports, their exact records, and affected shared-memory files.
+- Never scan unrelated Tasks, historical reports, or the complete source tree by default.
+
 ## Required Project Memory
 
 Create or update:
@@ -54,7 +63,7 @@ Create or update:
 - Update PRD and architecture before implementation.
 - Write self-contained task specs.
 - Classify work as discussion, sequential, parallel_batch, or high_risk. Explain the sequential or parallel recommendation; the user confirms it.
-- Ask for explicit authorization to launch the named ready Worker or Workers. Only after that command, use the host's user-visible task or thread capability to create one Worker per authorized Task Spec and name it `<task-id> · <short title> · WG Worker`. Never create Workers silently or use hidden subagents. If creation is unsupported or fails, output only `执行 <task-id> 任务` and stop.
+- Ask for explicit authorization to launch the named ready Worker or Workers. Only after that command, use a real host capability to create one inspectable and controllable Worker per authorized Task Spec and name it `<task-id> · <short title> · WG Worker`. Record it as running only after a stable thread/session ID is persisted. Never create Workers silently or use hidden subagents. If equivalent native creation is unsupported or fails, output only `执行 <task-id> 任务` and stop.
 - Route clear, low-risk feedback to the bound Worker. After a Task completes, use a lightweight `tasks/revisions/<task-id>-rN.md` record and reuse the previous Worker only after its old Claim is released and a new scope/validation binding is acquired. Unsupported routing outputs only `在任务 <task-id> 的执行窗口执行修订 <revision-id>`.
 - Route exact natural commands such as `执行012号任务`, stop, retry, takeover, and explicit competitive comparison through structured Task IDs and repository-wide Claims. Resolve contextual approvals only when there is one unique `expected_transition`.
 - Before creation, record `draft -> approved` and `worker_creation_authorized: true` in each authorized task-state block.

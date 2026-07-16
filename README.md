@@ -38,12 +38,24 @@ Refresh project status.
 ```
 
 - **Start discussion** loads the compact current-state entry points and opens planning.
-- **Execute task 012** starts or routes one authorized, user-visible and inspectable Worker thread or window for that exact Task.
+- **Execute task 012** authorizes and routes that exact Task. The Host Adapter then attempts the best Formal Worker container the current host can actually provide.
 - **Refresh project status** reads the current project snapshot and relevant terminal reports; it does not traverse the whole source tree by default.
 
 Low-risk English entry aliases are also accepted, including `Begin discussion`, `Open discussion`, `Enter discussion mode`, `Continue discussion`, `Resume discussion mode`, `Check project status`, `Update project status`, and `Reload project status`.
 
 Clear, low-risk feedback such as “change this button to warm gray” becomes a lightweight Revision of the original Task. A Worker thread or window can also be reused after it releases the old Task and binds a new Claim. Small corrections stay small without losing validation or history.
+
+What happens after authorization is host-dependent, but the fallback is always truthful:
+
+| Host | Preferred Formal Worker | When the native container is accepted |
+| --- | --- | --- |
+| Codex App / CLI / IDE | Project `wishgraph-worker` custom Agent in an inspectable agent thread | The host has returned a real thread ID and WishGraph has registered it |
+| Claude Code CLI | `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"` in an isolated worktree | A stable Claude session ID has been saved |
+| Unsupported or unavailable native route | User opens an inspectable execution session from the one-line command | The new session passes Task preflight and acquires its Claim |
+
+The Hook prepares and records routes; it never creates Codex agents. Claude background launch is performed by the Host Adapter only when the managed Agent, `agents --json`, worktree runtime, authorized Task, and current `HEAD` are compatible. Any failed native route prints exactly `执行 <task-id> 任务`; it never turns Discussion into the implementer.
+
+In every host, business work starts only after the Worker passes exact preflight and acquires its Claim.
 
 ## Start in 60 seconds
 
@@ -97,7 +109,7 @@ If `Start discussion` does not respond after reopening the session, run WishGrap
 
 Integration is a phase, not a hidden agent or a fourth window. If Discussion is inactive when a Worker finishes, WishGraph writes one pending reminder beside the shared Git runtime. The bound Discussion consumes and marks it read on its next activation; after switching hosts, an explicit `Start discussion` or status refresh adopts it. This uses no daemon, terminal polling, IPC service, or popup.
 
-Codex prefers the project `wishgraph-worker` custom Agent in a visible, inspectable thread; Claude Code CLI prefers an inspectable native background session through its managed Agent. Explorer, Reviewer, Plan, `/fork`, and hidden agents remain read-only Helpers unless every Formal Worker condition is satisfied. If native creation is absent or fails, WishGraph prints only `Execute task 012` and Discussion stops execution.
+Codex prefers the project `wishgraph-worker` custom Agent in a visible, inspectable thread; Claude Code CLI prefers an inspectable native background session through its managed Agent. Explorer, Reviewer, Plan, `/fork`, and hidden agents remain read-only Helpers unless every Formal Worker condition is satisfied. If native creation is absent or fails, WishGraph prints only `执行 012 任务` and Discussion stops execution.
 
 ## The files humans and agents share
 

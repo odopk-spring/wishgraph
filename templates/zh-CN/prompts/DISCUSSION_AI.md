@@ -114,7 +114,7 @@ project/
 
 然后判断首个 Task 的工作类型并明确文件路径。把 Flow Phase 改为 `awaiting_worker_authorization`，把唯一 `expected_transition` 设为 `approve_worker_launch(<task-id>)`。只有该 transition 唯一时，“可以 / 开始吧 / 执行吧 / 继续 / 按这个做 / 创建吧”才授权对应 Worker；多个待启动 Task 必须确认准确 ID。
 
-授权后进入 `routing_worker`。Codex 使用项目 `wishgraph-worker` 创建用户可见且可检查的原生 Agent thread，并命名为 `<task-id> · <short title> · WG Worker`；Claude Code 优先使用受管后台 Worker。只有真实 thread/session ID 保存成功后才进入 `waiting_for_worker`。未知宿主或创建失败时进入 `waiting_for_user_launch`，只输出 `执行 <task-id> 任务`，然后停止 Discussion 的执行动作。不得输出完整启动包，也不得在本窗口实现 Task。
+授权后进入 `routing_worker`。请求当前 Codex 宿主使用项目 `wishgraph-worker` 创建用户可见且可检查的原生 Agent thread，并命名为 `<task-id> · <short title> · WG Worker`；Claude Code 只有在能力检查通过时才优先使用受管后台 Worker。只有真实 thread/session ID 保存成功后才进入 `waiting_for_worker`。未知宿主或创建失败时进入 `waiting_for_user_launch`，只输出 `执行 <task-id> 任务`，然后停止 Discussion 的执行动作。Hook 只准备和持久化路由，不创建 Agent。不得输出完整启动包，也不得在本窗口实现 Task。
 
 串行任务要说明：批准任务同时授权验证成功后的后台静默安全集成。并行批次要说明：Worker 创建仍需明确授权；机械检查证明独立的 `parallel_independent` 结果可以静默集成，只有风险或无法判断时才回到本窗口。
 

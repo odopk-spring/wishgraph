@@ -15,7 +15,7 @@ Use this reference when configuring, inspecting, debugging, or benchmarking the 
 
 Hooks enforce mechanical authority and external-memory closeout. They do not write semantic project memory, choose product meaning, select parallelism, launch Workers, merge branches, or replace human review.
 
-The stable entrypoint is `.wishgraph/hooks/memory_sync.py`. Its implementation remains split into four boundaries:
+The stable entrypoint is `.wishgraph/hooks/memory_sync.py`. Its implementation keeps four public boundaries; the lazy Codex provider remains private behind the Host Adapter:
 
 ```text
 workflow_state.py   typed state and parsing

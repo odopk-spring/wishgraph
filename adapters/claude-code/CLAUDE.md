@@ -4,6 +4,8 @@ Use WishGraph as the project governance layer for AI-assisted development.
 
 ## Start Mode
 
+- Treat a global `/wishgraph` Skill as available, not active in every project. Without an enabled `.wishgraph/config.json`, do not reinterpret generic phrases such as `Start discussion` or `Execute task 012` as WishGraph commands.
+- Only an explicit request naming WishGraph activates the project. After safe setup, remain neutral, ask the user to reopen the Claude Code session, and enter Discussion only after the later `Start discussion` command.
 - If this project has no usable `PRD.md`, do not implement code first.
 - Use the user's language by default. If the user requests bilingual output, write key prompts, summaries, and task explanations in Chinese first, then English.
 - Do not translate file paths, commands, code identifiers, symbols, routes, package names, or environment variables.
@@ -13,17 +15,12 @@ Use WishGraph as the project governance layer for AI-assisted development.
 - Grill one decision at a time, with a recommended default for each question.
 - Write the project frame before execution work.
 
-## Read Order
+## Role-Specific Read Scope
 
-When working on planning, task writing, or execution, read:
-
-1. `PRD.md`
-2. `ARCHITECTURE.md`
-3. `CODEMAP.md`
-4. `CONVENTIONS.md`
-5. `prompts/DISCUSSION_AI.md` for planning sessions
-6. `prompts/EXECUTION_AI.md` and the assigned `tasks/build/*.md` for execution sessions; accept `.tasks/build/*.md` in an existing legacy project
-7. `reports/PROJECT_STATUS.md` for the current integrated Project Status
+- **Discussion entry:** read the concise dynamic block in `prompts/DISCUSSION_AI.md`, `reports/PROJECT_STATUS.md`, and the compact active status. Open `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, `CONVENTIONS.md`, or one Task only when the current question needs them.
+- **Worker:** read `prompts/EXECUTION_AI.md`, the exact assigned Task or Revision, the smallest necessary Project Status sections, and only References or source files required by its scope. Do not scan unrelated Tasks, historical reports, or the complete source tree.
+- **Integration:** read only the selected Run Reports, their Task/Revision records, and shared-memory files affected by those reports.
+- Use `.tasks/build/*.md` only as an existing-project compatibility path; new work uses `tasks/build/*.md`.
 
 ## Collaboration Rules
 

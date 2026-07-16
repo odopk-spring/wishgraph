@@ -82,36 +82,37 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
   --mode warn
 ```
 
-安装器会把 `SessionStart`、`PreToolUse`、`Stop` 和 `TaskCompleted` 安全合并进 `.claude/settings.json`。完成一次正确收尾后，再把 `.wishgraph/config.json` 切换为 `enforce`。详见 [`docs/memory-sync-hooks.zh-CN.md`](../../docs/memory-sync-hooks.zh-CN.md)。
+安装器会把 `SessionStart`、`PreToolUse`、`Stop` 和 `TaskCompleted` 安全合并进 `.claude/settings.json`，在未设置时把 Worktree `baseRef` 设为 `head`，保留已有 Worktree 配置并把 `.wishgraph` 加入 `worktree.symlinkDirectories`，同时安装受管 `.claude/agents/wishgraph-worker.md`。完成一次正确收尾后，再把 `.wishgraph/config.json` 切换为 `enforce`。详见 [`docs/memory-sync-hooks.zh-CN.md`](../../docs/memory-sync-hooks.zh-CN.md)。
 
 ## 推荐 Claude Code 流程
 
-1. 开始讨论 session：
+1. 在目标项目明确启用 WishGraph：
 
    ```text
-   /wishgraph start this project. If there is no PRD, run the WishGraph intake prompt and grill one decision at a time.
+   /wishgraph 在当前项目使用 WishGraph。
    ```
 
-   如果需要双语输出，追加：`Use bilingual Chinese and English for user-facing prompts and summaries.`
+   安全配置完成后当前 session 仍保持 neutral。重新打开 Claude Code，再输入“开始讨论”。只安装全局 Skill，或在未配置项目里单独说“开始讨论”，都不会启用该项目。
 
-2. 让 WishGraph 创建或更新：
+2. 每个角色只读所需内容：
 
-   ```text
-   PRD.md
-   ARCHITECTURE.md
-   CODEMAP.md
-   CONVENTIONS.md
-   prompts/DISCUSSION_AI.md
-   prompts/EXECUTION_AI.md
-   prompts/INTEGRATION_AI.md
-   tasks/build/*.md
-   reports/RUN_REPORT.md
-   reports/PROJECT_STATUS.md
-   ```
+   - Discussion 从精简交接、当前 Project Status 和 active state 开始，只有当前问题需要时才打开产品或架构文件。
+   - Worker 只读准确 Task/Revision、`prompts/EXECUTION_AI.md`、必要状态，以及 scope 内的源码。
+   - Integration 只读选中的报告和报告实际影响的共享文件。
 
-3. 先让 Discussion 解释任务应串行还是并行，并询问 Worker 授权。Claude Code 优先运行 `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"` 创建可检查的后台 Worker；`forked_subagent` 只用于短时低风险检查。后台能力不可用或启动失败时，才只输出 `执行 <task-id> 任务` 并停止 Discussion。任何降级都不能让 Discussion 修改业务代码。
+   现有项目优先复用已有同类文件，Task、Revision 和报告目录在首次需要时再创建。
 
-   Claim release 向共享 Git runtime 写入一条幂等 pending notification。绑定的 Discussion 在下一次激活时消费；切换宿主后，明确开始讨论或刷新状态可接管。安全串行和机械检查证明独立的并行结果由持有 lease 的 Discussion-local Integration 自动集成；风险或冲突只询问具体决定，Integration 不创建额外窗口，也不使用 daemon、轮询、IPC 或弹窗。
+3. 先让 Discussion 解释任务应串行还是并行，并询问 Worker 授权。Claude Code 使用三档能力：
+
+   - `background_session`：只有受管 Agent、`agents --json`、worktree runtime、已授权 Task 和当前 `HEAD` 均兼容时，才运行 `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"`，并用 `claude agents --json --all --cwd <project>` 保存和刷新稳定 session ID。
+   - `forked_subagent`：只用于短时、低风险辅助检查，不能成为正式业务 Worker。
+   - `manual_command_only`：只输出 `执行 <task-id> 任务`，随后停止 Discussion 的执行动作。
+
+   `claude --bg` 返回并不代表 Task 已进入 `running`；还需要稳定 session ID，真正实现前仍需 Worker Claim。任何降级都不能让 Discussion 修改业务代码。
+
+   `claude agents` 查看后台 session，`claude logs <id>` 查看近期输出，`claude attach <id>` 恢复交互控制，`claude stop <id>` 停止 session。`/tasks` 只查看当前 Claude session 关联的后台工作，不创建 WishGraph Task，也不授予 Claim。
+
+   Claim release 向共享 Git runtime 写入一条幂等 pending notification。绑定的 Discussion 在下一次激活时消费；切换宿主后，明确开始讨论或刷新状态可接管。这是“下次激活时拉取”，不是实时弹窗。安全串行和机械检查证明独立的并行结果由持有 lease 的 Discussion-local Integration 自动集成；风险或冲突只询问具体决定，Integration 不创建额外窗口，也不使用 daemon、轮询、IPC 或弹窗。
 
 4. 如果讨论 session 需要迁移，提问：
 

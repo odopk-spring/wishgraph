@@ -102,7 +102,7 @@ Prefer the original user-visible and inspectable Worker thread or window when it
 5. Acquire a fresh Claim bound to parent ID, Revision ID, session, branch, absolute worktree, allowed scope, and validation plan.
 6. Persist the new binding before implementation.
 
-If the original Worker is closed or busy, Codex creates a lightweight visible Revision Worker using inherited Revision authority. It does not ask the user to authorize the same correction again.
+If the original Worker is closed or busy, ask the active Codex host to create a lightweight visible Revision Worker using inherited Revision authority. It does not ask the user to authorize the same correction again, and it is not considered created until the host returns a real inspectable thread ID.
 
 Claude Code or a host that cannot create/route the Worker outputs only:
 

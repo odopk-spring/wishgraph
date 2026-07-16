@@ -117,7 +117,7 @@ Human idea
 -> Discussion AI presents the integrated result for human review
 ```
 
-Discussion controls direction and recommends serial or parallel work. After explicit authorization, Codex creates a visible Worker; Claude Code and failed or unsupported creation output only `执行 <task-id> 任务`. It never creates Workers silently or uses hidden subagents. Every Worker terminal event enters integration evaluation; safe results integrate in a Discussion-local phase, while risk or ambiguity asks only the concrete decision.
+Discussion controls direction and recommends serial or parallel work. After explicit authorization, the active Codex host may create an inspectable Agent thread; Claude Code prefers its managed background Worker when capability checks pass. Failed or unsupported creation outputs only `执行 <task-id> 任务`. WishGraph never creates Workers silently or uses hidden subagents. Every Worker terminal event enters integration evaluation; safe results integrate in a Discussion-local phase, while risk or ambiguity asks only the concrete decision.
 
 ## Example First Implementation Task
 

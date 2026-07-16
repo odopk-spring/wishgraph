@@ -86,40 +86,33 @@ This safely merges `SessionStart`, `PreToolUse`, `Stop`, and `TaskCompleted` gro
 
 ## Recommended Claude Code Flow
 
-1. Start a discussion session:
+1. Explicitly enable WishGraph in the target project:
 
    ```text
-   /wishgraph start this project. If there is no PRD, run the WishGraph intake prompt and grill one decision at a time.
+   /wishgraph Use WishGraph for this project.
    ```
 
-   For bilingual output, append: `Use bilingual Chinese and English for user-facing prompts and summaries.`
+   Safe setup leaves the current session neutral. Reopen Claude Code, then say `Start discussion`. A global Skill install or the phrase `Start discussion` alone does not activate an unconfigured project.
 
-2. Let WishGraph create or update:
+2. Let each role read only what it needs:
 
-   ```text
-   PRD.md
-   ARCHITECTURE.md
-   CODEMAP.md
-   CONVENTIONS.md
-   prompts/DISCUSSION_AI.md
-   prompts/EXECUTION_AI.md
-   prompts/INTEGRATION_AI.md
-   tasks/build/*.md
-   reports/RUN_REPORT.md
-   reports/PROJECT_STATUS.md
-   ```
+   - Discussion starts from the concise handoff, current Project Status, and active state; it opens product or architecture files only for the current question.
+   - Worker reads the exact Task or Revision, `prompts/EXECUTION_AI.md`, necessary state, and source files inside its scope.
+   - Integration reads selected reports and only the shared files they affect.
+
+   Existing repositories reuse equivalent native files and create Task, Revision, and report directories only when first needed.
 
 3. Let Discussion explain whether the task is sequential or parallel and ask for Worker authorization. After authorization, the Claude Code adapter uses three capability levels:
 
-   - `background_session`: run `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"`, then track the returned session with `claude agents --json`.
+   - `background_session`: when the managed Agent, `agents --json`, worktree runtime, authorized Task, and current `HEAD` are compatible, run `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"`, then track the returned stable session ID with `claude agents --json --all --cwd <project>`.
    - `forked_subagent`: reserve session forking for short, low-risk checks; do not use it as the formal business Worker.
    - `manual_command_only`: output only `执行 <task-id> 任务`, then stop Discussion execution.
 
-   The background Worker enters its isolated worktree, reads the exact Task and necessary context, then acquires the bound Claim before implementation. A launch failure never authorizes Discussion to modify business code.
+   The background Worker enters its isolated worktree, reads the exact Task and necessary context, then acquires the bound Claim before implementation. Returning from `claude --bg` is not enough to mark the Task `running`; a stable session ID and later Claim evidence are required. A launch failure never authorizes Discussion to modify business code.
 
    `claude agents` shows native background sessions. `claude logs <id>` reads recent output and `claude attach <id>` resumes interactive control. `/tasks` only shows background work associated with the current Claude session; it does not create a WishGraph Task, grant execution authority, or replace Task Specs and Claims.
 
-   Claim release writes one idempotent pending notification to the shared Git runtime. The bound Discussion consumes it on its next activation; an explicit Discussion entry or status refresh adopts it after a host switch. Safe sequential and mechanically proven independent parallel results enter Discussion-local Integration automatically with a lease. Risk or conflict asks only the concrete decision; Integration never creates another window or uses a daemon, polling, IPC, or popup.
+   Claim release writes one idempotent pending notification to the shared Git runtime. The bound Discussion consumes it on its next activation; an explicit Discussion entry or status refresh adopts it after a host switch. This is pull-on-activation, not a real-time popup. Safe sequential and mechanically proven independent parallel results enter Discussion-local Integration automatically with a lease. Risk or conflict asks only the concrete decision; Integration never creates another window or uses a daemon, polling, IPC, or popup.
 
 4. If the discussion session must move, ask:
 

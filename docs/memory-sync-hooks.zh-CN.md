@@ -74,6 +74,8 @@ python3 skills/wishgraph/scripts/install_project_hooks.py \
   --mode warn
 ```
 
+只有用户明确要求双宿主项目配置时才使用 `--host all`。正常安装、Doctor 恢复和适配器修复都只处理当前宿主。
+
 从 Codex 用户 skill 安装目录运行：
 
 ```bash
@@ -100,7 +102,7 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
 
 正常用户只需要启用 WishGraph、重新打开当前 Agent 会话、输入“开始讨论”。如果没有响应，Doctor 会通过 `.git/wishgraph/host-observations/` 下有界的 `SessionStart` 与 `UserPromptSubmit` 回执，区分静态安装健康和宿主实际执行。回执不会进入 worktree，`PreToolUse` 也不会写回执。Codex 未确认时才引导 `/hooks`；Claude Code CLI 可以额外运行 `claude doctor`。
 
-`memory_sync.py` 现在只是稳定入口，内部拆成四个明确边界：`workflow_state.py` 定义 Session Role、Task Lifecycle、Flow Phase、Expected Transition、事件和计划；`policy.py` 实现纯函数 `reduce(current_state, user_event, host_capability)`；`host_adapter.py` 把唯一下一动作映射为 Codex、Claude Code、CLI 与 Hook 行为；`git_state.py` 保存 Git 事实、session runtime、Worker Claim 和 Discussion-local Integration lease。项目语义真相仍保存在 Markdown 和 Git 中。
+`memory_sync.py` 是稳定入口，内部保留四个公共边界：`workflow_state.py` 定义 Session Role、Task Lifecycle、Flow Phase、Expected Transition、事件和计划；`policy.py` 实现纯函数 `reduce(current_state, user_event, host_capability)`；`host_adapter.py` 把唯一下一动作映射为 Codex、Claude Code、CLI 与 Hook 行为；`git_state.py` 保存 Git 事实、session runtime、Worker Claim 和 Discussion-local Integration lease。延迟加载的 `codex_worker_provider.py` 只是 `host_adapter.py` 背后的私有实现，不是第五个公共边界。项目语义真相仍保存在 Markdown 和 Git 中。
 
 建议先用 `warn`。完成一次 Task-backed Worker 收尾和一次 Discussion-local Integration 后，再把 `.wishgraph/config.json` 改成 `enforce`。
 
@@ -138,7 +140,9 @@ Discussion-local Integration 阶段持有绑定 lease，使用 `--no-commit` 合
 
 任务和执行报告元数据使用 `sequential`、`parallel_batch` 和 `high_risk` 区分工作，执行模式使用 `exclusive`、`parallel_independent` 和 `competitive`。每个 Worker terminal 事件都先进入 `integration_pending`。安全串行结果和机械检查证明独立的并行批次沿用已有 Worker 授权，自动进入 Discussion-local Integration；高风险、冲突、阻塞、竞争或无法机械判断的结果进入具体 `decision_required` 或 `blocked`。Hooks 只计算和检查已记录门禁，不授予权限，也不启动 Agent。
 
-创建 Worker 始终需要人类明确命令；Codex 随后可以创建用户可见 Worker。Claude Code、宿主不支持或创建失败时只输出 `执行 <task-id> 任务` 并停止。隐藏 subagent 不等于 Worker 窗口。Integration 是自动触发、Discussion-local、safe-when-silent 的阶段，不创建用户可见窗口；Discussion 不活跃时持久化 `integration_pending`，等下次进入或刷新后继续。
+创建 Worker 始终需要人类明确命令。Codex 路径由适配器准备已授权的 `wishgraph-worker` payload，当前宿主创建可检查 Agent thread，再由 WishGraph 注册真实 thread ID；Hook 从不创建 Agent。Claude Code 只有在 `background_session` 能力检查通过时，才由 Host Adapter 执行 `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"`。宿主不支持或创建失败时只输出 `执行 <task-id> 任务` 并停止。隐藏 subagent 不等于 Worker thread。Integration 是自动触发、Discussion-local、safe-when-silent 的阶段，不创建用户可见窗口；Discussion 不活跃时持久化 `integration_pending`，等下次进入或刷新后继续。
+
+两条启动路径都不能根据意图或自然语言把 Task 直接标成 `running`。Codex 必须先注册真实 thread ID，Claude 必须先保存稳定 session ID；真正实现前，两者仍需 Worker 完成准确 preflight 并取得 Claim。宿主终态也不能单独授权 Integration，还必须有 Task/Revision 终态记录、预期 Run Report 和已释放 Claim。
 
 新 session 默认中立。使用默认 `session_start_context_mode: safety_only` 时，Hook 只在发现安全或同步问题时输出上下文，不加载讨论提示词，也不激活窗口角色。用户说“开始讨论”后，当前可见窗口才读取讨论状态；持续运行窗口说“刷新项目状态”即可刷新。明确保留 `discussion_summary` 兼容模式的旧安装仍可收到旧式精简注入。
 
@@ -156,7 +160,7 @@ python3 .wishgraph/hooks/memory_sync.py status --task 012
 python3 .wishgraph/hooks/memory_sync.py status --full
 ```
 
-默认 `status` 输出精简 active 视图，只在可见 Git refs 中解析当前候选报告路径。`--task` 精确选择一个 Task，`--full` 才执行历史扫描；任何模式都不写共享队列文件。讨论入口和刷新使用 active 视图；SessionStart 仅在显式兼容模式下包含它。
+默认 `status` 输出精简 active 视图，只在可见 Git refs 中解析当前候选报告路径。`--task` 精确选择一个 Task，`--full` 才执行历史扫描。status 命令不会创建项目队列，也不会修改语义状态；独立的 Git-common notification inbox 只由通过验证的 Worker closeout 写入。讨论入口和刷新使用 active 视图；SessionStart 仅在显式兼容模式下包含它。
 
 它还输出 `auto_integration_eligible`，以及 `nothing_to_integrate`、`wait_for_worker`、`auto_integrate`、`await_user_confirmation`、`discuss_blocker`、`compare_candidates` 之一作为 `next_action`。这些是内部路由字段，普通用户只看到 Discussion 和显式 Worker 窗口。
 

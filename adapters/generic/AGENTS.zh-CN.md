@@ -4,6 +4,8 @@
 
 ## 第一次对话
 
+本文件只是 instruction adapter，不代表项目已经启用 WishGraph，也不代表机械门禁已经安装。创建治理文件前必须收到明确点名 WishGraph 的请求。存在已启用的 `.wishgraph/config.json` 时使用其 runtime；否则把这些规则视为策略约束，不得声称 Hooks、原生 Worker 启动或硬门禁已经生效。
+
 如果没有可用的 `PRD.md`，不要开始写代码。
 
 默认使用用户语言。如果用户要求双语，关键提示、摘要和任务解释按中文在前、英文在后写。不要翻译文件路径、命令、代码符号、路由、包名或环境变量。
@@ -32,6 +34,13 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 
 随后一次问一个决策。每个问题都必须带推荐默认值。持续提问直到可以写出具体 PRD 和有边界的首个任务。
 
+## 按角色读取
+
+- Discussion 从 `prompts/DISCUSSION_AI.md`、`reports/PROJECT_STATUS.md` 和当前 active state 开始；其他治理文件只在当前问题需要时打开。
+- Worker 只读 `prompts/EXECUTION_AI.md`、准确 Task 或 Revision、必要的当前状态小节，以及允许范围内的源码。
+- Integration 只读被选中的报告、对应记录和受影响的共享记忆文件。
+- 默认不得扫描无关 Task、历史报告或完整源码树。
+
 ## 必需项目记忆
 
 创建或更新：
@@ -54,7 +63,7 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - 实现前更新 PRD 和架构。
 - 编写自包含任务规格。
 - 把工作判断为 discussion、sequential、parallel_batch 或 high_risk，解释串行或并行建议，由用户确认。
-- 请求用户明确授权启动已经就绪的指定 Worker。只有收到该命令后，才使用宿主的用户可见任务或线程能力，为每个已授权 Task Spec 创建一个 Worker，并命名为 `<task-id> · <short title> · WG Worker`。不得静默创建 Worker 或使用隐藏 subagent；创建不受支持或失败时，只输出 `执行 <task-id> 任务` 并停止。
+- 请求用户明确授权启动已经就绪的指定 Worker。只有收到该命令后，才使用宿主真实提供的能力，为每个已授权 Task Spec 创建一个可检查、可控制的 Worker，并命名为 `<task-id> · <short title> · WG Worker`。只有稳定 thread/session ID 已持久化后才记录为运行。不得静默创建 Worker 或使用隐藏 subagent；宿主不支持等价原生创建或创建失败时，只输出 `执行 <task-id> 任务` 并停止。
 - 把明确、低风险的小范围反馈路由给已绑定 Worker。Task 完成后使用轻量 `tasks/revisions/<task-id>-rN.md`；只有旧 Claim 已释放且重新获取新 scope/validation 绑定时才能复用原 Worker。不支持自动路由时只输出 `在任务 <task-id> 的执行窗口执行修订 <revision-id>`。
 - “执行012号任务”、停止、重试、接管和明确竞争比较都通过精确结构化 Task ID 与仓库级 Claim 路由。只有存在唯一 `expected_transition` 时，简短上下文批准才有效。
 - 创建前，在每个已授权任务的 task-state 中记录 `draft -> approved` 和 `worker_creation_authorized: true`。
