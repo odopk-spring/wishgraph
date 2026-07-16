@@ -237,6 +237,22 @@ if [[ "$reuse_existing" -eq 0 ]]; then
   echo "Restart your agent tool if it does not pick up new skills immediately."
 fi
 
+if [[ "$target" == "claude-user" || "$target" == "claude-project" ]]; then
+  agent_source="$dest/assets/claude-agents/wishgraph-worker.md"
+  if [[ "$target" == "claude-user" ]]; then
+    agent_dest="$HOME/.claude/agents/wishgraph-worker.md"
+  else
+    agent_dest="$project_dir/.claude/agents/wishgraph-worker.md"
+  fi
+  if [[ -f "$agent_dest" ]] && ! grep -Fq '<!-- wishgraph-managed: wishgraph-worker -->' "$agent_dest"; then
+    echo "Refusing to replace non-WishGraph Claude Agent: $agent_dest" >&2
+    exit 1
+  fi
+  mkdir -p "$(dirname "$agent_dest")"
+  cp "$agent_source" "$agent_dest"
+  echo "Installed WishGraph Claude Worker Agent to $agent_dest"
+fi
+
 if [[ "$setup_project" -eq 1 ]]; then
   echo "Installation stage 3: configuring project hooks."
   case "$target" in

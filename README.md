@@ -97,7 +97,7 @@ If `Start discussion` does not respond after reopening the session, run WishGrap
 
 Integration is a phase, not a hidden agent or a fourth window. If Discussion is inactive when a Worker finishes, WishGraph stores `integration_pending` and resumes evaluation when Discussion starts or the project status is refreshed.
 
-Codex can route work to a visible Worker when the host supports it. The current Claude Code adapter uses an explicit one-line handoff such as `Execute task 012`; it does not pretend that an automatic Worker was created.
+Codex can route work to a visible Worker when the host supports it. Claude Code CLI prefers an inspectable native background session through the managed `wishgraph-worker` Agent. If that capability is absent or launch fails, WishGraph prints only `Execute task 012` and Discussion stops execution.
 
 ## The files humans and agents share
 

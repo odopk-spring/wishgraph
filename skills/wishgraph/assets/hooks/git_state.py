@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": 11,
-    "runtime_version": 13,
+    "runtime_version": 14,
     "mode": "enforce",
     "paths": {
         "prd": "PRD.md",
@@ -43,9 +43,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     ],
     "ignore_globs": [
         ".git/**",
+        ".wishgraph",
         ".wishgraph/**",
         ".codex/hooks.json",
         ".claude/settings.json",
+        ".claude/agents/wishgraph-worker.md",
         ".DS_Store",
         "**/.DS_Store",
         "**/__pycache__/**",
@@ -108,8 +110,14 @@ def worktree_is_clean(root: Path) -> bool:
     for field in fields:
         path = field[3:] if len(field) > 3 and field[2] == " " else field
         if (
-            path.startswith(".wishgraph/")
-            or path in {".codex/hooks.json", ".claude/settings.json"}
+            path == ".wishgraph"
+            or path.startswith(".wishgraph/")
+            or path
+            in {
+                ".codex/hooks.json",
+                ".claude/settings.json",
+                ".claude/agents/wishgraph-worker.md",
+            }
             or "__pycache__/" in path
             or path.endswith(".pyc")
         ):

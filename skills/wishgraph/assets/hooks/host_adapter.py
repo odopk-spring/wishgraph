@@ -9,8 +9,11 @@ import json
 import os
 import re
 import shlex
+import shutil
+import subprocess
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -32,6 +35,7 @@ from git_state import (
     record_host_observation,
     rebind_worker_claim,
     resolve_project_status_path,
+    run_git,
     standard_project_status_conflict,
     update_claim,
     update_integration_lease,
@@ -79,11 +83,64 @@ class HostAction:
     work_payload: dict[str, Any] = field(default_factory=dict)
 
 
+CLAUDE_BACKGROUND_SESSION = "background_session"
+CLAUDE_FORKED_SUBAGENT = "forked_subagent"
+CLAUDE_MANUAL_COMMAND_ONLY = "manual_command_only"
+CLAUDE_WORKER_AGENT_MARKER = "<!-- wishgraph-managed: wishgraph-worker -->"
+CLAUDE_BACKGROUND_ID_RE = re.compile(
+    r"backgrounded\s*[·:]\s*(?P<session_id>[A-Za-z0-9._-]+)", re.IGNORECASE
+)
+CLAUDE_RUNNING_STATES = {"running", "working", "starting"}
+CLAUDE_BLOCKED_STATES = {"blocked", "waiting"}
+CLAUDE_COMPLETED_STATES = {
+    "completed",
+    "done",
+    "finished",
+    "ready",
+    "succeeded",
+    "success",
+}
+CLAUDE_FAILED_STATES = {"failed", "error", "stopped", "killed"}
+
+
+@dataclass(frozen=True)
+class ClaudeWorkerCapability:
+    tier: str
+    claude_executable: str = ""
+    agent_definition: str = ""
+    supports_background: bool = False
+    supports_agents_json: bool = False
+    supports_fork: bool = False
+    reason: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "tier": self.tier,
+            "claude_executable": self.claude_executable,
+            "agent_definition": self.agent_definition,
+            "supports_background": self.supports_background,
+            "supports_agents_json": self.supports_agents_json,
+            "supports_fork": self.supports_fork,
+            "reason": self.reason,
+        }
+
+
 def map_flow_plan_to_host(
     plan: FlowPlan, capability: HostCapability
 ) -> HostAction:
     """Map one authorized semantic plan to a host action without changing authority."""
     if plan.next_action == "launch_worker":
+        if capability.host == "claude":
+            return HostAction(
+                action="launch_claude_background_worker",
+                state_patch=plan.state_patch,
+                stop_after_action=True,
+                creates_visible_window=False,
+                work_payload={
+                    "task_id": plan.task_id,
+                    "capability_detection_required": True,
+                },
+            )
         if capability.can_create_visible_worker:
             return HostAction(
                 action="create_visible_worker_task",
@@ -192,6 +249,708 @@ def map_flow_plan_to_host(
         target_worker_id=plan.target_worker_id,
         work_payload=plan.work_payload,
     )
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _claude_worker_agent_paths(root: Path) -> list[Path]:
+    config_home = Path(
+        os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude"
+    ).expanduser()
+    return [
+        root / ".claude" / "agents" / "wishgraph-worker.md",
+        config_home / "agents" / "wishgraph-worker.md",
+    ]
+
+
+def _managed_claude_worker_agent(root: Path) -> Optional[Path]:
+    for path in _claude_worker_agent_paths(root):
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if CLAUDE_WORKER_AGENT_MARKER in content:
+            return path.resolve()
+    return None
+
+
+def _claude_worktree_runtime_ready(root: Path) -> bool:
+    path = root / ".claude" / "settings.json"
+    try:
+        settings = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    worktree = settings.get("worktree") if isinstance(settings, dict) else None
+    if not isinstance(worktree, dict):
+        return False
+    symlinks = worktree.get("symlinkDirectories")
+    return (
+        worktree.get("baseRef") == "head"
+        and isinstance(symlinks, list)
+        and ".wishgraph" in symlinks
+    )
+
+
+def _run_process(
+    command: list[str], root: Path, *, timeout: int = 15
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        cwd=root,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def detect_claude_worker_capability(
+    root: Path, claude_executable: str = "claude"
+) -> ClaudeWorkerCapability:
+    """Detect launch mechanics only; never grant Worker authority here."""
+    executable = shutil.which(claude_executable)
+    if not executable:
+        return ClaudeWorkerCapability(
+            tier=CLAUDE_MANUAL_COMMAND_ONLY,
+            reason="claude_cli_not_found",
+        )
+    try:
+        help_result = _run_process([executable, "--help"], root, timeout=5)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return ClaudeWorkerCapability(
+            tier=CLAUDE_MANUAL_COMMAND_ONLY,
+            claude_executable=executable,
+            reason=f"claude_help_unavailable:{type(exc).__name__}",
+        )
+    help_text = help_result.stdout + "\n" + help_result.stderr
+    supports_background = help_result.returncode == 0 and "--bg" in help_text
+    supports_fork = help_result.returncode == 0 and "--fork-session" in help_text
+    supports_agents_json = False
+    if supports_background and "agents" in help_text:
+        try:
+            agents_help = _run_process(
+                [executable, "agents", "--help"], root, timeout=5
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            agents_help = None
+        if agents_help is not None and agents_help.returncode == 0:
+            supports_agents_json = "--json" in (
+                agents_help.stdout + "\n" + agents_help.stderr
+            )
+    disabled = str(os.environ.get("CLAUDE_CODE_DISABLE_AGENT_VIEW") or "").lower()
+    background_disabled = disabled not in {"", "0", "false", "no", "off"}
+    agent_definition = _managed_claude_worker_agent(root)
+    worktree_runtime_ready = _claude_worktree_runtime_ready(root)
+    if (
+        supports_background
+        and supports_agents_json
+        and not background_disabled
+        and agent_definition is not None
+        and worktree_runtime_ready
+    ):
+        return ClaudeWorkerCapability(
+            tier=CLAUDE_BACKGROUND_SESSION,
+            claude_executable=executable,
+            agent_definition=str(agent_definition),
+            supports_background=True,
+            supports_agents_json=True,
+            supports_fork=supports_fork,
+            reason="native_background_session_available",
+        )
+    if supports_fork:
+        reason = (
+            "background_agent_view_disabled"
+            if background_disabled
+            else "managed_worker_agent_or_worktree_runtime_unavailable"
+        )
+        return ClaudeWorkerCapability(
+            tier=CLAUDE_FORKED_SUBAGENT,
+            claude_executable=executable,
+            agent_definition=str(agent_definition or ""),
+            supports_background=supports_background,
+            supports_agents_json=supports_agents_json,
+            supports_fork=True,
+            reason=reason,
+        )
+    return ClaudeWorkerCapability(
+        tier=CLAUDE_MANUAL_COMMAND_ONLY,
+        claude_executable=executable,
+        agent_definition=str(agent_definition or ""),
+        supports_background=supports_background,
+        supports_agents_json=supports_agents_json,
+        supports_fork=False,
+        reason="native_background_and_fork_capabilities_unavailable",
+    )
+
+
+def _query_claude_agents(root: Path, executable: str) -> dict[str, Any]:
+    command = [executable, "agents", "--json", "--all", "--cwd", str(root)]
+    try:
+        result = _run_process(command, root, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {
+            "ok": False,
+            "error": "claude_agents_query_failed",
+            "detail": type(exc).__name__,
+            "command": command,
+        }
+    if result.returncode != 0:
+        return {
+            "ok": False,
+            "error": "claude_agents_query_failed",
+            "exit_code": result.returncode,
+            "command": command,
+        }
+    try:
+        sessions = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError:
+        return {
+            "ok": False,
+            "error": "invalid_claude_agents_json",
+            "command": command,
+        }
+    if not isinstance(sessions, list) or not all(
+        isinstance(item, dict) for item in sessions
+    ):
+        return {
+            "ok": False,
+            "error": "invalid_claude_agents_payload",
+            "command": command,
+        }
+    return {"ok": True, "sessions": sessions, "command": command}
+
+
+def _find_claude_session(
+    sessions: list[dict[str, Any]], session_id: str, short_id: str = ""
+) -> Optional[dict[str, Any]]:
+    candidates = {value for value in (session_id, short_id) if value}
+    for session in sessions:
+        values = {
+            str(session.get("id") or ""),
+            str(session.get("sessionId") or ""),
+        }
+        if candidates & values:
+            return session
+        if short_id and any(value.startswith(short_id) for value in values if value):
+            return session
+    return None
+
+
+def _manual_worker_fallback(
+    root: Path,
+    discussion_session_id: str,
+    task_id: str,
+    capability: ClaudeWorkerCapability,
+    reason: str,
+) -> dict[str, Any]:
+    message = f"执行 {task_id} 任务"
+    persisted = apply_session_runtime_patch(
+        root,
+        discussion_session_id,
+        {
+            "session": {
+                "phase": "waiting_for_user_launch",
+                "expected_transition": {
+                    "kind": "launch_worker_manually",
+                    "task_id": task_id,
+                },
+            },
+            "worker_runtime": {
+                "agent_platform": "claude",
+                "host_capability": capability.tier,
+                "active_task_id": task_id,
+                "launch_status": "manual_required",
+                "launch_error": reason,
+                "claim_id": "",
+                "binding_status": "unbound",
+                "worker_availability": "manual_required",
+                "sync_status": "waiting_for_user_launch",
+                "last_observed_at": _utc_now(),
+            },
+        },
+    )
+    return {
+        "ok": bool(persisted.get("ok")),
+        "launched": False,
+        "fallback": True,
+        "capability": capability.as_dict(),
+        "user_message": message,
+        "stop_after_action": True,
+        "runtime_persisted": bool(persisted.get("ok")),
+    }
+
+
+def _authorized_claude_launch(
+    root: Path, config: dict[str, Any], discussion_session_id: str, task_id: str
+) -> dict[str, Any]:
+    runtime = read_session_runtime(root, discussion_session_id)
+    if runtime is None:
+        return {"ok": False, "error": "discussion_session_runtime_not_found"}
+    session = runtime.get("session") if isinstance(runtime.get("session"), dict) else {}
+    task_runtime = runtime.get("task") if isinstance(runtime.get("task"), dict) else {}
+    if session.get("role") != "discussion":
+        return {"ok": False, "error": "discussion_session_required"}
+    if session.get("phase") not in {"routing_worker", "waiting_for_user_launch"}:
+        return {"ok": False, "error": "worker_routing_phase_required"}
+    if task_runtime.get("task_id") != task_id:
+        return {"ok": False, "error": "authorized_task_mismatch"}
+    if (
+        task_runtime.get("lifecycle") != "approved"
+        or task_runtime.get("worker_authorized") is not True
+    ):
+        return {"ok": False, "error": "worker_launch_not_authorized"}
+    preflight = execution_preflight(root, config, task_id, "execute")
+    if not preflight.get("ok"):
+        return {
+            "ok": False,
+            "error": "execution_preflight_failed",
+            "detail": preflight,
+        }
+    task_path = str(preflight["task"].get("task_path") or "")
+    current_task = read_version(root, task_path, "worktree") if task_path else None
+    committed = run_git(root, "show", f"HEAD:{task_path}", check=False)
+    committed_task = (
+        committed.stdout.decode("utf-8", errors="replace")
+        if committed.returncode == 0
+        else None
+    )
+    if not current_task or committed_task != current_task:
+        return {
+            "ok": False,
+            "error": "authorized_task_must_match_current_head_for_background_worker",
+            "task_path": task_path,
+        }
+    return {"ok": True, "runtime": runtime, "task": preflight["task"]}
+
+
+def launch_claude_worker(
+    root: Path,
+    config: dict[str, Any],
+    task_id: str,
+    discussion_session_id: str,
+    *,
+    claude_executable: str = "claude",
+) -> dict[str, Any]:
+    """Launch one authorized Claude background Worker or return one-line fallback."""
+    canonical = canonical_task_id(task_id)
+    if not canonical:
+        return {"ok": False, "error": "invalid_task_id"}
+    authorized = _authorized_claude_launch(
+        root, config, discussion_session_id, canonical
+    )
+    if not authorized.get("ok"):
+        return authorized
+    capability = detect_claude_worker_capability(root, claude_executable)
+    if capability.tier != CLAUDE_BACKGROUND_SESSION:
+        return _manual_worker_fallback(
+            root,
+            discussion_session_id,
+            canonical,
+            capability,
+            capability.reason,
+        )
+
+    executable = capability.claude_executable
+    command = [
+        executable,
+        "--bg",
+        "--agent",
+        "wishgraph-worker",
+        f"执行 {canonical} 任务",
+    ]
+    before = _query_claude_agents(root, executable)
+    starting = apply_session_runtime_patch(
+        root,
+        discussion_session_id,
+        {
+            "worker_runtime": {
+                "agent_platform": "claude",
+                "host_capability": capability.tier,
+                "active_task_id": canonical,
+                "launch_status": "starting",
+                "launch_command": command,
+                "launch_branch": current_branch(root),
+                "launch_worktree": str(root.resolve()),
+                "claim_id": "",
+                "binding_status": "awaiting_claim",
+                "worker_availability": "starting",
+                "sync_status": "launching",
+            }
+        },
+    )
+    if not starting.get("ok"):
+        return _manual_worker_fallback(
+            root,
+            discussion_session_id,
+            canonical,
+            capability,
+            "launch_runtime_persistence_failed",
+        )
+    try:
+        launched = _run_process(command, root, timeout=20)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return _manual_worker_fallback(
+            root,
+            discussion_session_id,
+            canonical,
+            capability,
+            f"claude_background_launch_failed:{type(exc).__name__}",
+        )
+    combined_output = launched.stdout + "\n" + launched.stderr
+    id_match = CLAUDE_BACKGROUND_ID_RE.search(combined_output)
+    short_id = id_match.group("session_id") if id_match else ""
+    if "no agent named 'wishgraph-worker'" in combined_output.lower():
+        if short_id:
+            try:
+                _run_process([executable, "stop", short_id], root, timeout=10)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        return _manual_worker_fallback(
+            root,
+            discussion_session_id,
+            canonical,
+            capability,
+            "managed_worker_agent_not_loaded",
+        )
+    if launched.returncode != 0:
+        return _manual_worker_fallback(
+            root,
+            discussion_session_id,
+            canonical,
+            capability,
+            f"claude_background_launch_exit_{launched.returncode}",
+        )
+
+    after = _query_claude_agents(root, executable)
+    sessions = after.get("sessions", []) if after.get("ok") else []
+    session = _find_claude_session(sessions, "", short_id)
+    if session is None and before.get("ok") and after.get("ok"):
+        previous_ids = {
+            str(item.get("sessionId") or item.get("id") or "")
+            for item in before.get("sessions", [])
+        }
+        new_sessions = [
+            item
+            for item in sessions
+            if str(item.get("sessionId") or item.get("id") or "") not in previous_ids
+        ]
+        if len(new_sessions) == 1:
+            session = new_sessions[0]
+    full_session_id = str((session or {}).get("sessionId") or "")
+    short_id = short_id or str((session or {}).get("id") or "")
+    claude_session_id = full_session_id or short_id
+    if not claude_session_id:
+        return _manual_worker_fallback(
+            root,
+            discussion_session_id,
+            canonical,
+            capability,
+            "claude_background_session_id_missing",
+        )
+
+    if full_session_id:
+        worker_runtime = apply_session_runtime_patch(
+            root,
+            full_session_id,
+            {
+                "session": {
+                    "session_id": full_session_id,
+                    "role": "neutral",
+                    "host": "claude",
+                    "phase": "planning",
+                    "expected_transition": None,
+                },
+                "launch_context": {
+                    "discussion_session_id": discussion_session_id,
+                    "task_id": canonical,
+                    "host_capability": capability.tier,
+                },
+            },
+        )
+        if not worker_runtime.get("ok"):
+            try:
+                _run_process([executable, "stop", short_id], root, timeout=10)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+            return _manual_worker_fallback(
+                root,
+                discussion_session_id,
+                canonical,
+                capability,
+                "worker_session_runtime_persistence_failed",
+            )
+
+    persisted = apply_session_runtime_patch(
+        root,
+        discussion_session_id,
+        {
+            "session": {
+                "phase": "waiting_for_worker",
+                "expected_transition": {
+                    "kind": "wait_for_worker",
+                    "task_id": canonical,
+                },
+            },
+            "worker_runtime": {
+                "agent_platform": "claude",
+                "host_capability": capability.tier,
+                "active_task_id": canonical,
+                "claude_session_id": claude_session_id,
+                "claude_full_session_id": full_session_id,
+                "claude_short_id": short_id,
+                "host_window_or_thread_id": claude_session_id,
+                "launch_status": "launched",
+                "launch_command": command,
+                "launch_branch": current_branch(root),
+                "launch_worktree": str(root.resolve()),
+                "claim_id": "",
+                "binding_status": "awaiting_claim",
+                "worker_availability": "starting",
+                "sync_status": "waiting_for_claim",
+                "last_observed_at": _utc_now(),
+            },
+        },
+    )
+    if not persisted.get("ok"):
+        try:
+            _run_process([executable, "stop", short_id], root, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        return _manual_worker_fallback(
+            root,
+            discussion_session_id,
+            canonical,
+            capability,
+            "discussion_runtime_persistence_failed",
+        )
+    return {
+        "ok": True,
+        "launched": True,
+        "fallback": False,
+        "capability": capability.as_dict(),
+        "task_id": canonical,
+        "claude_session_id": claude_session_id,
+        "claude_full_session_id": full_session_id,
+        "claude_short_id": short_id,
+        "actual_command": shlex.join(command),
+        "claim_status": "worker_must_acquire_on_start",
+        "stop_after_action": True,
+    }
+
+
+def _matching_claude_claims(
+    root: Path, task_id: str, session_ids: set[str]
+) -> list[dict[str, Any]]:
+    return [
+        claim
+        for claim in inspect_claims(root, task_id)
+        if claim.get("agent_platform") == "claude"
+        and (
+            str(claim.get("worker_id") or "") in session_ids
+            or str(claim.get("host_thread_ref") or "") in session_ids
+        )
+    ]
+
+
+def refresh_claude_worker(
+    root: Path,
+    config: dict[str, Any],
+    discussion_session_id: str,
+    *,
+    claude_executable: str = "claude",
+    include_logs: bool = False,
+) -> dict[str, Any]:
+    """Refresh from structured Claude state plus durable Claim/report evidence."""
+    runtime = read_session_runtime(root, discussion_session_id)
+    if runtime is None:
+        return {"ok": False, "error": "discussion_session_runtime_not_found"}
+    session_runtime = (
+        runtime.get("session") if isinstance(runtime.get("session"), dict) else {}
+    )
+    if session_runtime.get("role") != "discussion":
+        return {"ok": False, "error": "discussion_session_required"}
+    worker_runtime = (
+        runtime.get("worker_runtime")
+        if isinstance(runtime.get("worker_runtime"), dict)
+        else {}
+    )
+    current_task_runtime = (
+        runtime.get("task") if isinstance(runtime.get("task"), dict) else {}
+    )
+    task_id = canonical_task_id(worker_runtime.get("active_task_id"))
+    if not task_id:
+        return {"ok": False, "error": "active_claude_worker_not_found"}
+
+    capability = detect_claude_worker_capability(root, claude_executable)
+    executable = capability.claude_executable or shutil.which(claude_executable) or ""
+    if not executable:
+        return _manual_worker_fallback(
+            root,
+            discussion_session_id,
+            task_id,
+            capability,
+            "claude_cli_not_found_during_refresh",
+        )
+    observed = _query_claude_agents(root, executable)
+    full_id = str(worker_runtime.get("claude_full_session_id") or "")
+    saved_id = str(worker_runtime.get("claude_session_id") or "")
+    short_id = str(worker_runtime.get("claude_short_id") or "")
+    session = (
+        _find_claude_session(observed.get("sessions", []), full_id or saved_id, short_id)
+        if observed.get("ok")
+        else None
+    )
+    if session is not None:
+        full_id = str(session.get("sessionId") or full_id)
+        short_id = str(session.get("id") or short_id)
+        saved_id = full_id or short_id or saved_id
+    structured_state = str((session or {}).get("state") or "missing").casefold()
+    structured_status = str((session or {}).get("status") or "")
+    waiting_for = str((session or {}).get("waitingFor") or "")
+
+    session_ids = {value for value in (full_id, saved_id, short_id) if value}
+    claims = _matching_claude_claims(root, task_id, session_ids)
+    claims.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+    claim = claims[0] if claims else None
+    resolved = resolve_task(root, config, task_id)
+    task = resolved.get("task", {}) if resolved.get("ok") else {}
+    task_status = str(task.get("status") or "")
+    report_path_value = str(task.get("run_report") or "")
+    report_path = root / report_path_value if report_path_value else None
+    report_exists = bool(report_path and report_path.is_file())
+    claim_released = bool(claim and claim.get("lease_status") == "released")
+    durable_terminal = (
+        task_status in {"completed", "blocked", "incomplete"}
+        and report_exists
+        and claim_released
+    )
+
+    if durable_terminal:
+        phase = "integration_pending"
+        expected_transition: Optional[dict[str, Any]] = {
+            "kind": "auto_integrate",
+            "task_id": task_id,
+        }
+        sync_status = "integration_pending"
+        worker_availability = "terminal"
+        recovery_reason = ""
+    elif structured_state in CLAUDE_RUNNING_STATES:
+        phase = "waiting_for_worker"
+        expected_transition = {"kind": "wait_for_worker", "task_id": task_id}
+        sync_status = "waiting_for_worker" if claim else "waiting_for_claim"
+        worker_availability = "busy" if claim else "starting"
+        recovery_reason = ""
+    elif structured_state in CLAUDE_BLOCKED_STATES:
+        phase = "waiting_for_worker"
+        expected_transition = {"kind": "wait_for_worker", "task_id": task_id}
+        sync_status = "manual_intervention_required"
+        worker_availability = "blocked"
+        recovery_reason = "claude_session_blocked"
+    elif structured_state in CLAUDE_COMPLETED_STATES:
+        phase = "waiting_for_worker"
+        expected_transition = {"kind": "wait_for_worker", "task_id": task_id}
+        sync_status = "manual_intervention_required"
+        worker_availability = "terminal"
+        recovery_reason = "terminal_evidence_incomplete"
+    elif structured_state in CLAUDE_FAILED_STATES:
+        phase = "waiting_for_worker"
+        expected_transition = {"kind": "wait_for_worker", "task_id": task_id}
+        sync_status = "manual_intervention_required"
+        worker_availability = "failed"
+        recovery_reason = "claude_session_failed"
+    else:
+        phase = "waiting_for_worker"
+        expected_transition = {"kind": "wait_for_worker", "task_id": task_id}
+        sync_status = "manual_intervention_required"
+        worker_availability = "missing" if session is None else "unknown"
+        recovery_reason = (
+            "claude_agents_query_failed"
+            if not observed.get("ok")
+            else "claude_session_missing_or_unknown"
+        )
+
+    binding_status = str(worker_runtime.get("binding_status") or "unbound")
+    if claim is not None:
+        binding_status = (
+            "active"
+            if claim.get("effective_lease_status") == "active"
+            else str(claim.get("lease_status") or binding_status)
+        )
+    patch: dict[str, Any] = {
+        "session": {
+            "phase": phase,
+            "expected_transition": expected_transition,
+        },
+        "worker_runtime": {
+            "agent_platform": "claude",
+            "host_capability": capability.tier,
+            "active_task_id": task_id,
+            "claude_session_id": saved_id,
+            "claude_full_session_id": full_id,
+            "claude_short_id": short_id,
+            "claude_state": structured_state,
+            "claude_status": structured_status,
+            "claude_waiting_for": waiting_for,
+            "claim_id": str((claim or {}).get("claim_id") or ""),
+            "branch": str((claim or {}).get("branch") or ""),
+            "worktree": str((claim or {}).get("worktree") or ""),
+            "host_window_or_thread_id": saved_id,
+            "binding_status": binding_status,
+            "worker_availability": worker_availability,
+            "sync_status": sync_status,
+            "recovery_reason": recovery_reason,
+            "last_observed_at": _utc_now(),
+        },
+    }
+    if task_status:
+        patch["task"] = {
+            "task_id": task_id,
+            "lifecycle": task_status,
+            "worker_authorized": bool(
+                task_status != "draft" or current_task_runtime.get("worker_authorized")
+            ),
+            "run_report": report_path_value,
+        }
+    persisted = apply_session_runtime_patch(root, discussion_session_id, patch)
+    if not persisted.get("ok"):
+        return {
+            "ok": False,
+            "error": "claude_worker_refresh_persistence_failed",
+            "detail": persisted,
+        }
+
+    logs = ""
+    if include_logs and short_id:
+        try:
+            log_result = _run_process([executable, "logs", short_id], root, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            log_result = None
+        if log_result is not None:
+            logs = log_result.stdout
+    return {
+        "ok": True,
+        "task_id": task_id,
+        "capability": capability.as_dict(),
+        "structured_claude_state": structured_state,
+        "sync_status": sync_status,
+        "durable_terminal_evidence": durable_terminal,
+        "task_lifecycle": task_status,
+        "report_exists": report_exists,
+        "claim": claim,
+        "management_commands": {
+            "list": shlex.join(
+                [executable, "agents", "--json", "--all", "--cwd", str(root)]
+            ),
+            "logs": shlex.join([executable, "logs", short_id]) if short_id else "",
+            "attach": (
+                shlex.join([executable, "attach", short_id]) if short_id else ""
+            ),
+        },
+        "logs": logs,
+    }
 
 
 def project_session_context(root: Path, config: dict[str, Any]) -> Optional[str]:
@@ -695,6 +1454,14 @@ def user_prompt_submit_main(
                             "accepted": plan.accepted,
                             "next_action": action.action,
                             "task_id": plan.task_id,
+                            "discussion_session_id": session_id,
+                            "host_adapter_command": (
+                                "python3 .wishgraph/hooks/memory_sync.py "
+                                f"claude-worker launch {plan.task_id} "
+                                f"--discussion-session-id {session_id}"
+                                if action.action == "launch_claude_background_worker"
+                                else ""
+                            ),
                             "user_message": action.user_message,
                             "stop_after_action": action.stop_after_action,
                             "denial_reason": plan.denial_reason,
@@ -750,6 +1517,18 @@ def user_prompt_submit_main(
         context = project_session_context(root, explicit_config) or (
             "WishGraph project memory is not initialized. Run the project bootstrap first."
         )
+        if (
+            host == "claude"
+            and session_id
+            and isinstance((runtime or {}).get("worker_runtime"), dict)
+            and (runtime or {}).get("worker_runtime", {}).get("claude_session_id")
+        ):
+            context += (
+                "\n\nClaude Worker refresh (read-only host observation; do not infer "
+                "completion from prose):\n"
+                "python3 .wishgraph/hooks/memory_sync.py claude-worker refresh "
+                f"--discussion-session-id {session_id}"
+            )
         emit(
             {
                 "hookSpecificOutput": {
@@ -781,11 +1560,12 @@ def user_prompt_submit_main(
     else:
         role = str(((runtime or {}).get("session") or {}).get("role") or "neutral")
         if role == "discussion":
-            host_action = (
-                "create_visible_worker_task"
-                if host == "codex"
-                else "show_manual_worker_command"
-            )
+            if host == "codex":
+                host_action = "create_visible_worker_task"
+            elif host == "claude":
+                host_action = "launch_claude_background_worker"
+            else:
+                host_action = "show_manual_worker_command"
         elif role == "worker":
             host_action = "continue_or_rebind_current_worker"
         else:
@@ -795,8 +1575,20 @@ def user_prompt_submit_main(
             "command": command,
             "task": resolved["task"],
             "host_action": host_action,
-            "manual_command": f"执行 {task_id} 任务" if host != "codex" else "",
-            "stop_after_action": role == "discussion" and host != "codex",
+            "worker_session_id": session_id,
+            "host_adapter_command": (
+                "python3 .wishgraph/hooks/memory_sync.py "
+                f"claude-worker launch {task_id} "
+                f"--discussion-session-id {session_id}"
+                if host_action == "launch_claude_background_worker"
+                else ""
+            ),
+            "manual_command": (
+                f"执行 {task_id} 任务"
+                if host_action == "show_manual_worker_command"
+                else ""
+            ),
+            "stop_after_action": role == "discussion",
             "authorization_patch_required": role == "discussion",
             "required_before_business_work": "execution_preflight_and_worker_claim",
             "read_boundary": "exact_task_scope_and_explicit_context_only",
@@ -1838,6 +2630,46 @@ def claim_main(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
+def claude_worker_main(args: argparse.Namespace) -> int:
+    root = find_git_root(Path.cwd())
+    if root is None:
+        print(json.dumps({"ok": False, "error": "git_repository_required"}))
+        return 2
+    if args.claude_worker_action == "capability":
+        capability = detect_claude_worker_capability(root, args.claude_executable)
+        print(json.dumps({"ok": True, **capability.as_dict()}, ensure_ascii=False, indent=2))
+        return 0
+    try:
+        config = load_config(root)
+    except ValueError as exc:
+        print(json.dumps({"ok": False, "error": "invalid_config", "detail": str(exc)}))
+        return 2
+    if config is None or config.get("mode") == "off":
+        print(json.dumps({"ok": False, "error": "wishgraph_not_active"}))
+        return 2
+    if args.claude_worker_action == "launch":
+        payload = launch_claude_worker(
+            root,
+            config,
+            args.task_id,
+            args.discussion_session_id,
+            claude_executable=args.claude_executable,
+        )
+        if payload.get("fallback"):
+            print(payload["user_message"])
+            return 0
+    else:
+        payload = refresh_claude_worker(
+            root,
+            config,
+            args.discussion_session_id,
+            claude_executable=args.claude_executable,
+            include_logs=args.include_logs,
+        )
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0 if payload.get("ok") else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1869,6 +2701,20 @@ def main() -> int:
     flow_parser.add_argument("--can-gate-reads", action="store_true")
     flow_parser.add_argument("--can-route-existing-worker", action="store_true")
     flow_parser.add_argument("--can-reuse-worker", action="store_true")
+    claude_worker_parser = subparsers.add_parser("claude-worker")
+    claude_worker_subparsers = claude_worker_parser.add_subparsers(
+        dest="claude_worker_action", required=True
+    )
+    claude_capability_parser = claude_worker_subparsers.add_parser("capability")
+    claude_capability_parser.add_argument("--claude-executable", default="claude")
+    claude_launch_parser = claude_worker_subparsers.add_parser("launch")
+    claude_launch_parser.add_argument("task_id")
+    claude_launch_parser.add_argument("--discussion-session-id", required=True)
+    claude_launch_parser.add_argument("--claude-executable", default="claude")
+    claude_refresh_parser = claude_worker_subparsers.add_parser("refresh")
+    claude_refresh_parser.add_argument("--discussion-session-id", required=True)
+    claude_refresh_parser.add_argument("--claude-executable", default="claude")
+    claude_refresh_parser.add_argument("--include-logs", action="store_true")
     session_parser = subparsers.add_parser("session")
     session_subparsers = session_parser.add_subparsers(
         dest="session_action", required=True
@@ -1977,6 +2823,8 @@ def main() -> int:
         return integration_plan_main(args.host_capability)
     if args.command == "flow-plan":
         return flow_plan_main(args)
+    if args.command == "claude-worker":
+        return claude_worker_main(args)
     if args.command == "session":
         return session_main(args)
     if args.command == "integration-lease":

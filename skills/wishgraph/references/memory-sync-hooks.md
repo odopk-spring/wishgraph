@@ -28,7 +28,7 @@ git_state.py        Git facts, Claims, sessions, and Integration leases
 
 ### UserPromptSubmit
 
-Only after `.wishgraph/config.json` enables the project, route explicit entry commands. Low-risk Discussion entry and status refresh may normalize case, whitespace, terminal punctuation, and a bounded allowlist of polite wrappers before exact alias lookup. Task execution, stop, retry, takeover, and exact IDs remain strict and never receive that normalization. Missing config and `mode: off` are silent no-op states; `开始讨论` never installs or enables WishGraph. A neutral execution window receives the exact Task route and must acquire its Claim before business work. A Discussion window routes a visible Worker; Claude Code and failed automatic routing expose only the exact one-line command. Short approvals are accepted only through one persisted `expected_transition`.
+Only after `.wishgraph/config.json` enables the project, route explicit entry commands. Low-risk Discussion entry and status refresh may normalize case, whitespace, terminal punctuation, and a bounded allowlist of polite wrappers before exact alias lookup. Task execution, stop, retry, takeover, and exact IDs remain strict and never receive that normalization. Missing config and `mode: off` are silent no-op states; `开始讨论` never installs or enables WishGraph. A neutral execution window receives the exact Task route and must acquire its Claim before business work. A Discussion window routes a visible Worker. Claude Code may ask the Host Adapter to start a native background session after authorization; the Hook itself never runs `claude --bg`. Failed or unavailable automatic routing exposes only the exact one-line command. Short approvals are accepted only through one persisted `expected_transition`.
 
 When the Hook cannot resolve the whole prompt to one allowed command, it emits no route and does not mutate session state. The original prompt continues to the Agent. The Agent may ask whether the user wants Discussion or refresh, but an ambiguous execution request must be answered with a request for the exact command, such as `执行 012 任务`; Agent interpretation cannot manufacture authorization.
 
@@ -68,13 +68,14 @@ Claude Code may also expose `TaskCompleted`; keep it as a host adapter event rat
 .wishgraph/hooks/runtime-manifest.json
 .codex/hooks.json        # Codex
 .claude/settings.json    # Claude Code
+.claude/agents/wishgraph-worker.md  # managed Claude background Worker
 ```
 
 The runtime manifest records one generated runtime version and SHA-256 fingerprints for all five runtime files. Doctor compares only those fixed paths. The installer merges host JSON, removes obsolete WishGraph handlers, preserves unrelated hook groups, and refuses to overwrite a locally modified generated runtime unless `--force-assets` is explicit. Codex users must trust the repository and review `/hooks`.
 
 Updating the global Codex or Claude Skill refreshes the bundled runtime for future installs, but does not rewrite an existing project's `.wishgraph/hooks/` copy. The safe upgrade command repairs missing metadata for current bundled files or replaces a bundled-known generated version, and rolls back all runtime/config writes on failure. Unknown, incomplete, newer, or locally modified copies stop for review; `--force-assets` remains a deliberate human override.
 
-The two host files are thin adapters over the same `.wishgraph/hooks/` runtime. A Worker Claim records both the machine hostname and `agent_platform`; an idle thread is reusable only by the same agent platform. Switching between Codex and Claude keeps repository truth, Tasks, reports, Claims, and status portable, but never sends a Codex route to a Claude thread ID or vice versa.
+The two host files are thin adapters over the same `.wishgraph/hooks/` runtime. Claude setup defaults an unset Worktree `baseRef` to `head` and adds `.wishgraph` to `worktree.symlinkDirectories`, preserving existing entries and an explicit existing baseRef. Native background launch is available only with `baseRef: head` and an authorized Task record already matching current `HEAD`; otherwise it uses the manual command. This lets an isolated Worker run the same local runtime while its Claim binds the actual Worker branch/worktree. A Worker Claim records both the machine hostname and `agent_platform`; an idle thread is reusable only by the same agent platform. Switching between Codex and Claude keeps repository truth, Tasks, reports, Claims, and status portable, but never sends a Codex route to a Claude thread ID or vice versa.
 
 `SessionStart` and `UserPromptSubmit` record bounded host-liveness evidence outside the worktree:
 
@@ -115,7 +116,12 @@ python3 .wishgraph/hooks/memory_sync.py status --task 012
 python3 .wishgraph/hooks/memory_sync.py status --full
 python3 .wishgraph/hooks/memory_sync.py claim inspect
 python3 .wishgraph/hooks/memory_sync.py integration-lease inspect
+python3 .wishgraph/hooks/memory_sync.py claude-worker capability
+python3 .wishgraph/hooks/memory_sync.py claude-worker launch 012 --discussion-session-id <discussion-session-id>
+python3 .wishgraph/hooks/memory_sync.py claude-worker refresh --discussion-session-id <discussion-session-id>
 ```
+
+The launch command invokes `claude --bg --agent wishgraph-worker "执行 012 任务"` only after the Discussion runtime and durable Task both prove authorization. Capability or launch failure prints only `执行 012 任务`. Refresh queries `claude agents --json --all --cwd <project>` and may expose `claude logs <id>` or `claude attach <id>` for humans; it never parses log prose as terminal evidence.
 
 Use `flow-plan` to evaluate one pure state/event transition. Apply only its returned state patch through `session apply`; do not hand-edit a different semantic result.
 

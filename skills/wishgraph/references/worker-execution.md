@@ -40,9 +40,27 @@ Use a visible Worker task/thread when the host exposes that capability. Record o
 执行 <task-id> 任务
 ```
 
-### Claude Code And Unknown Hosts
+### Claude Code
 
-Use `/task` only when it creates a genuinely separate visible session; otherwise require a new user-opened window. Output the same one-line command and stop. Do not print the full prompt or Task Spec and do not offer direct implementation.
+Detect one host-only capability tier without changing the reducer or authority:
+
+| Tier | Formal Worker behavior |
+| --- | --- |
+| `background_session` | After authorization, run `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"` and persist the returned Claude session ID. |
+| `forked_subagent` | Use only for short, low-risk checks with no durable ownership; formal business work still uses the manual command. |
+| `manual_command_only` | Output exactly `执行 <task-id> 任务` and stop Discussion execution. |
+
+Require the managed `wishgraph-worker` Agent definition before background launch. Claude Code silently falls back to a default template when an Agent name is missing, so an absent or unrecognized definition is a launch failure, not permission to use the default Agent.
+
+The background Worker acquires its own Claim after Claude has placed it in its actual branch/worktree. Require the authorized Task record to match current `HEAD`, use Claude Worktree `baseRef: head`, and expose the project runtime through `.wishgraph` in `worktree.symlinkDirectories`; otherwise use the manual command. Persist `claude_session_id`, Task ID, capability tier, launch state, and initial branch/worktree immediately; copy Claim ID and its bound branch/worktree into the Discussion runtime only after structured refresh observes the real Claim. Do not move the Task to `running` merely because `claude --bg` returned.
+
+Refresh with `claude agents --json --all --cwd <project>`. Use only structured state plus the durable Task, Run Report, and released Claim to enter `integration_pending`; logs are diagnostic text and never completion evidence. Expose `claude logs <id>` and `claude attach <id>` for inspection or recovery. A failed, blocked, missing, or unknown session without complete durable evidence becomes `manual_intervention_required` rather than a guessed terminal result.
+
+`/tasks` displays background work associated with the current Claude session. It does not create a WishGraph Task, authorize a Worker, acquire a Claim, or replace the project Task record. `/fork` or session forking is optional for bounded checks only; it is never the default formal Worker implementation and cannot bypass scope, validation, report, or Claim gates.
+
+### Unknown Hosts
+
+Require a new user-opened window. Output the same one-line command and stop. Do not print the full prompt or Task Spec and do not offer direct implementation.
 
 ### Neutral Entry
 

@@ -1,6 +1,6 @@
 {
   "version": 11,
-  "runtime_version": 13,
+  "runtime_version": 14,
   "mode": "enforce",
   "paths": {
     "prd": "PRD.md",
@@ -30,9 +30,11 @@
   ],
   "ignore_globs": [
     ".git/**",
+    ".wishgraph",
     ".wishgraph/**",
     ".codex/hooks.json",
     ".claude/settings.json",
+    ".claude/agents/wishgraph-worker.md",
     ".DS_Store",
     "**/.DS_Store",
     "**/__pycache__/**",

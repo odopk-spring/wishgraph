@@ -154,13 +154,13 @@ Do not persist `waiting_for_worker` until a real Worker exists and the runtime w
 
 Map semantic actions without changing authority:
 
-| Semantic action | Codex | Claude Code / unsupported host |
-| --- | --- | --- |
-| `launch_worker` | Create a visible Worker task | Output `执行 <task-id> 任务` |
-| launch failure | Output the same one-line command | N/A |
-| `route_revision` | Send to an eligible visible Worker or create one | Output the exact Revision command |
-| `auto_integrate` | Enter current Discussion phase | Persist pending until Discussion resumes |
-| `decision_required` | Ask the material question | Ask the same material question |
+| Semantic action | Codex | Claude Code | Unsupported host |
+| --- | --- | --- | --- |
+| `launch_worker` | Create a visible Worker task | Ask the Host Adapter to use a native background session; never launch from a Hook | Output `执行 <task-id> 任务` |
+| launch failure | Output the same one-line command | Output the same one-line command | N/A |
+| `route_revision` | Send to an eligible visible Worker or create one | Use an eligible Worker route or output the exact Revision command | Output the exact Revision command |
+| `auto_integrate` | Enter current Discussion phase | Persist pending until Discussion resumes | Persist pending until Discussion resumes |
+| `decision_required` | Ask the material question | Ask the same material question | Ask the same material question |
 
 Stop Discussion execution after a manual fallback. Never append an offer to implement directly.
 

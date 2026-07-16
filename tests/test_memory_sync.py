@@ -87,6 +87,41 @@ class RuntimeBoundaryTests(unittest.TestCase):
                 self.assertIn("mcp__", matcher)
                 self.assertIn("UserPromptSubmit", config["hooks"])
 
+    def test_claude_worker_agent_keeps_task_claim_and_read_boundaries(self) -> None:
+        content = (
+            ROOT
+            / "skills"
+            / "wishgraph"
+            / "assets"
+            / "claude-agents"
+            / "wishgraph-worker.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("name: wishgraph-worker", content)
+        self.assertIn("isolation: worktree", content)
+        self.assertIn(memory_sync.CLAUDE_WORKER_AGENT_MARKER, content)
+        self.assertIn("acquire a Worker Claim", content)
+        self.assertIn("Do not read unrelated Tasks", content)
+        self.assertIn("Write exactly one immutable Run Report", content)
+        self.assertIn("Release the Claim", content)
+
+    def test_user_prompt_hook_routes_but_never_launches_claude_process(self) -> None:
+        tree = ast.parse(
+            (HOOK_ASSETS / "host_adapter.py").read_text(encoding="utf-8")
+        )
+        function = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "user_prompt_submit_main"
+        )
+        calls = {
+            node.func.id
+            for node in ast.walk(function)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertNotIn("launch_claude_worker", calls)
+        self.assertNotIn("_run_process", calls)
+
     def test_low_risk_prompt_parser_accepts_bounded_aliases_and_politeness(self) -> None:
         cases = {
             "开始讨论。\n": "start_discussion",
@@ -513,7 +548,7 @@ class OrchestrationStateMachineTests(unittest.TestCase):
         self.assertEqual(plan.state_patch["session"]["role"], "worker")
         self.assertEqual(plan.state_patch["task"]["lifecycle"], "running")
 
-    def test_osm_03_claude_launch_outputs_one_line_and_stops(self) -> None:
+    def test_osm_03_claude_launch_routes_to_host_adapter_and_stops_discussion(self) -> None:
         plan = memory_sync.reduce_orchestration(
             self.state(),
             self.event("user_message", text="可以"),
@@ -522,10 +557,12 @@ class OrchestrationStateMachineTests(unittest.TestCase):
         action = memory_sync.map_flow_plan_to_host(
             plan, self.capability(host="claude", create_worker=False)
         )
-        self.assertEqual(action.action, "show_manual_worker_command")
-        self.assertEqual(action.user_message, "执行 002 任务")
+        self.assertEqual(action.action, "launch_claude_background_worker")
+        self.assertEqual(action.user_message, "")
         self.assertTrue(action.stop_after_action)
-        self.assertEqual(action.state_patch["session"]["phase"], "waiting_for_user_launch")
+        self.assertFalse(action.creates_visible_window)
+        self.assertEqual(action.state_patch["session"]["phase"], "routing_worker")
+        self.assertEqual(action.work_payload["task_id"], "002")
 
     def test_osm_04_codex_launch_failure_uses_same_one_line_fallback(self) -> None:
         plan = memory_sync.reduce_orchestration(
@@ -1645,6 +1682,45 @@ class MemorySyncTests(unittest.TestCase):
             "\n## Rollback / Recovery\n\n- Revert the atomic commit.\n"
         )
 
+    def prepare_claude_worker_task(
+        self, task_id: str, discussion_session_id: str
+    ) -> None:
+        task_path = f"tasks/build/{task_id}-claude-worker.md"
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="approved",
+                worker_authorized=True,
+                run_report=f"reports/runs/{task_id}-attempt-1.md",
+            ),
+        )
+        self.git("add", task_path)
+        self.git("commit", "-qm", f"prepare {task_id}")
+        persisted = memory_sync.write_session_runtime(
+            self.root,
+            discussion_session_id,
+            {
+                "session": {
+                    "session_id": discussion_session_id,
+                    "role": "discussion",
+                    "host": "claude",
+                    "phase": "routing_worker",
+                    "expected_transition": {
+                        "kind": "wait_for_worker",
+                        "task_id": task_id,
+                    },
+                },
+                "task": {
+                    "task_id": task_id,
+                    "lifecycle": "approved",
+                    "worker_authorized": True,
+                    "run_report": f"reports/runs/{task_id}-attempt-1.md",
+                },
+            },
+        )
+        self.assertTrue(persisted["ok"], persisted)
+
     def overview(
         self,
         reports: list[str],
@@ -2024,6 +2100,429 @@ class MemorySyncTests(unittest.TestCase):
         )
         self.assertEqual(second.returncode, 1)
         self.assertEqual(json.loads(second.stdout)["error"], "active_claim_exists")
+
+    def test_claude_worker_capability_levels_use_only_native_host_facts(self) -> None:
+        host_adapter_module = sys.modules["host_adapter"]
+        agent_path = self.root / ".claude" / "agents" / "wishgraph-worker.md"
+        agent_path.parent.mkdir(parents=True)
+        agent_path.write_text(
+            "---\nname: wishgraph-worker\n---\n"
+            + memory_sync.CLAUDE_WORKER_AGENT_MARKER
+            + "\n",
+            encoding="utf-8",
+        )
+        (self.root / ".claude" / "settings.json").write_text(
+            json.dumps(
+                {
+                    "worktree": {
+                        "baseRef": "head",
+                        "symlinkDirectories": [".wishgraph"],
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        main_help = subprocess.CompletedProcess(
+            ["claude", "--help"],
+            0,
+            stdout="--bg --fork-session\nCommands:\n  agents [options]\n",
+            stderr="",
+        )
+        agents_help = subprocess.CompletedProcess(
+            ["claude", "agents", "--help"],
+            0,
+            stdout="--json --all --cwd",
+            stderr="",
+        )
+        isolated_env = {"CLAUDE_CONFIG_DIR": str(self.root / "claude-config")}
+        with (
+            mock.patch.dict(os.environ, isolated_env),
+            mock.patch.object(host_adapter_module.shutil, "which", return_value="/bin/claude"),
+            mock.patch.object(
+                host_adapter_module,
+                "_run_process",
+                side_effect=[main_help, agents_help],
+            ),
+        ):
+            background = memory_sync.detect_claude_worker_capability(self.root)
+        self.assertEqual(background.tier, "background_session")
+
+        agent_path.unlink()
+        with (
+            mock.patch.dict(os.environ, isolated_env),
+            mock.patch.object(host_adapter_module.shutil, "which", return_value="/bin/claude"),
+            mock.patch.object(
+                host_adapter_module,
+                "_run_process",
+                side_effect=[main_help, agents_help],
+            ),
+        ):
+            forked = memory_sync.detect_claude_worker_capability(self.root)
+        self.assertEqual(forked.tier, "forked_subagent")
+
+        manual_help = subprocess.CompletedProcess(
+            ["claude", "--help"], 0, stdout="Claude Code", stderr=""
+        )
+        with (
+            mock.patch.dict(os.environ, isolated_env),
+            mock.patch.object(host_adapter_module.shutil, "which", return_value="/bin/claude"),
+            mock.patch.object(
+                host_adapter_module, "_run_process", return_value=manual_help
+            ),
+        ):
+            manual = memory_sync.detect_claude_worker_capability(self.root)
+        self.assertEqual(manual.tier, "manual_command_only")
+
+    def test_claude_background_worker_launch_records_real_session_before_claim(self) -> None:
+        task_id = "036"
+        discussion_id = "discussion-036"
+        worker_id = "12345678-1234-1234-1234-123456789abc"
+        self.prepare_claude_worker_task(task_id, discussion_id)
+        host_adapter_module = sys.modules["host_adapter"]
+        capability = memory_sync.ClaudeWorkerCapability(
+            tier="background_session",
+            claude_executable="/bin/claude",
+            agent_definition=str(self.root / ".claude/agents/wishgraph-worker.md"),
+            supports_background=True,
+            supports_agents_json=True,
+            supports_fork=True,
+            reason="native_background_session_available",
+        )
+        before = {"ok": True, "sessions": []}
+        after = {
+            "ok": True,
+            "sessions": [
+                {
+                    "id": "12345678",
+                    "sessionId": worker_id,
+                    "cwd": str(self.root),
+                    "state": "working",
+                }
+            ],
+        }
+        launched_process = subprocess.CompletedProcess(
+            [],
+            0,
+            stdout=(
+                "backgrounded · 12345678\n"
+                "  claude agents             list sessions\n"
+            ),
+            stderr="",
+        )
+        with (
+            mock.patch.object(
+                host_adapter_module,
+                "detect_claude_worker_capability",
+                return_value=capability,
+            ),
+            mock.patch.object(
+                host_adapter_module,
+                "_query_claude_agents",
+                side_effect=[before, after],
+            ),
+            mock.patch.object(
+                host_adapter_module, "_run_process", return_value=launched_process
+            ) as run_process,
+        ):
+            payload = memory_sync.launch_claude_worker(
+                self.root, self.config, task_id, discussion_id
+            )
+        self.assertTrue(payload["ok"], payload)
+        self.assertTrue(payload["launched"])
+        self.assertEqual(payload["claude_session_id"], worker_id)
+        self.assertEqual(
+            run_process.call_args.args[0],
+            [
+                "/bin/claude",
+                "--bg",
+                "--agent",
+                "wishgraph-worker",
+                "执行 036 任务",
+            ],
+        )
+        runtime = memory_sync.read_session_runtime(self.root, discussion_id)
+        assert runtime is not None
+        self.assertEqual(runtime["session"]["phase"], "waiting_for_worker")
+        self.assertEqual(runtime["worker_runtime"]["claude_session_id"], worker_id)
+        self.assertEqual(runtime["worker_runtime"]["active_task_id"], task_id)
+        self.assertEqual(runtime["worker_runtime"]["claim_id"], "")
+        self.assertEqual(runtime["worker_runtime"]["binding_status"], "awaiting_claim")
+
+    def test_claude_launch_failure_cli_outputs_only_manual_command(self) -> None:
+        task_id = "037"
+        discussion_id = "discussion-037"
+        self.prepare_claude_worker_task(task_id, discussion_id)
+        host_adapter_module = sys.modules["host_adapter"]
+        capability = memory_sync.ClaudeWorkerCapability(
+            tier="background_session",
+            claude_executable="/bin/claude",
+            agent_definition="managed-agent",
+            supports_background=True,
+            supports_agents_json=True,
+            supports_fork=True,
+            reason="native_background_session_available",
+        )
+        failed_process = subprocess.CompletedProcess(
+            [], 1, stdout="", stderr="launch failed"
+        )
+        with (
+            mock.patch.object(
+                host_adapter_module,
+                "detect_claude_worker_capability",
+                return_value=capability,
+            ),
+            mock.patch.object(
+                host_adapter_module,
+                "_query_claude_agents",
+                return_value={"ok": True, "sessions": []},
+            ),
+            mock.patch.object(
+                host_adapter_module, "_run_process", return_value=failed_process
+            ),
+        ):
+            payload = memory_sync.launch_claude_worker(
+                self.root, self.config, task_id, discussion_id
+            )
+        self.assertTrue(payload["fallback"])
+        self.assertEqual(payload["user_message"], "执行 037 任务")
+        runtime = memory_sync.read_session_runtime(self.root, discussion_id)
+        assert runtime is not None
+        self.assertEqual(runtime["session"]["phase"], "waiting_for_user_launch")
+        self.assertEqual(runtime["worker_runtime"]["launch_status"], "manual_required")
+
+        args = mock.Mock(
+            claude_worker_action="launch",
+            claude_executable="claude",
+            task_id=task_id,
+            discussion_session_id=discussion_id,
+        )
+        with (
+            mock.patch.object(host_adapter_module, "find_git_root", return_value=self.root),
+            mock.patch.object(host_adapter_module, "load_config", return_value=self.config),
+            mock.patch.object(
+                host_adapter_module, "launch_claude_worker", return_value=payload
+            ),
+            mock.patch("builtins.print") as printed,
+        ):
+            exit_code = host_adapter_module.claude_worker_main(args)
+        self.assertEqual(exit_code, 0)
+        printed.assert_called_once_with("执行 037 任务")
+
+    def test_claude_forked_subagent_never_launches_formal_business_worker(self) -> None:
+        task_id = "039"
+        discussion_id = "discussion-039"
+        self.prepare_claude_worker_task(task_id, discussion_id)
+        host_adapter_module = sys.modules["host_adapter"]
+        capability = memory_sync.ClaudeWorkerCapability(
+            tier="forked_subagent",
+            claude_executable="/bin/claude",
+            supports_background=False,
+            supports_agents_json=False,
+            supports_fork=True,
+            reason="managed_worker_agent_or_background_session_unavailable",
+        )
+        with (
+            mock.patch.object(
+                host_adapter_module,
+                "detect_claude_worker_capability",
+                return_value=capability,
+            ),
+            mock.patch.object(
+                host_adapter_module,
+                "_run_process",
+                side_effect=AssertionError("formal Worker must not use a fork"),
+            ),
+        ):
+            payload = memory_sync.launch_claude_worker(
+                self.root, self.config, task_id, discussion_id
+            )
+        self.assertTrue(payload["fallback"])
+        self.assertEqual(payload["capability"]["tier"], "forked_subagent")
+        self.assertEqual(payload["user_message"], "执行 039 任务")
+
+    def test_claude_refresh_binds_claim_and_syncs_completed_worker(self) -> None:
+        task_id = "038"
+        discussion_id = "discussion-038"
+        worker_id = "87654321-1234-1234-1234-123456789abc"
+        self.prepare_claude_worker_task(task_id, discussion_id)
+        claimed = memory_sync.acquire_claim(
+            self.root,
+            task_id,
+            1,
+            worker_id,
+            host_thread_ref=worker_id,
+            agent_platform="claude",
+            allowed_scope=["Change only the assigned implementation."],
+            validation_plan=["Run the focused tests."],
+            require_clean=True,
+        )
+        self.assertTrue(claimed["ok"], claimed)
+        memory_sync.apply_session_runtime_patch(
+            self.root,
+            discussion_id,
+            {
+                "session": {
+                    "phase": "waiting_for_worker",
+                    "expected_transition": {"kind": "wait_for_worker", "task_id": task_id},
+                },
+                "worker_runtime": {
+                    "agent_platform": "claude",
+                    "active_task_id": task_id,
+                    "claude_session_id": worker_id,
+                    "claude_full_session_id": worker_id,
+                    "claude_short_id": "87654321",
+                    "binding_status": "awaiting_claim",
+                },
+            },
+        )
+        host_adapter_module = sys.modules["host_adapter"]
+        capability = memory_sync.ClaudeWorkerCapability(
+            tier="background_session",
+            claude_executable="/bin/claude",
+            agent_definition="managed-agent",
+            supports_background=True,
+            supports_agents_json=True,
+            supports_fork=True,
+            reason="native_background_session_available",
+        )
+        working = {
+            "ok": True,
+            "sessions": [
+                {"id": "87654321", "sessionId": worker_id, "state": "working"}
+            ],
+        }
+        with (
+            mock.patch.object(
+                host_adapter_module,
+                "detect_claude_worker_capability",
+                return_value=capability,
+            ),
+            mock.patch.object(
+                host_adapter_module, "_query_claude_agents", return_value=working
+            ),
+        ):
+            active = memory_sync.refresh_claude_worker(
+                self.root, self.config, discussion_id
+            )
+        self.assertEqual(active["sync_status"], "waiting_for_worker")
+        active_runtime = memory_sync.read_session_runtime(self.root, discussion_id)
+        assert active_runtime is not None
+        self.assertEqual(
+            active_runtime["worker_runtime"]["claim_id"],
+            claimed["claim"]["claim_id"],
+        )
+        self.assertEqual(
+            active_runtime["worker_runtime"]["branch"], claimed["claim"]["branch"]
+        )
+        self.assertEqual(
+            active_runtime["worker_runtime"]["worktree"], claimed["claim"]["worktree"]
+        )
+
+        task_path = f"tasks/build/{task_id}-claude-worker.md"
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="completed",
+                worker_authorized=True,
+                run_report=f"reports/runs/{task_id}-attempt-1.md",
+            ),
+        )
+        self.write(f"reports/runs/{task_id}-attempt-1.md", "# Completed\n")
+        self.git("add", task_path, f"reports/runs/{task_id}-attempt-1.md")
+        self.git("commit", "-qm", f"complete {task_id}")
+        released = memory_sync.update_claim(
+            self.root,
+            claimed["claim"]["claim_id"],
+            "release",
+            branch=claimed["claim"]["branch"],
+            worktree=claimed["claim"]["worktree"],
+        )
+        self.assertTrue(released["ok"], released)
+        completed = {
+            "ok": True,
+            "sessions": [
+                {"id": "87654321", "sessionId": worker_id, "state": "done"}
+            ],
+        }
+        with (
+            mock.patch.object(
+                host_adapter_module,
+                "detect_claude_worker_capability",
+                return_value=capability,
+            ),
+            mock.patch.object(
+                host_adapter_module, "_query_claude_agents", return_value=completed
+            ),
+        ):
+            terminal = memory_sync.refresh_claude_worker(
+                self.root, self.config, discussion_id
+            )
+        self.assertTrue(terminal["durable_terminal_evidence"])
+        self.assertEqual(terminal["sync_status"], "integration_pending")
+        terminal_runtime = memory_sync.read_session_runtime(self.root, discussion_id)
+        assert terminal_runtime is not None
+        self.assertEqual(terminal_runtime["session"]["phase"], "integration_pending")
+        self.assertEqual(
+            terminal_runtime["session"]["expected_transition"]["kind"],
+            "auto_integrate",
+        )
+        self.assertEqual(terminal_runtime["task"]["lifecycle"], "completed")
+
+    def test_claude_refresh_missing_session_requires_manual_evidence_repair(self) -> None:
+        task_id = "040"
+        discussion_id = "discussion-040"
+        self.prepare_claude_worker_task(task_id, discussion_id)
+        memory_sync.apply_session_runtime_patch(
+            self.root,
+            discussion_id,
+            {
+                "session": {
+                    "phase": "waiting_for_worker",
+                    "expected_transition": {"kind": "wait_for_worker", "task_id": task_id},
+                },
+                "worker_runtime": {
+                    "agent_platform": "claude",
+                    "active_task_id": task_id,
+                    "claude_session_id": "missing-session-id",
+                    "claude_short_id": "missing1",
+                },
+            },
+        )
+        host_adapter_module = sys.modules["host_adapter"]
+        capability = memory_sync.ClaudeWorkerCapability(
+            tier="background_session",
+            claude_executable="/bin/claude",
+            agent_definition="managed-agent",
+            supports_background=True,
+            supports_agents_json=True,
+            supports_fork=True,
+            reason="native_background_session_available",
+        )
+        with (
+            mock.patch.object(
+                host_adapter_module,
+                "detect_claude_worker_capability",
+                return_value=capability,
+            ),
+            mock.patch.object(
+                host_adapter_module,
+                "_query_claude_agents",
+                return_value={"ok": True, "sessions": []},
+            ),
+        ):
+            payload = memory_sync.refresh_claude_worker(
+                self.root, self.config, discussion_id
+            )
+        self.assertFalse(payload["durable_terminal_evidence"])
+        self.assertEqual(payload["sync_status"], "manual_intervention_required")
+        runtime = memory_sync.read_session_runtime(self.root, discussion_id)
+        assert runtime is not None
+        self.assertEqual(runtime["session"]["phase"], "waiting_for_worker")
+        self.assertEqual(
+            runtime["worker_runtime"]["recovery_reason"],
+            "claude_session_missing_or_unknown",
+        )
 
     def test_claim_revoke_requires_explicit_user_authorization(self) -> None:
         acquired = memory_sync.acquire_claim(
@@ -4176,7 +4675,7 @@ class InstallerTests(unittest.TestCase):
 
             with mock.patch.object(installer_module, "ASSET_ROOT", asset_root):
                 manifest = installer_module.bundled_runtime_manifest()
-                self.assertEqual(manifest["runtime_version"], 13)
+                self.assertEqual(manifest["runtime_version"], 14)
 
                 policy_path = asset_root / "policy.py"
                 policy_path.write_bytes(policy_path.read_bytes() + b"# changed\r\n")
@@ -4270,7 +4769,7 @@ class InstallerTests(unittest.TestCase):
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["state"], "confirmed_recently")
             self.assertEqual(execution["last_event"], "session-start")
-            self.assertEqual(execution["observed_runtime_version"], 13)
+            self.assertEqual(execution["observed_runtime_version"], 14)
             self.assertTrue(payload["host_execution_confirmed"])
             self.assertEqual(payload["next_action"], "bootstrap_project_memory")
 
@@ -4297,6 +4796,20 @@ class InstallerTests(unittest.TestCase):
 
             payload = installer_module.doctor_report(root, "claude")
             execution = payload["host_adapters"]["claude"]["execution"]
+            self.assertEqual(
+                payload["host_adapters"]["claude"]["worker_agent"]["state"],
+                "current",
+            )
+            self.assertTrue(
+                (root / ".claude" / "agents" / "wishgraph-worker.md").is_file()
+            )
+            claude_settings = json.loads(
+                (root / ".claude" / "settings.json").read_text(encoding="utf-8")
+            )
+            self.assertIn(
+                ".wishgraph",
+                claude_settings["worktree"]["symlinkDirectories"],
+            )
             self.assertEqual(execution["state"], "unverified")
             self.assertEqual(execution["troubleshooting"], "claude doctor")
             self.assertEqual(payload["next_action"], "restart_agent_session")
@@ -4422,12 +4935,12 @@ class InstallerTests(unittest.TestCase):
             payload = json.loads(upgraded.stdout)
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["after"]["state"], "current")
-            self.assertEqual(payload["after"]["installed_runtime_version"], 13)
+            self.assertEqual(payload["after"]["installed_runtime_version"], 14)
             config = json.loads(
                 (root / ".wishgraph" / "config.json").read_text(encoding="utf-8")
             )
             self.assertEqual(config["mode"], "enforce")
-            self.assertEqual(config["runtime_version"], 13)
+            self.assertEqual(config["runtime_version"], 14)
 
     def test_safe_upgrade_replaces_only_a_bundled_known_old_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -4534,6 +5047,7 @@ class InstallerTests(unittest.TestCase):
             claude_path.write_text(
                 json.dumps(
                     {
+                        "worktree": {"symlinkDirectories": ["node_modules"]},
                         "hooks": {
                             "Stop": [
                                 {
@@ -4581,6 +5095,14 @@ class InstallerTests(unittest.TestCase):
             ]
             self.assertIn("echo keep-me", stop_commands)
             self.assertFalse(any("old-hook" in command for command in stop_commands))
+            self.assertEqual(
+                merged["worktree"]["symlinkDirectories"],
+                ["node_modules", ".wishgraph"],
+            )
+            self.assertEqual(merged["worktree"]["baseRef"], "head")
+            self.assertTrue(
+                (root / ".claude" / "agents" / "wishgraph-worker.md").is_file()
+            )
 
             before_rerun = claude_path.read_bytes()
             rerun = subprocess.run(
@@ -4751,7 +5273,7 @@ class InstallerTests(unittest.TestCase):
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["version"], 11)
-            self.assertEqual(config["runtime_version"], 13)
+            self.assertEqual(config["runtime_version"], 14)
             self.assertTrue(
                 (root / ".wishgraph" / "hooks" / "runtime-manifest.json").is_file()
             )
@@ -5032,6 +5554,52 @@ class OneCommandInstallerTests(unittest.TestCase):
             self.assertEqual(config["mode"], "enforce")
             self.assertTrue((project / ".git" / "hooks" / "pre-commit").exists())
 
+    def test_claude_user_install_adds_managed_global_worker_agent(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            source = root / "source"
+            source.mkdir()
+            subprocess.run(["git", "-C", str(source), "init", "-q"], check=True)
+            subprocess.run(
+                ["git", "-C", str(source), "checkout", "-qb", "main"], check=True
+            )
+            subprocess.run(
+                ["git", "-C", str(source), "config", "user.email", "test@example.com"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(source), "config", "user.name", "WishGraph Tests"],
+                check=True,
+            )
+            shutil.copytree(
+                ROOT / "skills" / "wishgraph", source / "skills" / "wishgraph"
+            )
+            subprocess.run(["git", "-C", str(source), "add", "."], check=True)
+            subprocess.run(
+                ["git", "-C", str(source), "commit", "-qm", "fixture"], check=True
+            )
+            home = root / "home"
+            home.mkdir()
+            env = os.environ.copy()
+            env["HOME"] = str(home)
+            env["WISHGRAPH_REPO_URL"] = str(source)
+            env["WISHGRAPH_REF"] = "main"
+            process = subprocess.run(
+                ["bash", str(TOP_LEVEL_INSTALLER), "claude-user"],
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(process.returncode, 0, process.stderr)
+            self.assertTrue((home / ".claude/skills/wishgraph/SKILL.md").is_file())
+            agent = home / ".claude/agents/wishgraph-worker.md"
+            self.assertTrue(agent.is_file())
+            self.assertIn(
+                "wishgraph-managed: wishgraph-worker",
+                agent.read_text(encoding="utf-8"),
+            )
+
     def test_strict_requires_project_setup(self) -> None:
         process = subprocess.run(
             ["bash", str(TOP_LEVEL_INSTALLER), "codex", "--strict"],
@@ -5052,6 +5620,8 @@ class OneCommandInstallerTests(unittest.TestCase):
             "winget install 9NQ7512CXL7T",
             "py list --format=exe",
             "about 0.5 MB",
+            "wishgraph-worker.md",
+            "wishgraph-managed: wishgraph-worker",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, content)

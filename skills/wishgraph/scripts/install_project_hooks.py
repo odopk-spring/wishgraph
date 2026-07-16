@@ -21,6 +21,11 @@ from typing import Any, Optional
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 ASSET_ROOT = SKILL_ROOT / "assets" / "hooks"
+CLAUDE_AGENT_ASSET = (
+    SKILL_ROOT / "assets" / "claude-agents" / "wishgraph-worker.md"
+)
+CLAUDE_AGENT_RELATIVE_PATH = Path(".claude/agents/wishgraph-worker.md")
+CLAUDE_AGENT_MARKER = "<!-- wishgraph-managed: wishgraph-worker -->"
 RUNTIME_FILES = (
     "memory_sync.py",
     "git_state.py",
@@ -303,6 +308,24 @@ def host_asset_path(host: str) -> Path:
     return ASSET_ROOT / ("codex-hooks.json" if host == "codex" else "claude-settings.json")
 
 
+def claude_worker_agent_diagnosis(target: Path) -> dict[str, Any]:
+    path = target / CLAUDE_AGENT_RELATIVE_PATH
+    if not path.is_file():
+        return {"path": str(path), "state": "missing"}
+    try:
+        installed = path.read_bytes().replace(b"\r\n", b"\n")
+        bundled = CLAUDE_AGENT_ASSET.read_bytes().replace(b"\r\n", b"\n")
+    except OSError as exc:
+        return {"path": str(path), "state": "invalid", "detail": str(exc)}
+    if installed == bundled:
+        return {"path": str(path), "state": "current"}
+    text = installed.decode("utf-8", errors="replace")
+    return {
+        "path": str(path),
+        "state": "outdated" if CLAUDE_AGENT_MARKER in text else "conflict",
+    }
+
+
 def expected_host_groups(host: str, python_executable: str) -> dict[str, set[str]]:
     incoming = _materialize_python_commands(
         read_json(host_asset_path(host)),
@@ -322,19 +345,29 @@ def host_adapter_diagnosis(
     target: Path, host: str, python_executable: str
 ) -> dict[str, Any]:
     path = host_config_path(target, host)
+    worker_agent = claude_worker_agent_diagnosis(target) if host == "claude" else None
     if not path.is_file():
-        return {"host": host, "path": str(path), "state": "missing"}
+        result = {"host": host, "path": str(path), "state": "missing"}
+        if worker_agent is not None:
+            result["worker_agent"] = worker_agent
+        return result
     try:
         existing = read_json(path)
     except ValueError as exc:
-        return {
+        result = {
             "host": host,
             "path": str(path),
             "state": "invalid",
             "detail": str(exc),
         }
+        if worker_agent is not None:
+            result["worker_agent"] = worker_agent
+        return result
     if not contains_wishgraph_handler(existing):
-        return {"host": host, "path": str(path), "state": "missing"}
+        result = {"host": host, "path": str(path), "state": "missing"}
+        if worker_agent is not None:
+            result["worker_agent"] = worker_agent
+        return result
     expected = expected_host_groups(host, python_executable)
     hooks = existing.get("hooks") if isinstance(existing.get("hooks"), dict) else {}
     missing_events: list[str] = []
@@ -361,12 +394,28 @@ def host_adapter_diagnosis(
         ):
             unexpected_events.append(event)
     outdated_events = sorted(set(missing_events + unexpected_events))
-    return {
+    if host == "claude":
+        worktree = existing.get("worktree")
+        symlinks = (
+            worktree.get("symlinkDirectories")
+            if isinstance(worktree, dict)
+            and isinstance(worktree.get("symlinkDirectories"), list)
+            else []
+        )
+        if ".wishgraph" not in symlinks:
+            outdated_events.append("ClaudeWorktree:.wishgraph")
+    agent_current = worker_agent is None or worker_agent["state"] == "current"
+    if not agent_current:
+        outdated_events.append("ClaudeAgent:wishgraph-worker")
+    result = {
         "host": host,
         "path": str(path),
-        "state": "current" if not outdated_events else "outdated",
+        "state": "current" if not outdated_events and agent_current else "outdated",
         "missing_or_outdated_events": outdated_events,
     }
+    if worker_agent is not None:
+        result["worker_agent"] = worker_agent
+    return result
 
 
 def configured_python_diagnosis(config: dict[str, Any]) -> dict[str, Any]:
@@ -861,7 +910,31 @@ def install_host_config(
         claude_powershell=host == "claude" and os.name == "nt",
     )
     merged = merge_hook_config(read_json(destination), incoming)
+    if host == "claude":
+        worktree = merged.setdefault("worktree", {})
+        if not isinstance(worktree, dict):
+            raise ValueError("Existing top-level worktree value must be a JSON object")
+        worktree.setdefault("baseRef", "head")
+        symlinks = worktree.setdefault("symlinkDirectories", [])
+        if not isinstance(symlinks, list) or not all(
+            isinstance(item, str) for item in symlinks
+        ):
+            raise ValueError("Existing worktree.symlinkDirectories must be a string array")
+        if ".wishgraph" not in symlinks:
+            symlinks.append(".wishgraph")
     write_json_atomic(destination, merged)
+    return destination
+
+
+def install_claude_worker_agent(target: Path) -> Path:
+    destination = target / CLAUDE_AGENT_RELATIVE_PATH
+    if destination.is_file():
+        existing = destination.read_text(encoding="utf-8", errors="replace")
+        if CLAUDE_AGENT_MARKER not in existing:
+            raise FileExistsError(
+                f"Refusing to replace non-WishGraph Claude Agent: {destination}"
+            )
+    write_bytes_atomic(destination, CLAUDE_AGENT_ASSET.read_bytes())
     return destination
 
 
@@ -887,6 +960,8 @@ def repair_host_adapter(target: Path, host: str) -> dict[str, Any]:
     before = host_adapter_diagnosis(target, host, python_executable)
     adapter_path = host_config_path(target, host)
     tracked = [adapter_path, config_path]
+    if host == "claude":
+        tracked.append(target / CLAUDE_AGENT_RELATIVE_PATH)
     snapshot = snapshot_files(tracked)
     changed: list[Path] = []
     try:
@@ -896,6 +971,8 @@ def repair_host_adapter(target: Path, host: str) -> dict[str, Any]:
             changed.append(config_path)
         if before["state"] != "current":
             changed.append(install_host_config(target, host, python_executable))
+            if host == "claude":
+                changed.append(install_claude_worker_agent(target))
     except Exception as exc:
         try:
             restore_snapshot(snapshot)
@@ -1147,9 +1224,10 @@ def main() -> int:
     try:
         installed = install_runtime(target, args.mode, args.force_assets)
         hosts = ("codex", "claude") if args.host == "all" else (args.host,)
-        installed.extend(
-            install_host_config(target, host, sys.executable) for host in hosts
-        )
+        for host in hosts:
+            installed.append(install_host_config(target, host, sys.executable))
+            if host == "claude":
+                installed.append(install_claude_worker_agent(target))
         warning = None
         if args.git_hook:
             hook_path, warning = install_git_hook(target)

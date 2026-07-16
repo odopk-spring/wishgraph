@@ -202,7 +202,7 @@ Use it to:
 
 The Worker should not redesign the feature. If the Task Spec is wrong, it stops and reports the conflict.
 
-Workers do not start silently or as hidden subagents. When a Task is ready, Discussion asks for explicit authorization to launch the named Worker. After that command, Discussion creates a user-visible Worker task when the platform supports it, hands off `prompts/EXECUTION_AI.md` and the exact Task Spec automatically, and then the user can observe or control that Worker from the task list. The user does not edit project-memory or integration files.
+Workers do not start before authorization or as hidden substitutes for a visible execution surface. After authorization, Codex creates a visible Worker task when supported; Claude Code CLI prefers its native background session with the managed `wishgraph-worker` Agent. The user can inspect Claude background work with `claude agents`; `/tasks` only views current-session background work and does not create a WishGraph Task. If native launch is unavailable, Discussion outputs only `执行 <task-id> 任务`. The user does not edit project-memory or integration files.
 
 ### Discussion-Local Integration Phase
 

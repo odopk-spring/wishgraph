@@ -173,7 +173,7 @@ Never pass `--host all` for automatic recovery. Switching hosts keeps project tr
 After installation:
 
 1. Read `.wishgraph/config.json` and confirm the selected mode.
-2. Confirm only the current host file was installed: `.codex/hooks.json` or `.claude/settings.json`.
+2. Confirm only the current host adapter was installed: `.codex/hooks.json`, or Claude's `.claude/settings.json` plus `.claude/agents/wishgraph-worker.md`. Claude setup preserves existing Worktree settings, defaults an unset `worktree.baseRef` to `head`, and adds `.wishgraph` to `worktree.symlinkDirectories` so isolated Workers can use the same runtime and current committed Task records.
 3. Confirm the host commands use the exact Python executable recorded in `.wishgraph/config.json`; then run that interpreter with `.wishgraph/hooks/memory_sync.py check --scope worktree`.
 4. Treat a missing governance skeleton as a next setup step, not a dependency failure; safe mode remains non-blocking.
 5. Finish with the selected mode and one next action: reopen the current Agent session, then use `开始讨论` / `Start discussion`. Do not teach Hook internals during normal setup.

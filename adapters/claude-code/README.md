@@ -82,7 +82,7 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
   --mode warn
 ```
 
-This safely merges `SessionStart`, `PreToolUse`, `Stop`, and `TaskCompleted` groups into `.claude/settings.json`. Switch `.wishgraph/config.json` to `enforce` after a successful closeout. See [`docs/memory-sync-hooks.md`](../../docs/memory-sync-hooks.md).
+This safely merges `SessionStart`, `PreToolUse`, `Stop`, and `TaskCompleted` groups into `.claude/settings.json`, defaults an unset Worktree `baseRef` to `head`, preserves existing Worktree entries while adding `.wishgraph` to `worktree.symlinkDirectories`, and installs the managed `.claude/agents/wishgraph-worker.md` definition. Switch `.wishgraph/config.json` to `enforce` after a successful closeout. See [`docs/memory-sync-hooks.md`](../../docs/memory-sync-hooks.md).
 
 ## Recommended Claude Code Flow
 
@@ -109,7 +109,15 @@ This safely merges `SessionStart`, `PreToolUse`, `Stop`, and `TaskCompleted` gro
    reports/PROJECT_STATUS.md
    ```
 
-3. Let Discussion explain whether the task is sequential or parallel and ask for Worker authorization. After authorization in Claude Code, it outputs only `执行 <task-id> 任务`; run that line in a separate neutral window. After preflight, that window enters the Worker role and acquires a bound Claim before implementation.
+3. Let Discussion explain whether the task is sequential or parallel and ask for Worker authorization. After authorization, the Claude Code adapter uses three capability levels:
+
+   - `background_session`: run `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"`, then track the returned session with `claude agents --json`.
+   - `forked_subagent`: reserve session forking for short, low-risk checks; do not use it as the formal business Worker.
+   - `manual_command_only`: output only `执行 <task-id> 任务`, then stop Discussion execution.
+
+   The background Worker enters its isolated worktree, reads the exact Task and necessary context, then acquires the bound Claim before implementation. A launch failure never authorizes Discussion to modify business code.
+
+   `claude agents` shows native background sessions. `claude logs <id>` reads recent output and `claude attach <id>` resumes interactive control. `/tasks` only shows background work associated with the current Claude session; it does not create a WishGraph Task, grant execution authority, or replace Task Specs and Claims.
 
    Every Worker terminal event enters `integration_pending`. Safe sequential and mechanically proven independent parallel results enter Discussion-local Integration automatically with a lease. Risk or conflict asks only the concrete decision; Integration never creates another window.
 

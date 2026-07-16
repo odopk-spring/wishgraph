@@ -173,6 +173,25 @@ if (-not $reuseExisting) {
     }
 }
 
+if ($Target -eq "claude-user" -or $Target -eq "claude-project") {
+    $agentSource = Join-Path $destination "assets/claude-agents/wishgraph-worker.md"
+    $agentDestination = if ($Target -eq "claude-user") {
+        Join-Path $HOME ".claude/agents/wishgraph-worker.md"
+    } else {
+        Join-Path $Project ".claude/agents/wishgraph-worker.md"
+    }
+    if (Test-Path -LiteralPath $agentDestination) {
+        $existingAgent = Get-Content -LiteralPath $agentDestination -Raw
+        if (-not $existingAgent.Contains("<!-- wishgraph-managed: wishgraph-worker -->")) {
+            [Console]::Error.WriteLine("Refusing to replace non-WishGraph Claude Agent: $agentDestination")
+            exit 1
+        }
+    }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $agentDestination) -Force | Out-Null
+    Copy-Item -LiteralPath $agentSource -Destination $agentDestination -Force
+    Write-Host "Installed WishGraph Claude Worker Agent to $agentDestination"
+}
+
 if ($SetupProject) {
     Write-Host "Installation stage 3: configuring project hooks."
     $mode = if ($Strict) { "enforce" } else { "warn" }
