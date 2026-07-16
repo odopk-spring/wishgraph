@@ -13,6 +13,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Keep bilingual installer and hook output safe when Windows inherits a legacy
+# console code page such as cp1252.
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+
 if ($PSBoundParameters.ContainsKey("Project")) {
     $SetupProject = $true
 }

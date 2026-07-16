@@ -6032,6 +6032,11 @@ class InstallerTests(unittest.TestCase):
 
 
 class OneCommandInstallerTests(unittest.TestCase):
+    def test_windows_installer_forces_utf8_for_python_children(self) -> None:
+        content = POWERSHELL_INSTALLER.read_text(encoding="utf-8")
+        self.assertIn('$env:PYTHONUTF8 = "1"', content)
+        self.assertIn('$env:PYTHONIOENCODING = "utf-8"', content)
+
     def test_check_mode_reports_cost_without_installing(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
