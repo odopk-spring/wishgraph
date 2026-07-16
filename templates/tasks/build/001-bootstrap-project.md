@@ -72,7 +72,7 @@ Create the first durable project frame before feature implementation. This Task 
 - [ ] Governance files exist and are self-consistent.
 - [ ] `PRD.md` has target user, goals, non-goals, first slice, and acceptance standards.
 - [ ] `prompts/DISCUSSION_AI.md` can be copied into a new discussion window.
-- [ ] `prompts/EXECUTION_AI.md` plus `tasks/build/002-first-slice.md` can be handed off to a user-visible Worker.
+- [ ] `prompts/EXECUTION_AI.md` plus `tasks/build/002-first-slice.md` can be handed off to a user-visible and inspectable Worker thread or window.
 - [ ] Discussion prompt explains the first task's work type, why it is sequential or parallel, the exact worker launch steps, and when integration needs user confirmation.
 - [ ] `reports/runs/001-bootstrap-project.md` records what was created and what remains unknown.
 - [ ] `reports/PROJECT_STATUS.md` lists the bootstrap run report and summarizes the initial integrated state.

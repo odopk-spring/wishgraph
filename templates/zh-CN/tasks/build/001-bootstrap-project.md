@@ -72,7 +72,7 @@ Task state 只记录 Task Lifecycle。Session Role、Flow Phase 与 `expected_tr
 - [ ] 治理文件存在并且彼此一致。
 - [ ] `PRD.md` 包含目标用户、目标、非目标、首个薄切片和验收标准。
 - [ ] `prompts/DISCUSSION_AI.md` 可复制到新讨论窗口。
-- [ ] `prompts/EXECUTION_AI.md` 加 `tasks/build/002-first-slice.md` 可交接给用户可见 Worker。
+- [ ] `prompts/EXECUTION_AI.md` 加 `tasks/build/002-first-slice.md` 可交接给用户可见且可检查的 Worker thread 或窗口。
 - [ ] 讨论提示词解释首个任务的工作类型、为什么串行或并行、准确 Worker 启动步骤，以及何时需要用户确认集成。
 - [ ] `reports/runs/001-bootstrap-project.md` 记录创建内容和未知项。
 - [ ] `reports/PROJECT_STATUS.md` 列出 bootstrap 单次执行报告并汇总初始集成状态。

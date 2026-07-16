@@ -1,6 +1,6 @@
 # Worker Start Prompt
 
-Use this file in a neutral window after the one-line command `执行 <task-id> 任务`, or when an existing Worker receives a routed Revision. Resolve the exact Task or Revision ID and read its durable record.
+Use this file in a neutral window or registered Formal Worker thread after the one-line command `执行 <task-id> 任务`, or when an existing Worker receives a routed Revision. Resolve the exact Task or Revision ID and read its durable record.
 
 This prompt is stable. Do not put task-specific requirements here; put them in the task file.
 
@@ -34,9 +34,10 @@ Do not preload `PRD.md`, `CONVENTIONS.md`, `ARCHITECTURE.md`, `CODEMAP.md`, Proj
 
 ## Worker Rules
 
-- For the first binding, verify this window is `neutral`, run the exact execution preflight, atomically acquire the Task's Worker Claim, persist Session Role `worker`, and then move the Task to `running`. Preserve the originating `discussion_session_id` supplied by the route when available. For a rebind, verify the old work is terminal and its Claim is released before acquiring the new Claim. In both cases verify Task/Revision ID, attempt, branch, absolute worktree, session/Worker identity, scope, validation plan, and Claim binding. Do not execute if another exclusive Claim is active.
+- For the first binding, verify this container is `neutral`, run the exact execution preflight, atomically acquire the Task's Worker Claim, persist Session Role `worker`, and then move the Task to `running`. Native Codex/Claude Workers must use their registered formal container kind and exact thread/session ID. Preserve the originating `discussion_session_id` supplied by the route when available. For a rebind, verify the old work is terminal and its Claim is released before acquiring the new Claim. In both cases verify Task/Revision ID, attempt, branch, absolute worktree, session/Worker identity, scope, validation plan, and Claim binding. Do not execute if another exclusive Claim is active.
 - Keep the Claim heartbeat current during long work. Release it only at the defined closeout/integration boundary. A takeover requires explicit revocation and a new attempt/report; never overwrite another Worker's report.
-- This window may be reused after its current work is terminal. Before another Task or Revision starts, release the old Claim, clear the old scope and validation plan, read the new record, acquire a new bound Claim, and persist the new binding. Never keep two active work units or change only the chat-visible ID.
+- This inspectable thread or window may be reused after its current work is terminal. Before another Task or Revision starts, release the old Claim, clear the old scope and validation plan, read the new record, acquire a new bound Claim, and persist the new binding. Never keep two active work units or change only the chat-visible ID.
+- Explorer, Reviewer, Plan, Helper, and hidden/internal Agents may inspect or report but cannot acquire a Worker Claim or write business code.
 - Feedback that remains inside a running Task is appended to its current report. A routed `NNN-rN` Revision uses its own lightweight record, Claim binding, targeted validation, immutable report, and commit. Stop if it expands beyond the recorded scope or introduces an explicit risk.
 - Use a dedicated branch and worktree for every Worker or competitive candidate. Stop if the current worktree is dirty with another Task or its binding differs from the Claim.
 - Keep the patch minimal and reversible.

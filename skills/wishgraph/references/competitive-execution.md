@@ -37,7 +37,7 @@ Give every candidate a distinct Task Spec, attempt, Run Report path, branch/work
 
 ## Authorization
 
-Show the candidate set, reason for competition, expected cost, scorecard, and stop condition before launch. Require explicit human authority for the exact visible Workers. Do not infer competitive authority from ordinary Task approval or a vague request for parallelism.
+Show the candidate set, reason for competition, expected cost, scorecard, and stop condition before launch. Require explicit human authority for the exact user-visible and inspectable Worker threads or windows. Do not infer competitive authority from ordinary Task approval or a vague request for parallelism. Every concurrent writer must use a distinct worktree.
 
 ## Scorecard
 

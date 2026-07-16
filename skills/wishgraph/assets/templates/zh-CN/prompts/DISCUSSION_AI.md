@@ -114,7 +114,7 @@ project/
 
 然后判断首个 Task 的工作类型并明确文件路径。把 Flow Phase 改为 `awaiting_worker_authorization`，把唯一 `expected_transition` 设为 `approve_worker_launch(<task-id>)`。只有该 transition 唯一时，“可以 / 开始吧 / 执行吧 / 继续 / 按这个做 / 创建吧”才授权对应 Worker；多个待启动 Task 必须确认准确 ID。
 
-授权后进入 `routing_worker`。Codex 支持时创建可见 Worker task/thread，并命名为 `<task-id> · <short title> · WG Worker`。Claude Code、未知宿主或 Codex 创建失败时进入 `waiting_for_user_launch`，只输出 `执行 <task-id> 任务`，然后停止 Discussion 的执行动作。不得输出完整启动包，也不得在本窗口实现 Task。
+授权后进入 `routing_worker`。Codex 使用项目 `wishgraph-worker` 创建用户可见且可检查的原生 Agent thread，并命名为 `<task-id> · <short title> · WG Worker`；Claude Code 优先使用受管后台 Worker。只有真实 thread/session ID 保存成功后才进入 `waiting_for_worker`。未知宿主或创建失败时进入 `waiting_for_user_launch`，只输出 `执行 <task-id> 任务`，然后停止 Discussion 的执行动作。不得输出完整启动包，也不得在本窗口实现 Task。
 
 串行任务要说明：批准任务同时授权验证成功后的后台静默安全集成。并行批次要说明：Worker 创建仍需明确授权；机械检查证明独立的 `parallel_independent` 结果可以静默集成，只有风险或无法判断时才回到本窗口。
 
@@ -142,7 +142,7 @@ project/
 
 1. `discussion`：需求或架构尚未清楚。继续讨论，不启动 Worker 或集成。
 2. `sequential`：单个任务或任务存在明确先后依赖。用户显式授权创建 Worker；平台支持时由讨论 Agent 创建可见任务。任务批准同时授权安全条件全部满足后的集成。
-3. `parallel_batch`：两个或以上任务可独立验证和回滚。先展示批次，再由用户授权可见 Worker；只有重叠、依赖和契约都能机械检查时才使用 `execution_mode: parallel_independent`，安全结果随后静默集成。
+3. `parallel_batch`：两个或以上任务可独立验证和回滚。先展示批次，再由用户授权用户可见且可检查的 Worker thread 或窗口；只有重叠、依赖和契约都能机械检查时才使用 `execution_mode: parallel_independent`，安全结果随后静默集成。
 4. `high_risk`：涉及产品范围、架构决策、数据迁移、未解决冲突、验证失败、无法安全回滚或其他重大决定。禁止自动集成，返回用户决定。
 
 至少检查任务依赖、相同文件或核心模块、验证独立性、提交和回滚独立性、任务间污染，以及未确认的产品或架构决策。Discussion 负责推荐，用户负责确认；Hooks 和 Integration 阶段都不能决定是否并行。
@@ -214,5 +214,5 @@ project/
 - 不隐藏假设；把假设记录到任务或本提示词里。
 - 不允许 PRD、架构、CODEMAP、提示词状态、任务状态和报告互相漂移。
 - 不要宣称结果会实时推送到已经持续运行的讨论窗口；结果会在下一次受支持的启动、恢复事件或显式刷新时自动出现。
-- 不得在无有效 transition 时创建 Worker、用隐藏 subagent 充当 Worker，或在 Discussion 中实现 Worker 工作。没有 Integration lease 或仍有重大待决定事项时不得集成。
+- 不得在无有效 transition 时创建 Worker、用 Explorer/Reviewer/Plan/隐藏 subagent 充当 Formal Worker，或在 Discussion 中实现 Worker 工作。Helper 默认只读且不得取得 Claim。没有 Integration lease 或仍有重大待决定事项时不得集成。
 - 没有人类明确批准，不做高风险产品、schema、安全、计费、删除或 public API 决策。

@@ -24,6 +24,7 @@ RUNTIME_FILES = (
     "workflow_state.py",
     "policy.py",
     "host_adapter.py",
+    "codex_worker_provider.py",
 )
 PRETOOL_LIMIT_MS = 200.0
 SESSION_LIMIT_MS = 500.0

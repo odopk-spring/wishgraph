@@ -139,7 +139,7 @@ Events must come from structured user commands, persisted runtime facts, validat
 ## Core Transitions
 
 - `draft + explicit Worker authority -> approved + routing_worker`.
-- `approved + real visible Worker + acquired Claim -> running + waiting_for_worker`.
+- `approved + real user-visible and inspectable Worker thread/window + acquired Claim -> running + waiting_for_worker`.
 - `running + valid terminal report + released Claim -> completed|blocked|incomplete`.
 - Any Worker terminal result first enters `integration_pending`.
 - Safe completed evidence enters Discussion-local `integrating` after lease acquisition.
@@ -156,13 +156,29 @@ Map semantic actions without changing authority:
 
 | Semantic action | Codex | Claude Code | Unsupported host |
 | --- | --- | --- | --- |
-| `launch_worker` | Create a visible Worker task | Ask the Host Adapter to use a native background session; never launch from a Hook | Output `执行 <task-id> 任务` |
+| `launch_worker` | Prepare and create a native inspectable `wishgraph-worker` Agent thread, then persist its real ID | Ask the Host Adapter to use a native background session; never launch from a Hook | Output `执行 <task-id> 任务` |
 | launch failure | Output the same one-line command | Output the same one-line command | N/A |
-| `route_revision` | Send to an eligible visible Worker or create one | Use an eligible Worker route or output the exact Revision command | Output the exact Revision command |
+| `route_revision` | Send to an eligible inspectable Worker thread or create one | Use an eligible Worker route or output the exact Revision command | Output the exact Revision command |
 | `auto_integrate` | Enter current Discussion phase | Persist pending until Discussion resumes | Persist pending until Discussion resumes |
 | `decision_required` | Ask the material question | Ask the same material question | Ask the same material question |
 
 Stop Discussion execution after a manual fallback. Never append an offer to implement directly.
+
+Represent host mechanics with orthogonal capabilities rather than reducer branches:
+
+```text
+can_spawn_execution_thread
+can_inspect_execution_thread
+can_bind_thread_id
+can_stop_or_steer_thread
+can_isolate_worktree
+can_observe_terminal_result
+can_gate_writes
+can_gate_builds
+can_deliver_result_to_discussion
+```
+
+The reducer asks whether the Formal Worker contract can be met. The Host Adapter chooses Codex, Claude, or manual mechanics. A capability never grants Task authorization or Discussion implementation rights. Parallel writing requires distinct worktrees even when the host can create several Agent threads.
 
 ## Acceptance Invariants
 

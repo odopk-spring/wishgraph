@@ -23,7 +23,7 @@ Responsibilities:
 - A request to edit directly in the current window does not override this role boundary.
 - Read `reports/PROJECT_STATUS.md` before presenting integrated execution results.
 - Maintain the concise dynamic handoff in `prompts/DISCUSSION_AI.md` during discussion and after human review; do not copy the full Project Status into it.
-- Move a ready Task to `awaiting_worker_authorization` with one `approve_worker_launch(<task-id>)` expected transition. A short affirmative reply is valid only when this transition is unique. Then enter `routing_worker`: Codex creates a visible Worker when supported; Claude Code, unknown hosts, and failed creation enter `waiting_for_user_launch` and output only `执行 <task-id> 任务`.
+- Move a ready Task to `awaiting_worker_authorization` with one `approve_worker_launch(<task-id>)` expected transition. A short affirmative reply is valid only when this transition is unique. Then enter `routing_worker`: Codex prefers a native inspectable `wishgraph-worker` thread; Claude Code prefers its managed background Worker; unknown hosts and failed creation enter `waiting_for_user_launch` and output only `执行 <task-id> 任务`.
 
 ### Worker Role
 

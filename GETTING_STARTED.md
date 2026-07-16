@@ -202,7 +202,7 @@ Use it to:
 
 The Worker should not redesign the feature. If the Task Spec is wrong, it stops and reports the conflict.
 
-Workers do not start before authorization or as hidden substitutes for a visible execution surface. After authorization, Codex creates a visible Worker task when supported; Claude Code CLI prefers its native background session with the managed `wishgraph-worker` Agent. The user can inspect Claude background work with `claude agents`; `/tasks` only views current-session background work and does not create a WishGraph Task. If native launch is unavailable, Discussion outputs only `执行 <task-id> 任务`. The user does not edit project-memory or integration files.
+Workers do not start before authorization or as hidden substitutes for an inspectable execution surface. After authorization, Codex prefers a user-visible custom-Agent thread from `.codex/agents/wishgraph-worker.toml`; Claude Code CLI prefers its native background session with the managed `wishgraph-worker` Agent. Codex App/IDE surfaces the thread and CLI users can switch with `/agent`; Claude users can inspect background work with `claude agents`. `/tasks` only views current-session Claude background work and does not create a WishGraph Task. Explorer, Reviewer, Plan, `/fork`, and hidden agents are Helpers, not Formal Workers. If native launch is unavailable, Discussion outputs only `执行 <task-id> 任务`. The user does not edit project-memory or integration files.
 
 ### Discussion-Local Integration Phase
 
@@ -250,7 +250,7 @@ Human intent
 -> Discussion AI writes task spec
 -> Discussion AI explains discussion / sequential / parallel_batch / high_risk
 -> Human explicitly authorizes creation of the named Worker task(s)
--> Discussion AI creates and configures user-visible Worker task(s)
+-> Discussion AI creates and configures user-visible and inspectable Worker thread(s) or window(s)
 -> Worker AI implements task spec in an isolated branch or worktree
 -> Worker AI validates and creates an immutable run report
 -> Worker terminal event creates integration_pending

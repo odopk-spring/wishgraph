@@ -1,6 +1,6 @@
 # Worker Execution And Claim Lifecycle
 
-Use this reference for visible Worker launch, host fallback, preflight, Claim/worktree binding, closeout, stop/retry/takeover, or Worker-window reuse. Ordinary Revision work uses `task-revisions.md` instead; return here only for Worker recovery or abnormal rebind.
+Use this reference for Formal Worker launch, host fallback, preflight, Claim/worktree binding, closeout, stop/retry/takeover, or Worker-thread reuse. Ordinary Revision work uses `task-revisions.md` instead; return here only for Worker recovery or abnormal rebind.
 
 ## Contents
 
@@ -20,7 +20,7 @@ Discussion records one exact `approve_worker_launch(<task-id>)`. A unique contex
 
 Persist authority by moving the exact Task from `draft` to `approved` and setting `worker_creation_authorized: true`. Then enter `routing_worker`.
 
-Create only a real user-visible, inspectable, controllable Worker. Never substitute a hidden subagent or let Discussion implement the Task. Use the title:
+Create only a separate user-visible and inspectable Worker thread or window. A native Agent becomes a Formal Worker only when it has a stable ID, independent context, user-visible activity, inspect/stop/steer controls, exact Task/Claim/branch/worktree binding, write/build gates, and structured terminal evidence. Never substitute a hidden subagent or let Discussion implement the Task. Use the title:
 
 ```text
 <task-id> · <short title> · WG Worker
@@ -30,11 +30,25 @@ Give the Worker the repository, exact durable record, `prompts/EXECUTION_AI.md`,
 
 After real creation, store the returned thread/window reference, enter `waiting_for_worker`, and stop Discussion execution actions. If runtime persistence fails, revoke the new Claim or record launch failure; never report an intended Worker as running.
 
+Classify Agent containers before giving them authority:
+
+| Kind | Allowed use | Claim and business writes |
+| --- | --- | --- |
+| Formal Worker | One authorized Task or Revision in an inspectable, controllable thread/window | Allowed only after exact preflight and Claim acquisition |
+| Helper Subagent | Exploration, retrieval, logs, review, or bounded validation assistance | No Worker Claim; read-only by default |
+| Hidden/Internal Agent | Host-internal work without an independently inspectable thread | Never a Worker; no Claim or business writes |
+
+Agent identity does not authorize execution. Built-in Codex `explorer`, reviewer-style Agents, Claude Explore/Plan Agents, `/fork`, and hidden subagents remain Helpers unless the host container independently satisfies every Formal Worker condition and the normal Task authorization and Claim path is completed. A Formal Worker must not create another Formal Worker.
+
 ## Host Fallback
 
 ### Codex
 
-Use a visible Worker task/thread when the host exposes that capability. Record only the real returned ID. If creation fails, enter `waiting_for_user_launch` and output exactly:
+Use the project-scoped `.codex/agents/wishgraph-worker.toml` custom Agent in a user-visible and inspectable Agent thread. The App surfaces subagent threads, CLI provides `/agent`, and supported IDE views expose background Agent activity. Hooks never spawn the Agent.
+
+After authorization, the Host Adapter prepares the exact Task path, scope, validation, report path, and Claim requirements. The active Codex host starts `wishgraph-worker`, then registers the real returned thread ID. Keep the Discussion in `routing_worker` until that registration succeeds; only then enter `waiting_for_worker`. Observe completion only from structured host thread state plus durable Task, Run Report, and released Claim evidence.
+
+If creation or registration fails, enter `waiting_for_user_launch` and output exactly:
 
 ```text
 执行 <task-id> 任务
@@ -47,7 +61,7 @@ Detect one host-only capability tier without changing the reducer or authority:
 | Tier | Formal Worker behavior |
 | --- | --- |
 | `background_session` | After authorization, run `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"` and persist the returned Claude session ID. |
-| `forked_subagent` | Use only for short, low-risk checks with no durable ownership; formal business work still uses the manual command. |
+| `forked_subagent` | Use only as a Helper for short, low-risk checks with no durable ownership; formal business work still uses the manual command. |
 | `manual_command_only` | Output exactly `执行 <task-id> 任务` and stop Discussion execution. |
 
 Require the managed `wishgraph-worker` Agent definition before background launch. Claude Code silently falls back to a default template when an Agent name is missing, so an absent or unrecognized definition is a launch failure, not permission to use the default Agent.
@@ -56,11 +70,11 @@ The background Worker acquires its own Claim after Claude has placed it in its a
 
 Refresh with `claude agents --json --all --cwd <project>`. Use only structured state plus the durable Task, Run Report, and released Claim to enter `integration_pending`; logs are diagnostic text and never completion evidence. Expose `claude logs <id>` and `claude attach <id>` for inspection or recovery. A failed, blocked, missing, or unknown session without complete durable evidence becomes `manual_intervention_required` rather than a guessed terminal result.
 
-`/tasks` displays background work associated with the current Claude session. It does not create a WishGraph Task, authorize a Worker, acquire a Claim, or replace the project Task record. `/fork` or session forking is optional for bounded checks only; it is never the default formal Worker implementation and cannot bypass scope, validation, report, or Claim gates.
+`/tasks` displays background work associated with the current Claude session. It does not create a WishGraph Task, authorize a Worker, acquire a Claim, or replace the project Task record. `/fork`, Explore, Plan, ordinary background subagents, and hidden agents are Helpers unless they expose a stable independent session, inspect/control surface, exact binding, gates, and structured terminal evidence. They are never the default Formal Worker implementation and cannot bypass scope, validation, report, or Claim gates.
 
 ### Unknown Hosts
 
-Require a new user-opened window. Output the same one-line command and stop. Do not print the full prompt or Task Spec and do not offer direct implementation.
+Require a new user-opened inspectable window. Output the same one-line command and stop. Do not print the full prompt or Task Spec and do not offer direct implementation.
 
 ### Neutral Entry
 
@@ -151,7 +165,7 @@ Preserve branch, worktree, Claim, and report evidence long enough to close safel
 
 ## Worker Window Rebind
 
-Treat a visible Worker window as a reusable container, not permanent Task ownership. Allow only one active work unit at a time.
+Treat a user-visible and inspectable Worker thread or window as a reusable container, not permanent Task ownership. Allow only one active work unit at a time.
 
 Use this order:
 

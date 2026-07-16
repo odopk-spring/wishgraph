@@ -22,7 +22,7 @@
 - 用户要求在当前窗口直接修改也不能覆盖角色边界。
 - 向用户呈现已集成结果前，先读 `reports/PROJECT_STATUS.md`。
 - 讨论期间和用户 Review 后维护 `prompts/DISCUSSION_AI.md` 的精简动态交接，不要复制完整项目状态概览。
-- Task 就绪后进入 `awaiting_worker_authorization`，并设置唯一 `approve_worker_launch(<task-id>)` expected transition。短肯定回复只有在该 transition 唯一时有效。随后进入 `routing_worker`：Codex 支持时创建可见 Worker；Claude Code、未知宿主或创建失败时进入 `waiting_for_user_launch`，只输出 `执行 <task-id> 任务`。
+- Task 就绪后进入 `awaiting_worker_authorization`，并设置唯一 `approve_worker_launch(<task-id>)` expected transition。短肯定回复只有在该 transition 唯一时有效。随后进入 `routing_worker`：Codex 优先创建用户可见、可检查的原生 `wishgraph-worker` Agent thread；Claude Code 优先创建受管后台 Worker；未知宿主或创建失败时进入 `waiting_for_user_launch`，只输出 `执行 <task-id> 任务`。
 
 ### Worker 角色
 
@@ -39,7 +39,7 @@ Worker 只实现已批准的 Task Spec。
 - 在执行报告的版本化 `wishgraph:run-state` JSON 块中填写机器生命周期事实；证据、风险和影响理由继续保存在 Markdown 中。
 - 使用版本化 task-state 生命周期：`draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`。讨论窗口记录显式 Worker 授权和人类评审，Worker 记录执行状态，Integration 记录 `integrated`。
 - 除非项目 owner 明确说不提交，否则一个完成任务对应一个原子 commit。
-- Worker 默认不得在后台自动启动。
+- Formal Worker 可以运行在独立窗口或宿主原生后台 Agent thread，但必须用户可见、可检查、可控制，并持有准确 Claim；Explorer、Reviewer、Plan 和隐藏子代理只能作为只读 Helper。
 
 ### Discussion-local Integration Phase
 
@@ -141,7 +141,7 @@ Worker 在自己的不可变执行报告中提出共享记忆影响；持有 lea
 - 不要从模糊想法直接开始写代码。
 - 先把想法变成 `PRD.md`、`ARCHITECTURE.md`、`CODEMAP.md` 和一个有边界的首个任务。
 - 一次问一个问题，每个问题都带推荐默认值。
-- 首个 Task 就绪后建立唯一 expected transition；授权后路由独立 Worker，不得用 Discussion 实现或隐藏 subagent 代替。
+- 首个 Task 就绪后建立唯一 expected transition；授权后路由独立、用户可见且可检查的 Worker thread 或窗口，不得用 Discussion 实现或隐藏 subagent 代替。
 
 ## 调试纪律
 

@@ -127,7 +127,7 @@ After the project frame is clear, create or update:
 
 Then classify the first Task and name its exact file. Move Flow Phase to `awaiting_worker_authorization` and set the unique `expected_transition` to `approve_worker_launch(<task-id>)`. When that transition is unique, `可以`, `开始吧`, `执行吧`, `继续`, `按这个做`, or `创建吧` authorizes only that Worker launch. Multiple waiting Tasks require an exact ID.
 
-After authorization, move to `routing_worker`. Codex creates a visible Worker task/thread named `<task-id> · <short title> · WG Worker` when supported. Claude Code, an unknown host, or failed Codex creation moves to `waiting_for_user_launch`, outputs only `执行 <task-id> 任务`, and stops execution actions in Discussion. Never print a full launch package or implement the Task here.
+After authorization, move to `routing_worker`. Codex creates the project `wishgraph-worker` in a user-visible and inspectable Agent thread named `<task-id> · <short title> · WG Worker`; Claude Code prefers its managed background Worker. Persist `waiting_for_worker` only after a real thread/session ID is saved. An unknown host or failed creation moves to `waiting_for_user_launch`, outputs only `执行 <task-id> 任务`, and stops execution actions in Discussion. Never print a full launch package or implement the Task here.
 
 For a sequential task, say that task approval also authorizes silent safe integration after successful validation. For a parallel batch, explain that Worker creation remains explicit while mechanically proven `parallel_independent` results may integrate silently; only risk or ambiguity returns to this window.
 
@@ -155,7 +155,7 @@ Before creating an execution task, classify the work and explain the recommendat
 
 1. `discussion`: requirements or architecture are not clear. Continue discussion; do not start a worker or integration.
 2. `sequential`: one task, or tasks with a required order. The user explicitly authorizes creation of the Worker; the discussion agent creates the visible task when supported. Task approval also authorizes safe integration if every gate passes.
-3. `parallel_batch`: two or more tasks with independent validation and rollback. Show the proposed batch before the user authorizes the visible Workers. Use `execution_mode: parallel_independent` only when overlap, dependencies, and contracts can be checked mechanically; safe results then integrate silently.
+3. `parallel_batch`: two or more tasks with independent validation and rollback. Show the proposed batch before the user authorizes the user-visible and inspectable Worker threads or windows. Use `execution_mode: parallel_independent` only when overlap, dependencies, and contracts can be checked mechanically; safe results then integrate silently.
 4. `high_risk`: product scope, architecture decisions, data migration, unresolved conflicts, failed validation, unsafe rollback, or another material decision. Do not auto-integrate; return to the user.
 
 Check dependencies, shared files or core modules, validation independence, commit and rollback independence, cross-task contamination, and unresolved product or architecture decisions. Discussion recommends; the user confirms. Hooks and the Integration phase never decide whether work should be parallel.

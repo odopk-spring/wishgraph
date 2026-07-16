@@ -159,6 +159,24 @@ class TaskFlowState:
 
 
 @dataclass(frozen=True)
+class WorkerHandleState:
+    """One lightweight host handle for a formal Worker container."""
+
+    host: str = "unknown"
+    container_kind: str = ""
+    thread_or_session_id: str = ""
+    parent_discussion_id: str = ""
+    task_id: str = ""
+    claim_id: str = ""
+    branch: str = ""
+    worktree: str = ""
+    inspectable: bool = False
+    controllable: bool = False
+    terminal_state: str = "unknown"
+    last_observed_at: str = ""
+
+
+@dataclass(frozen=True)
 class WorkerRuntimeState:
     claim_id: str = ""
     branch: str = ""
@@ -174,6 +192,7 @@ class WorkerRuntimeState:
     allowed_scope: tuple[str, ...] = ()
     validation_plan: tuple[str, ...] = ()
     execution_ownership: str = ""
+    worker_handle: WorkerHandleState = field(default_factory=WorkerHandleState)
 
 
 @dataclass(frozen=True)
@@ -218,12 +237,46 @@ class UserEvent:
 @dataclass(frozen=True)
 class HostCapability:
     host: str = "unknown"
-    can_create_visible_worker: bool = False
+    can_spawn_execution_thread: bool = False
+    can_inspect_execution_thread: bool = False
+    can_bind_thread_id: bool = False
+    can_stop_or_steer_thread: bool = False
+    can_isolate_worktree: bool = False
+    can_observe_terminal_result: bool = False
     can_gate_writes: bool = False
     can_gate_builds: bool = False
     can_gate_reads: bool = False
-    can_route_existing_worker: bool = False
-    can_reuse_worker: bool = False
+    can_deliver_result_to_discussion: bool = False
+
+    @property
+    def supports_formal_worker_thread(self) -> bool:
+        """Return whether this host can satisfy the formal Worker contract."""
+        return all(
+            (
+                self.can_spawn_execution_thread,
+                self.can_inspect_execution_thread,
+                self.can_bind_thread_id,
+                self.can_stop_or_steer_thread,
+                self.can_observe_terminal_result,
+                self.can_gate_writes,
+                self.can_gate_builds,
+                self.can_deliver_result_to_discussion,
+            )
+        )
+
+    @property
+    def can_route_worker_thread(self) -> bool:
+        return all(
+            (
+                self.can_inspect_execution_thread,
+                self.can_bind_thread_id,
+                self.can_stop_or_steer_thread,
+            )
+        )
+
+    @property
+    def can_reuse_worker_thread(self) -> bool:
+        return self.can_route_worker_thread and self.can_observe_terminal_result
 
 
 @dataclass(frozen=True)
@@ -268,6 +321,11 @@ def orchestration_state_from_dict(value: dict[str, Any]) -> OrchestrationState:
     worker_value = (
         value.get("worker_runtime")
         if isinstance(value.get("worker_runtime"), dict)
+        else {}
+    )
+    handle_value = (
+        worker_value.get("worker_handle")
+        if isinstance(worker_value.get("worker_handle"), dict)
         else {}
     )
     integration_value = (
@@ -319,6 +377,28 @@ def orchestration_state_from_dict(value: dict[str, Any]) -> OrchestrationState:
             validation_plan=tuple(string_list(worker_value.get("validation_plan"))),
             execution_ownership=str(
                 worker_value.get("execution_ownership") or ""
+            ),
+            worker_handle=WorkerHandleState(
+                host=str(handle_value.get("host") or "unknown"),
+                container_kind=str(handle_value.get("container_kind") or ""),
+                thread_or_session_id=str(
+                    handle_value.get("thread_or_session_id") or ""
+                ),
+                parent_discussion_id=str(
+                    handle_value.get("parent_discussion_id") or ""
+                ),
+                task_id=str(handle_value.get("task_id") or ""),
+                claim_id=str(handle_value.get("claim_id") or ""),
+                branch=str(handle_value.get("branch") or ""),
+                worktree=str(handle_value.get("worktree") or ""),
+                inspectable=handle_value.get("inspectable") is True,
+                controllable=handle_value.get("controllable") is True,
+                terminal_state=str(
+                    handle_value.get("terminal_state") or "unknown"
+                ),
+                last_observed_at=str(
+                    handle_value.get("last_observed_at") or ""
+                ),
             ),
         ),
         integration_runtime=IntegrationRuntimeState(

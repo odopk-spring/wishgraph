@@ -81,7 +81,7 @@ class HostAction:
     state_patch: dict[str, Any] = field(default_factory=dict)
     user_message: str = ""
     stop_after_action: bool = False
-    creates_visible_window: bool = False
+    creates_inspectable_thread: bool = False
     target_worker_id: str = ""
     work_payload: dict[str, Any] = field(default_factory=dict)
 
@@ -104,6 +104,19 @@ CLAUDE_COMPLETED_STATES = {
     "success",
 }
 CLAUDE_FAILED_STATES = {"failed", "error", "stopped", "killed"}
+CODEX_AGENT_THREAD = "codex_agent_thread"
+CLAUDE_BACKGROUND_CONTAINER = "claude_background_session"
+MANUAL_WORKER_WINDOW = "manual_worker_window"
+HELPER_SUBAGENT = "helper_subagent"
+HIDDEN_INTERNAL_AGENT = "hidden_internal_agent"
+FORMAL_WORKER_CONTAINERS = {
+    CODEX_AGENT_THREAD,
+    CLAUDE_BACKGROUND_CONTAINER,
+    MANUAL_WORKER_WINDOW,
+}
+NON_WORKER_CONTAINERS = {HELPER_SUBAGENT, HIDDEN_INTERNAL_AGENT}
+CODEX_RUNNING_STATES = {"starting", "running", "working", "waiting"}
+CODEX_TERMINAL_STATES = {"completed", "failed", "stopped", "cancelled"}
 
 
 @dataclass(frozen=True)
@@ -128,55 +141,100 @@ class ClaudeWorkerCapability:
         }
 
 
+def host_capability_for(host: str) -> HostCapability:
+    """Describe the portable host boundary without granting Task authority."""
+    common = {
+        "can_gate_writes": True,
+        "can_gate_builds": True,
+        "can_gate_reads": False,
+        "can_deliver_result_to_discussion": True,
+    }
+    if host == "codex":
+        return HostCapability(
+            host=host,
+            can_spawn_execution_thread=True,
+            can_inspect_execution_thread=True,
+            can_bind_thread_id=True,
+            can_stop_or_steer_thread=True,
+            can_isolate_worktree=False,
+            can_observe_terminal_result=True,
+            **common,
+        )
+    if host == "claude":
+        return HostCapability(
+            host=host,
+            can_spawn_execution_thread=True,
+            can_inspect_execution_thread=True,
+            can_bind_thread_id=True,
+            can_stop_or_steer_thread=True,
+            can_isolate_worktree=True,
+            can_observe_terminal_result=True,
+            **common,
+        )
+    return HostCapability(host=host)
+
+
 def map_flow_plan_to_host(
     plan: FlowPlan, capability: HostCapability
 ) -> HostAction:
     """Map one authorized semantic plan to a host action without changing authority."""
     if plan.next_action == "launch_worker":
+        if not capability.supports_formal_worker_thread:
+            task_id = plan.task_id
+            return HostAction(
+                action="show_manual_worker_command",
+                state_patch={
+                    **plan.state_patch,
+                    "session": {
+                        "phase": "waiting_for_user_launch",
+                        "expected_transition": {
+                            "kind": "launch_worker_manually",
+                            "task_id": task_id,
+                        },
+                    },
+                },
+                user_message=f"执行 {task_id} 任务",
+                stop_after_action=True,
+            )
         if capability.host == "claude":
             return HostAction(
                 action="launch_claude_background_worker",
                 state_patch=plan.state_patch,
                 stop_after_action=True,
-                creates_visible_window=False,
+                creates_inspectable_thread=True,
                 work_payload={
                     "task_id": plan.task_id,
                     "capability_detection_required": True,
                 },
             )
-        if capability.can_create_visible_worker:
+        if capability.host == "codex":
             return HostAction(
-                action="create_visible_worker_task",
+                action="launch_codex_agent_worker",
                 state_patch=plan.state_patch,
                 stop_after_action=True,
-                creates_visible_window=True,
-            )
-        task_id = plan.task_id
-        return HostAction(
-            action="show_manual_worker_command",
-            state_patch={
-                **plan.state_patch,
-                "session": {
-                    "phase": "waiting_for_user_launch",
-                    "expected_transition": {
-                        "kind": "launch_worker_manually",
-                        "task_id": task_id,
-                    },
+                creates_inspectable_thread=True,
+                work_payload={
+                    "task_id": plan.task_id,
+                    "agent_name": "wishgraph-worker",
+                    "requires_real_thread_id": True,
                 },
-            },
-            user_message=f"执行 {task_id} 任务",
+            )
+        return HostAction(
+            action="spawn_execution_thread",
+            state_patch=plan.state_patch,
             stop_after_action=True,
-            creates_visible_window=False,
+            creates_inspectable_thread=True,
+            work_payload={"task_id": plan.task_id},
         )
     if plan.next_action == "enter_discussion_local_integration":
         return HostAction(
             action="enter_discussion_local_integration",
             state_patch=plan.state_patch,
             stop_after_action=False,
-            creates_visible_window=False,
+            creates_inspectable_thread=False,
         )
     if plan.next_action in {"route_to_active_worker", "route_to_previous_worker"}:
-        if capability.can_route_existing_worker and plan.target_worker_id:
+        if capability.can_route_worker_thread and plan.target_worker_id:
             return HostAction(
                 action="send_to_existing_worker",
                 state_patch=plan.state_patch,
@@ -199,12 +257,16 @@ def map_flow_plan_to_host(
             work_payload=plan.work_payload,
         )
     if plan.next_action == "create_lightweight_revision":
-        if capability.can_create_visible_worker:
+        if capability.supports_formal_worker_thread:
             return HostAction(
-                action="create_visible_revision_worker",
+                action=(
+                    "launch_codex_revision_worker"
+                    if capability.host == "codex"
+                    else "launch_claude_revision_worker"
+                ),
                 state_patch=plan.state_patch,
                 stop_after_action=True,
-                creates_visible_window=True,
+                creates_inspectable_thread=True,
                 work_payload=plan.work_payload,
             )
         return HostAction(
@@ -225,7 +287,7 @@ def map_flow_plan_to_host(
             work_payload=plan.work_payload,
         )
     if plan.next_action == "rebind_worker":
-        if capability.can_reuse_worker and plan.target_worker_id:
+        if capability.can_reuse_worker_thread and plan.target_worker_id:
             return HostAction(
                 action="rebind_existing_worker",
                 state_patch=plan.state_patch,
@@ -248,7 +310,7 @@ def map_flow_plan_to_host(
         state_patch=plan.state_patch,
         user_message=plan.user_message,
         stop_after_action=plan.stop_after_action,
-        creates_visible_window=False,
+        creates_inspectable_thread=False,
         target_worker_id=plan.target_worker_id,
         work_payload=plan.work_payload,
     )
@@ -472,6 +534,20 @@ def _manual_worker_fallback(
                 "worker_availability": "manual_required",
                 "sync_status": "waiting_for_user_launch",
                 "last_observed_at": _utc_now(),
+                "worker_handle": {
+                    "host": "claude",
+                    "container_kind": "",
+                    "thread_or_session_id": "",
+                    "parent_discussion_id": discussion_session_id,
+                    "task_id": task_id,
+                    "claim_id": "",
+                    "branch": "",
+                    "worktree": "",
+                    "inspectable": False,
+                    "controllable": False,
+                    "terminal_state": "not_created",
+                    "last_observed_at": _utc_now(),
+                },
             },
         },
     )
@@ -486,7 +562,7 @@ def _manual_worker_fallback(
     }
 
 
-def _authorized_claude_launch(
+def _authorized_execution_thread_launch(
     root: Path, config: dict[str, Any], discussion_session_id: str, task_id: str
 ) -> dict[str, Any]:
     runtime = read_session_runtime(root, discussion_session_id)
@@ -523,10 +599,90 @@ def _authorized_claude_launch(
     if not current_task or committed_task != current_task:
         return {
             "ok": False,
-            "error": "authorized_task_must_match_current_head_for_background_worker",
+            "error": "authorized_task_must_match_current_head_for_execution_thread",
             "task_path": task_path,
         }
     return {"ok": True, "runtime": runtime, "task": preflight["task"]}
+
+
+def _codex_worker_provider():
+    # Keep ordinary Hook startup independent of the larger native Codex provider.
+    import codex_worker_provider
+
+    return codex_worker_provider
+
+
+def _manual_codex_worker_fallback(
+    root: Path,
+    discussion_session_id: str,
+    task_id: str,
+    reason: str,
+) -> dict[str, Any]:
+    return _codex_worker_provider()._manual_codex_worker_fallback(
+        root, discussion_session_id, task_id, reason
+    )
+
+
+def prepare_codex_worker(
+    root: Path,
+    config: dict[str, Any],
+    task_id: str,
+    discussion_session_id: str,
+) -> dict[str, Any]:
+    return _codex_worker_provider().prepare_codex_worker(
+        root,
+        config,
+        task_id,
+        discussion_session_id,
+        authorize_launch=_authorized_execution_thread_launch,
+    )
+
+
+def register_codex_worker(
+    root: Path,
+    config: dict[str, Any],
+    task_id: str,
+    discussion_session_id: str,
+    thread_id: str,
+    *,
+    branch: str = "",
+    worktree: str = "",
+    inspectable: bool = False,
+    controllable: bool = False,
+    independent_context: bool = False,
+    isolated_worktree: bool = False,
+) -> dict[str, Any]:
+    return _codex_worker_provider().register_codex_worker(
+        root,
+        config,
+        task_id,
+        discussion_session_id,
+        thread_id,
+        branch=branch,
+        worktree=worktree,
+        inspectable=inspectable,
+        controllable=controllable,
+        independent_context=independent_context,
+        isolated_worktree=isolated_worktree,
+        authorize_launch=_authorized_execution_thread_launch,
+    )
+
+
+def observe_codex_worker(
+    root: Path,
+    config: dict[str, Any],
+    discussion_session_id: str,
+    thread_id: str,
+    observed_state: str,
+) -> dict[str, Any]:
+    return _codex_worker_provider().observe_codex_worker(
+        root,
+        config,
+        discussion_session_id,
+        thread_id,
+        observed_state,
+        resolve_task_record=resolve_task,
+    )
 
 
 def launch_claude_worker(
@@ -541,7 +697,7 @@ def launch_claude_worker(
     canonical = canonical_task_id(task_id)
     if not canonical:
         return {"ok": False, "error": "invalid_task_id"}
-    authorized = _authorized_claude_launch(
+    authorized = _authorized_execution_thread_launch(
         root, config, discussion_session_id, canonical
     )
     if not authorized.get("ok"):
@@ -644,17 +800,33 @@ def launch_claude_worker(
             session = new_sessions[0]
     full_session_id = str((session or {}).get("sessionId") or "")
     short_id = short_id or str((session or {}).get("id") or "")
-    claude_session_id = full_session_id or short_id
+    claude_session_id = full_session_id
     if not claude_session_id:
         return _manual_worker_fallback(
             root,
             discussion_session_id,
             canonical,
             capability,
-            "claude_background_session_id_missing",
+            "claude_stable_session_id_missing",
         )
 
     if full_session_id:
+        launch_branch = current_branch(root)
+        launch_worktree = str(root.resolve())
+        worker_handle = {
+            "host": "claude",
+            "container_kind": CLAUDE_BACKGROUND_CONTAINER,
+            "thread_or_session_id": claude_session_id,
+            "parent_discussion_id": discussion_session_id,
+            "task_id": canonical,
+            "claim_id": "",
+            "branch": launch_branch,
+            "worktree": launch_worktree,
+            "inspectable": True,
+            "controllable": True,
+            "terminal_state": "starting",
+            "last_observed_at": _utc_now(),
+        }
         worker_runtime = apply_session_runtime_patch(
             root,
             full_session_id,
@@ -670,7 +842,17 @@ def launch_claude_worker(
                     "discussion_session_id": discussion_session_id,
                     "task_id": canonical,
                     "host_capability": capability.tier,
+                    "agent_kind": "formal_worker",
+                    "container_kind": CLAUDE_BACKGROUND_CONTAINER,
+                    "thread_or_session_id": claude_session_id,
+                    "branch": launch_branch,
+                    "worktree": launch_worktree,
+                    "inspectable": True,
+                    "controllable": True,
+                    "independent_context": True,
+                    "isolated_worktree": True,
                 },
+                "worker_runtime": {"worker_handle": worker_handle},
             },
         )
         if not worker_runtime.get("ok"):
@@ -714,6 +896,20 @@ def launch_claude_worker(
                 "worker_availability": "starting",
                 "sync_status": "waiting_for_claim",
                 "last_observed_at": _utc_now(),
+                "worker_handle": {
+                    "host": "claude",
+                    "container_kind": CLAUDE_BACKGROUND_CONTAINER,
+                    "thread_or_session_id": claude_session_id,
+                    "parent_discussion_id": discussion_session_id,
+                    "task_id": canonical,
+                    "claim_id": "",
+                    "branch": current_branch(root),
+                    "worktree": str(root.resolve()),
+                    "inspectable": True,
+                    "controllable": True,
+                    "terminal_state": "starting",
+                    "last_observed_at": _utc_now(),
+                },
             },
         },
     )
@@ -906,6 +1102,20 @@ def refresh_claude_worker(
             "sync_status": sync_status,
             "recovery_reason": recovery_reason,
             "last_observed_at": _utc_now(),
+            "worker_handle": {
+                "host": "claude",
+                "container_kind": CLAUDE_BACKGROUND_CONTAINER,
+                "thread_or_session_id": saved_id,
+                "parent_discussion_id": discussion_session_id,
+                "task_id": task_id,
+                "claim_id": str((claim or {}).get("claim_id") or ""),
+                "branch": str((claim or {}).get("branch") or ""),
+                "worktree": str((claim or {}).get("worktree") or ""),
+                "inspectable": True,
+                "controllable": True,
+                "terminal_state": structured_state,
+                "last_observed_at": _utc_now(),
+            },
         },
     }
     if task_status:
@@ -1542,15 +1752,14 @@ def orchestration_gate_plan(
             else "other_revision_state"
         )
     state = orchestration_state_from_dict(runtime)
-    capability = HostCapability(
-        host=state.session.host,
-        can_create_visible_worker=state.session.host == "codex",
-        can_gate_writes=True,
-        can_gate_builds=True,
-        can_gate_reads=config.get("read_gate_mode") == "enforce",
-        can_route_existing_worker=state.session.host == "codex",
-        can_reuse_worker=state.session.host == "codex",
-    )
+    capability = host_capability_for(state.session.host)
+    if config.get("read_gate_mode") == "enforce":
+        capability = HostCapability(
+            **{
+                **capability.__dict__,
+                "can_gate_reads": True,
+            }
+        )
     requested_paths = (
         operation_scope.removeprefix("business_paths:").splitlines()
         if operation_scope.startswith("business_paths:")
@@ -1626,15 +1835,7 @@ def user_prompt_submit_main(
         notification_context = consume_discussion_notification_context(
             root, session_id
         )
-    capability = HostCapability(
-        host=host,
-        can_create_visible_worker=host == "codex",
-        can_gate_writes=True,
-        can_gate_builds=True,
-        can_gate_reads=False,
-        can_route_existing_worker=host == "codex",
-        can_reuse_worker=host == "codex",
-    )
+    capability = host_capability_for(host)
 
     if command is None and runtime is not None and is_contextual_approval(text):
         plan = reduce_orchestration(
@@ -1664,7 +1865,14 @@ def user_prompt_submit_main(
                                     f"--discussion-session-id {session_id}"
                                     if action.action
                                     == "launch_claude_background_worker"
-                                    else ""
+                                    else (
+                                        "python3 .wishgraph/hooks/memory_sync.py "
+                                        f"codex-worker prepare {plan.task_id} "
+                                        f"--discussion-session-id {session_id}"
+                                        if action.action
+                                        == "launch_codex_agent_worker"
+                                        else ""
+                                    )
                                 ),
                                 "user_message": action.user_message,
                                 "stop_after_action": action.stop_after_action,
@@ -1791,7 +1999,7 @@ def user_prompt_submit_main(
         role = str(((runtime or {}).get("session") or {}).get("role") or "neutral")
         if role == "discussion":
             if host == "codex":
-                host_action = "create_visible_worker_task"
+                host_action = "launch_codex_agent_worker"
             elif host == "claude":
                 host_action = "launch_claude_background_worker"
             else:
@@ -1812,7 +2020,13 @@ def user_prompt_submit_main(
                 f"claude-worker launch {task_id} "
                 f"--discussion-session-id {session_id}"
                 if host_action == "launch_claude_background_worker"
-                else ""
+                else (
+                    "python3 .wishgraph/hooks/memory_sync.py "
+                    f"codex-worker prepare {task_id} "
+                    f"--discussion-session-id {session_id}"
+                    if host_action == "launch_codex_agent_worker"
+                    else ""
+                )
             ),
             "manual_command": (
                 f"执行 {task_id} 任务"
@@ -2163,12 +2377,16 @@ def flow_plan_main(args: argparse.Namespace) -> int:
         return 2
     capability = HostCapability(
         host=args.host,
-        can_create_visible_worker=args.can_create_visible_worker,
+        can_spawn_execution_thread=args.can_spawn_execution_thread,
+        can_inspect_execution_thread=args.can_inspect_execution_thread,
+        can_bind_thread_id=args.can_bind_thread_id,
+        can_stop_or_steer_thread=args.can_stop_or_steer_thread,
+        can_isolate_worktree=args.can_isolate_worktree,
+        can_observe_terminal_result=args.can_observe_terminal_result,
         can_gate_writes=True,
         can_gate_builds=True,
         can_gate_reads=args.can_gate_reads,
-        can_route_existing_worker=args.can_route_existing_worker,
-        can_reuse_worker=args.can_reuse_worker,
+        can_deliver_result_to_discussion=args.can_deliver_result_to_discussion,
     )
     plan = reduce_orchestration(state, event, capability)
     action = map_flow_plan_to_host(plan, capability)
@@ -2182,7 +2400,7 @@ def flow_plan_main(args: argparse.Namespace) -> int:
                     "state_patch": action.state_patch,
                     "user_message": action.user_message,
                     "stop_after_action": action.stop_after_action,
-                    "creates_visible_window": action.creates_visible_window,
+                    "creates_inspectable_thread": action.creates_inspectable_thread,
                     "target_worker_id": action.target_worker_id,
                     "work_payload": action.work_payload,
                 },
@@ -2601,7 +2819,7 @@ def revision_main(action: str, value: str, host: str) -> int:
                         }
                     elif host == "codex":
                         payload["host_action"] = {
-                            "action": "create_visible_revision_worker",
+                            "action": "launch_codex_revision_worker",
                             "revision": revision,
                         }
                     else:
@@ -2767,6 +2985,14 @@ def claim_main(args: argparse.Namespace) -> int:
                                 "allowed_scope": [],
                                 "validation_plan": [],
                                 "execution_ownership": "",
+                                "worker_handle": {
+                                    "claim_id": "",
+                                    "terminal_state": str(
+                                        released_claim.get("terminal_event")
+                                        or "released"
+                                    ),
+                                    "last_observed_at": _utc_now(),
+                                },
                             }
                         },
                     )
@@ -2807,6 +3033,8 @@ def claim_main(args: argparse.Namespace) -> int:
                         worker_id=args.worker_id,
                         host_thread_ref=args.host_thread_ref or args.session_id,
                         agent_platform=args.host,
+                        container_kind=args.container_kind,
+                        agent_kind=args.agent_kind,
                         allowed_scope=revision["allowed_scope"],
                         validation_plan=revision["validation_plan"],
                         require_clean=not args.allow_dirty,
@@ -2827,6 +3055,8 @@ def claim_main(args: argparse.Namespace) -> int:
                         worker_id=args.worker_id,
                         host_thread_ref=args.host_thread_ref or args.session_id,
                         agent_platform=args.host,
+                        container_kind=args.container_kind,
+                        agent_kind=args.agent_kind,
                         allowed_scope=task["allowed_scope"],
                         validation_plan=task["validation_plan"],
                         require_clean=not args.allow_dirty,
@@ -2893,24 +3123,51 @@ def claim_main(args: argparse.Namespace) -> int:
                         or existing_worker_runtime.get("discussion_session_id")
                         or ""
                     )
-                    payload = acquire_claim(
-                        root,
-                        task["task_id"],
-                        task["attempt"],
-                        args.worker_id,
-                        execution_mode=(
-                            "competitive"
-                            if task["execution_mode"] == "competitive"
-                            else "exclusive"
-                        ),
-                        host_thread_ref=args.host_thread_ref or args.session_id,
-                        agent_platform=args.host,
-                        revision_id=(args.revision_id or None),
-                        allowed_scope=task.get("allowed_scope", []),
-                        validation_plan=task.get("validation_plan", []),
-                        discussion_session_id=discussion_session_id or None,
-                        stale_after_seconds=args.stale_after,
-                    )
+                    launch_context_error = ""
+                    if args.container_kind != MANUAL_WORKER_WINDOW:
+                        expected_thread_id = str(
+                            launch_context.get("thread_or_session_id") or ""
+                        )
+                        actual_thread_id = str(
+                            args.host_thread_ref or args.session_id or args.worker_id
+                        )
+                        if launch_context.get("agent_kind") != "formal_worker":
+                            launch_context_error = "formal_worker_launch_context_required"
+                        elif launch_context.get("container_kind") != args.container_kind:
+                            launch_context_error = "worker_container_kind_mismatch"
+                        elif launch_context.get("task_id") != task["task_id"]:
+                            launch_context_error = "worker_launch_task_mismatch"
+                        elif not expected_thread_id or expected_thread_id != actual_thread_id:
+                            launch_context_error = "worker_thread_id_binding_mismatch"
+                        elif launch_context.get("inspectable") is not True:
+                            launch_context_error = "worker_thread_not_inspectable"
+                        elif launch_context.get("controllable") is not True:
+                            launch_context_error = "worker_thread_not_controllable"
+                        elif launch_context.get("independent_context") is not True:
+                            launch_context_error = "worker_context_not_independent"
+                    if launch_context_error:
+                        payload = {"ok": False, "error": launch_context_error}
+                    else:
+                        payload = acquire_claim(
+                            root,
+                            task["task_id"],
+                            task["attempt"],
+                            args.worker_id,
+                            execution_mode=(
+                                "competitive"
+                                if task["execution_mode"] == "competitive"
+                                else "exclusive"
+                            ),
+                            host_thread_ref=args.host_thread_ref or args.session_id,
+                            agent_platform=args.host,
+                            revision_id=(args.revision_id or None),
+                            allowed_scope=task.get("allowed_scope", []),
+                            validation_plan=task.get("validation_plan", []),
+                            discussion_session_id=discussion_session_id or None,
+                            container_kind=args.container_kind,
+                            agent_kind=args.agent_kind,
+                            stale_after_seconds=args.stale_after,
+                        )
                     if payload.get("ok"):
                         payload["task"] = task
                         if args.session_id:
@@ -2952,6 +3209,30 @@ def claim_main(args: argparse.Namespace) -> int:
                                             "validation_plan", []
                                         ),
                                         "execution_ownership": "worker_claim",
+                                        "worker_handle": {
+                                            "host": args.host,
+                                            "container_kind": args.container_kind,
+                                            "thread_or_session_id": (
+                                                args.host_thread_ref
+                                                or args.session_id
+                                                or args.worker_id
+                                            ),
+                                            "parent_discussion_id": discussion_session_id,
+                                            "task_id": task["task_id"],
+                                            "claim_id": payload["claim"]["claim_id"],
+                                            "branch": payload["claim"]["branch"],
+                                            "worktree": payload["claim"]["worktree"],
+                                            "inspectable": (
+                                                args.container_kind
+                                                in FORMAL_WORKER_CONTAINERS
+                                            ),
+                                            "controllable": (
+                                                args.container_kind
+                                                in FORMAL_WORKER_CONTAINERS
+                                            ),
+                                            "terminal_state": "running",
+                                            "last_observed_at": _utc_now(),
+                                        },
                                     },
                                 },
                             )
@@ -2968,6 +3249,16 @@ def claim_main(args: argparse.Namespace) -> int:
                                 }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if payload.get("ok") else 1
+
+
+def codex_worker_main(args: argparse.Namespace) -> int:
+    return _codex_worker_provider().codex_worker_main(
+        args,
+        find_git_root_fn=find_git_root,
+        load_config_fn=load_config,
+        authorize_launch=_authorized_execution_thread_launch,
+        resolve_task_record=resolve_task,
+    )
 
 
 def claude_worker_main(args: argparse.Namespace) -> int:
@@ -3011,6 +3302,14 @@ def claude_worker_main(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "codex-worker":
+        return _codex_worker_provider().main(
+            sys.argv[2:],
+            find_git_root_fn=find_git_root,
+            load_config_fn=load_config,
+            authorize_launch=_authorized_execution_thread_launch,
+            resolve_task_record=resolve_task,
+        )
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     for event in (
@@ -3037,10 +3336,14 @@ def main() -> int:
     )
     flow_parser = subparsers.add_parser("flow-plan")
     flow_parser.add_argument("--host", choices=("codex", "claude", "unknown"), required=True)
-    flow_parser.add_argument("--can-create-visible-worker", action="store_true")
+    flow_parser.add_argument("--can-spawn-execution-thread", action="store_true")
+    flow_parser.add_argument("--can-inspect-execution-thread", action="store_true")
+    flow_parser.add_argument("--can-bind-thread-id", action="store_true")
+    flow_parser.add_argument("--can-stop-or-steer-thread", action="store_true")
+    flow_parser.add_argument("--can-isolate-worktree", action="store_true")
+    flow_parser.add_argument("--can-observe-terminal-result", action="store_true")
     flow_parser.add_argument("--can-gate-reads", action="store_true")
-    flow_parser.add_argument("--can-route-existing-worker", action="store_true")
-    flow_parser.add_argument("--can-reuse-worker", action="store_true")
+    flow_parser.add_argument("--can-deliver-result-to-discussion", action="store_true")
     claude_worker_parser = subparsers.add_parser("claude-worker")
     claude_worker_subparsers = claude_worker_parser.add_subparsers(
         dest="claude_worker_action", required=True
@@ -3118,6 +3421,16 @@ def main() -> int:
         default="execute",
     )
     acquire_parser.add_argument("--host-thread-ref")
+    acquire_parser.add_argument(
+        "--container-kind",
+        choices=tuple(sorted(FORMAL_WORKER_CONTAINERS | NON_WORKER_CONTAINERS)),
+        default=MANUAL_WORKER_WINDOW,
+    )
+    acquire_parser.add_argument(
+        "--agent-kind",
+        choices=("formal_worker", "helper", "hidden_internal"),
+        default="formal_worker",
+    )
     acquire_parser.add_argument("--stale-after", type=int, default=3600)
     inspect_parser = claim_subparsers.add_parser("inspect")
     inspect_parser.add_argument("task_id", nargs="?")
@@ -3143,6 +3456,16 @@ def main() -> int:
     rebind_parser.add_argument("--attempt", type=int, default=1)
     rebind_parser.add_argument("--worker-id", required=True)
     rebind_parser.add_argument("--host-thread-ref")
+    rebind_parser.add_argument(
+        "--container-kind",
+        choices=tuple(sorted(FORMAL_WORKER_CONTAINERS | NON_WORKER_CONTAINERS)),
+        default=MANUAL_WORKER_WINDOW,
+    )
+    rebind_parser.add_argument(
+        "--agent-kind",
+        choices=("formal_worker", "helper", "hidden_internal"),
+        default="formal_worker",
+    )
     rebind_parser.add_argument(
         "--host", choices=("codex", "claude", "unknown"), default="unknown"
     )

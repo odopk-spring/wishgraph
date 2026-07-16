@@ -55,13 +55,21 @@ class RuntimeBoundaryTests(unittest.TestCase):
             "workflow_state",
             "policy",
             "host_adapter",
+            "codex_worker_provider",
         }
+        public_boundaries = local_modules - {"codex_worker_provider"}
         expected = {
             "git_state.py": set(),
             "workflow_state.py": set(),
             "policy.py": {"git_state", "workflow_state"},
-            "host_adapter.py": {"git_state", "policy", "workflow_state"},
-            "memory_sync.py": local_modules,
+            "host_adapter.py": {
+                "git_state",
+                "policy",
+                "workflow_state",
+                "codex_worker_provider",
+            },
+            "codex_worker_provider.py": {"git_state", "workflow_state"},
+            "memory_sync.py": public_boundaries,
         }
 
         for filename, expected_imports in expected.items():
@@ -103,6 +111,22 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertIn("Do not read unrelated Tasks", content)
         self.assertIn("Write exactly one immutable Run Report", content)
         self.assertIn("Release the Claim", content)
+
+    def test_codex_worker_agent_uses_current_project_custom_agent_format(self) -> None:
+        content = (
+            ROOT
+            / "skills"
+            / "wishgraph"
+            / "assets"
+            / "codex-agents"
+            / "wishgraph-worker.toml"
+        ).read_text(encoding="utf-8")
+        self.assertIn('name = "wishgraph-worker"', content)
+        self.assertIn('description = "', content)
+        self.assertIn("developer_instructions =", content)
+        self.assertIn("codex_agent_thread", content)
+        self.assertIn("Do not scan unrelated Tasks", content)
+        self.assertIn("must not acquire this Claim", content)
 
     def test_user_prompt_hook_routes_but_never_launches_claude_process(self) -> None:
         tree = ast.parse(
@@ -510,12 +534,16 @@ class OrchestrationStateMachineTests(unittest.TestCase):
     ):
         return memory_sync.HostCapability(
             host=host,
-            can_create_visible_worker=create_worker,
+            can_spawn_execution_thread=create_worker,
+            can_inspect_execution_thread=create_worker or route_worker or reuse_worker,
+            can_bind_thread_id=create_worker or route_worker or reuse_worker,
+            can_stop_or_steer_thread=create_worker or route_worker or reuse_worker,
+            can_isolate_worktree=host == "claude",
+            can_observe_terminal_result=create_worker or reuse_worker,
             can_gate_writes=True,
             can_gate_builds=True,
             can_gate_reads=False,
-            can_route_existing_worker=route_worker,
-            can_reuse_worker=reuse_worker,
+            can_deliver_result_to_discussion=create_worker,
         )
 
     def test_osm_01_contextual_approval_routes_worker_without_discussion_execution(self) -> None:
@@ -552,17 +580,31 @@ class OrchestrationStateMachineTests(unittest.TestCase):
         plan = memory_sync.reduce_orchestration(
             self.state(),
             self.event("user_message", text="可以"),
-            self.capability(host="claude", create_worker=False),
+            self.capability(host="claude", create_worker=True),
         )
         action = memory_sync.map_flow_plan_to_host(
-            plan, self.capability(host="claude", create_worker=False)
+            plan, self.capability(host="claude", create_worker=True)
         )
         self.assertEqual(action.action, "launch_claude_background_worker")
         self.assertEqual(action.user_message, "")
         self.assertTrue(action.stop_after_action)
-        self.assertFalse(action.creates_visible_window)
+        self.assertTrue(action.creates_inspectable_thread)
         self.assertEqual(action.state_patch["session"]["phase"], "routing_worker")
         self.assertEqual(action.work_payload["task_id"], "002")
+
+    def test_osm_03b_codex_launch_routes_to_native_inspectable_agent_thread(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(),
+            self.event("user_message", text="可以"),
+            self.capability(host="codex", create_worker=True),
+        )
+        action = memory_sync.map_flow_plan_to_host(
+            plan, self.capability(host="codex", create_worker=True)
+        )
+        self.assertEqual(action.action, "launch_codex_agent_worker")
+        self.assertTrue(action.creates_inspectable_thread)
+        self.assertEqual(action.work_payload["agent_name"], "wishgraph-worker")
+        self.assertTrue(action.work_payload["requires_real_thread_id"])
 
     def test_osm_04_codex_launch_failure_uses_same_one_line_fallback(self) -> None:
         plan = memory_sync.reduce_orchestration(
@@ -574,6 +616,20 @@ class OrchestrationStateMachineTests(unittest.TestCase):
         self.assertEqual(plan.user_message, "执行 002 任务")
         self.assertTrue(plan.stop_after_action)
         self.assertEqual(plan.state_patch["session"]["phase"], "waiting_for_user_launch")
+
+    def test_osm_04b_unknown_host_uses_manual_one_line_fallback(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(),
+            self.event("user_message", text="可以"),
+            self.capability(host="unknown", create_worker=False),
+        )
+        action = memory_sync.map_flow_plan_to_host(
+            plan, self.capability(host="unknown", create_worker=False)
+        )
+        self.assertEqual(action.action, "show_manual_worker_command")
+        self.assertEqual(action.user_message, "执行 002 任务")
+        self.assertTrue(action.stop_after_action)
+        self.assertFalse(action.creates_inspectable_thread)
 
     def test_osm_05_safe_worker_terminal_auto_enters_local_integration(self) -> None:
         pending = memory_sync.reduce_orchestration(
@@ -617,7 +673,7 @@ class OrchestrationStateMachineTests(unittest.TestCase):
         )
         action = memory_sync.map_flow_plan_to_host(plan, self.capability())
         self.assertEqual(action.action, "enter_discussion_local_integration")
-        self.assertFalse(action.creates_visible_window)
+        self.assertFalse(action.creates_inspectable_thread)
 
     def test_osm_07_high_risk_asks_material_decision_not_integration_permission(self) -> None:
         plan = memory_sync.reduce_orchestration(
@@ -1347,7 +1403,7 @@ class WorkerReuseRevisionSpecTests(unittest.TestCase):
             )
             self.assertEqual(
                 json.loads(rerouted.stdout)["host_action"]["action"],
-                "create_visible_revision_worker",
+                "launch_codex_revision_worker",
             )
             claude = subprocess.run(
                 [
@@ -1405,6 +1461,7 @@ class UnbornRepositoryTests(unittest.TestCase):
                 "workflow_state.py",
                 "policy.py",
                 "host_adapter.py",
+                "codex_worker_provider.py",
             ):
                 shutil.copy2(HOOK_ASSETS / runtime_name, hooks / runtime_name)
 
@@ -1442,6 +1499,7 @@ class MemorySyncTests(unittest.TestCase):
             "workflow_state.py",
             "policy.py",
             "host_adapter.py",
+            "codex_worker_provider.py",
         ):
             shutil.copy2(
                 HOOK_ASSETS / runtime_name,
@@ -1683,9 +1741,9 @@ class MemorySyncTests(unittest.TestCase):
         )
 
     def prepare_claude_worker_task(
-        self, task_id: str, discussion_session_id: str
+        self, task_id: str, discussion_session_id: str, host: str = "claude"
     ) -> None:
-        task_path = f"tasks/build/{task_id}-claude-worker.md"
+        task_path = f"tasks/build/{task_id}-{host}-worker.md"
         self.write(
             task_path,
             self.execution_ready_task(
@@ -1704,7 +1762,7 @@ class MemorySyncTests(unittest.TestCase):
                 "session": {
                     "session_id": discussion_session_id,
                     "role": "discussion",
-                    "host": "claude",
+                    "host": host,
                     "phase": "routing_worker",
                     "expected_transition": {
                         "kind": "wait_for_worker",
@@ -2528,6 +2586,205 @@ class MemorySyncTests(unittest.TestCase):
             manual = memory_sync.detect_claude_worker_capability(self.root)
         self.assertEqual(manual.tier, "manual_command_only")
 
+    def test_codex_native_worker_requires_real_registered_thread_before_waiting(self) -> None:
+        task_id = "041"
+        discussion_id = "discussion-041"
+        thread_id = "codex-thread-041"
+        self.prepare_claude_worker_task(task_id, discussion_id, host="codex")
+        prepared = memory_sync.prepare_codex_worker(
+            self.root, self.config, task_id, discussion_id
+        )
+        self.assertTrue(prepared["ok"], prepared)
+        self.assertEqual(prepared["agent_name"], "wishgraph-worker")
+        self.assertIn(f"执行 {task_id} 任务", prepared["prompt"])
+        runtime = memory_sync.read_session_runtime(self.root, discussion_id)
+        assert runtime is not None
+        self.assertEqual(runtime["session"]["phase"], "routing_worker")
+        self.assertNotIn("worker_handle", runtime["worker_runtime"])
+
+        invalid = memory_sync.register_codex_worker(
+            self.root,
+            self.config,
+            task_id,
+            discussion_id,
+            "",
+            inspectable=True,
+            controllable=True,
+            independent_context=True,
+        )
+        self.assertTrue(invalid["fallback"])
+        self.assertEqual(invalid["user_message"], f"执行 {task_id} 任务")
+        invalid_runtime = memory_sync.read_session_runtime(self.root, discussion_id)
+        assert invalid_runtime is not None
+        self.assertEqual(invalid_runtime["session"]["phase"], "waiting_for_user_launch")
+
+        registered = memory_sync.register_codex_worker(
+            self.root,
+            self.config,
+            task_id,
+            discussion_id,
+            thread_id,
+            inspectable=True,
+            controllable=True,
+            independent_context=True,
+        )
+        self.assertTrue(registered["ok"], registered)
+        runtime = memory_sync.read_session_runtime(self.root, discussion_id)
+        assert runtime is not None
+        self.assertEqual(runtime["session"]["phase"], "waiting_for_worker")
+        handle = runtime["worker_runtime"]["worker_handle"]
+        self.assertEqual(handle["container_kind"], "codex_agent_thread")
+        self.assertEqual(handle["thread_or_session_id"], thread_id)
+        self.assertTrue(handle["inspectable"])
+        self.assertTrue(handle["controllable"])
+
+    def test_codex_prepare_does_not_create_authority_for_an_unapproved_task(self) -> None:
+        task_id = "042"
+        discussion_id = "discussion-042"
+        self.prepare_claude_worker_task(task_id, discussion_id, host="codex")
+        memory_sync.apply_session_runtime_patch(
+            self.root,
+            discussion_id,
+            {"task": {"lifecycle": "draft", "worker_authorized": False}},
+        )
+        denied = memory_sync.prepare_codex_worker(
+            self.root, self.config, task_id, discussion_id
+        )
+        self.assertFalse(denied["ok"])
+        self.assertEqual(denied["error"], "worker_launch_not_authorized")
+
+    def test_codex_spawn_failure_cli_outputs_only_manual_command(self) -> None:
+        task_id = "043"
+        discussion_id = "discussion-043"
+        self.prepare_claude_worker_task(task_id, discussion_id, host="codex")
+        host_adapter_module = sys.modules["host_adapter"]
+        args = mock.Mock(
+            codex_worker_action="fail",
+            task_id=task_id,
+            discussion_session_id=discussion_id,
+            reason="native_spawn_failed",
+        )
+        with (
+            mock.patch.object(host_adapter_module, "find_git_root", return_value=self.root),
+            mock.patch.object(host_adapter_module, "load_config", return_value=self.config),
+            mock.patch("builtins.print") as printed,
+        ):
+            exit_code = host_adapter_module.codex_worker_main(args)
+        self.assertEqual(exit_code, 0)
+        printed.assert_called_once_with(f"执行 {task_id} 任务")
+
+    def test_helper_and_hidden_agents_cannot_acquire_formal_worker_claim(self) -> None:
+        for agent_kind, container_kind in (
+            ("helper", "helper_subagent"),
+            ("hidden_internal", "hidden_internal_agent"),
+        ):
+            with self.subTest(agent_kind=agent_kind):
+                denied = memory_sync.acquire_claim(
+                    self.root,
+                    "044",
+                    1,
+                    f"{agent_kind}-044",
+                    agent_platform="codex",
+                    container_kind=container_kind,
+                    agent_kind=agent_kind,
+                    require_clean=True,
+                )
+                self.assertFalse(denied["ok"])
+                self.assertEqual(
+                    denied["error"], "helper_agent_cannot_acquire_worker_claim"
+                )
+
+    def test_codex_structured_terminal_state_still_requires_report_and_released_claim(self) -> None:
+        task_id = "045"
+        discussion_id = "discussion-045"
+        thread_id = "codex-thread-045"
+        task_path = f"tasks/build/{task_id}-codex-worker.md"
+        report_path = f"reports/runs/{task_id}-attempt-1.md"
+        self.prepare_claude_worker_task(task_id, discussion_id, host="codex")
+        registered = memory_sync.register_codex_worker(
+            self.root,
+            self.config,
+            task_id,
+            discussion_id,
+            thread_id,
+            inspectable=True,
+            controllable=True,
+            independent_context=True,
+        )
+        self.assertTrue(registered["ok"], registered)
+        claim_process = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "acquire",
+                task_id,
+                "--worker-id",
+                thread_id,
+                "--session-id",
+                thread_id,
+                "--host-thread-ref",
+                thread_id,
+                "--host",
+                "codex",
+                "--container-kind",
+                "codex_agent_thread",
+                "--agent-kind",
+                "formal_worker",
+            ],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(claim_process.returncode, 0, claim_process.stderr)
+        claim = json.loads(claim_process.stdout)["claim"]
+        incomplete = memory_sync.observe_codex_worker(
+            self.root, self.config, discussion_id, thread_id, "completed"
+        )
+        self.assertFalse(incomplete["durable_terminal_evidence"])
+        self.assertEqual(incomplete["sync_status"], "manual_intervention_required")
+
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="completed",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.write(
+            report_path,
+            self.structured_run_report(
+                f"{task_id}-attempt-1", task_id=task_id, status="completed"
+            ),
+        )
+        self.git("add", task_path, report_path)
+        self.git("commit", "-qm", f"complete {task_id}")
+        released = memory_sync.update_claim(
+            self.root,
+            claim["claim_id"],
+            "release",
+            branch=claim["branch"],
+            worktree=claim["worktree"],
+        )
+        self.assertTrue(released["ok"], released)
+        notification = memory_sync.enqueue_terminal_notification_from_claim(
+            self.root, self.config, released["claim"]
+        )
+        self.assertTrue(notification["ok"], notification)
+        completed = memory_sync.observe_codex_worker(
+            self.root, self.config, discussion_id, thread_id, "completed"
+        )
+        self.assertTrue(completed["durable_terminal_evidence"])
+        self.assertEqual(completed["sync_status"], "integration_pending")
+        consumed = memory_sync.consume_worker_notifications(self.root, discussion_id)
+        self.assertEqual(len(consumed["notifications"]), 1)
+        self.assertEqual(
+            consumed["notifications"][0]["worker_session_id"], thread_id
+        )
+
     def test_claude_background_worker_launch_records_real_session_before_claim(self) -> None:
         task_id = "036"
         discussion_id = "discussion-036"
@@ -2602,6 +2859,44 @@ class MemorySyncTests(unittest.TestCase):
         self.assertEqual(runtime["worker_runtime"]["active_task_id"], task_id)
         self.assertEqual(runtime["worker_runtime"]["claim_id"], "")
         self.assertEqual(runtime["worker_runtime"]["binding_status"], "awaiting_claim")
+        handle = runtime["worker_runtime"]["worker_handle"]
+        self.assertEqual(handle["container_kind"], "claude_background_session")
+        self.assertEqual(handle["thread_or_session_id"], worker_id)
+        worker_runtime = memory_sync.read_session_runtime(self.root, worker_id)
+        assert worker_runtime is not None
+        self.assertEqual(
+            worker_runtime["launch_context"]["agent_kind"], "formal_worker"
+        )
+        claim_process = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "acquire",
+                task_id,
+                "--worker-id",
+                worker_id,
+                "--session-id",
+                worker_id,
+                "--host-thread-ref",
+                worker_id,
+                "--host",
+                "claude",
+                "--container-kind",
+                "claude_background_session",
+                "--agent-kind",
+                "formal_worker",
+            ],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(claim_process.returncode, 0, claim_process.stderr)
+        self.assertEqual(
+            json.loads(claim_process.stdout)["claim"]["container_kind"],
+            "claude_background_session",
+        )
 
     def test_claude_launch_failure_cli_outputs_only_manual_command(self) -> None:
         task_id = "037"
@@ -4912,7 +5207,7 @@ class MemorySyncTests(unittest.TestCase):
             check=True,
         )
         action = json.loads(routed.stdout)["host_action"]
-        self.assertEqual(action["action"], "create_visible_revision_worker")
+        self.assertEqual(action["action"], "launch_codex_revision_worker")
         self.assertNotIn("target_worker_id", action)
 
     def test_next_revision_reuses_one_open_record_before_allocating_another(self) -> None:
@@ -5030,7 +5325,7 @@ class InstallerTests(unittest.TestCase):
 
             with mock.patch.object(installer_module, "ASSET_ROOT", asset_root):
                 manifest = installer_module.bundled_runtime_manifest()
-                self.assertEqual(manifest["runtime_version"], 15)
+                self.assertEqual(manifest["runtime_version"], 16)
 
                 policy_path = asset_root / "policy.py"
                 policy_path.write_bytes(policy_path.read_bytes() + b"# changed\r\n")
@@ -5124,7 +5419,7 @@ class InstallerTests(unittest.TestCase):
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["state"], "confirmed_recently")
             self.assertEqual(execution["last_event"], "session-start")
-            self.assertEqual(execution["observed_runtime_version"], 15)
+            self.assertEqual(execution["observed_runtime_version"], 16)
             self.assertTrue(payload["host_execution_confirmed"])
             self.assertEqual(payload["next_action"], "bootstrap_project_memory")
 
@@ -5290,12 +5585,12 @@ class InstallerTests(unittest.TestCase):
             payload = json.loads(upgraded.stdout)
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["after"]["state"], "current")
-            self.assertEqual(payload["after"]["installed_runtime_version"], 15)
+            self.assertEqual(payload["after"]["installed_runtime_version"], 16)
             config = json.loads(
                 (root / ".wishgraph" / "config.json").read_text(encoding="utf-8")
             )
             self.assertEqual(config["mode"], "enforce")
-            self.assertEqual(config["runtime_version"], 15)
+            self.assertEqual(config["runtime_version"], 16)
 
     def test_safe_upgrade_replaces_only_a_bundled_known_old_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -5610,6 +5905,7 @@ class InstallerTests(unittest.TestCase):
                 "workflow_state.py",
                 "policy.py",
                 "host_adapter.py",
+                "codex_worker_provider.py",
             ):
                 self.assertTrue((root / ".wishgraph" / "hooks" / runtime_name).exists())
             status = subprocess.run(
@@ -5628,9 +5924,15 @@ class InstallerTests(unittest.TestCase):
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["version"], 11)
-            self.assertEqual(config["runtime_version"], 15)
+            self.assertEqual(config["runtime_version"], 16)
             self.assertTrue(
                 (root / ".wishgraph" / "hooks" / "runtime-manifest.json").is_file()
+            )
+            codex_agent = root / ".codex" / "agents" / "wishgraph-worker.toml"
+            self.assertTrue(codex_agent.is_file())
+            self.assertIn(
+                'name = "wishgraph-worker"',
+                codex_agent.read_text(encoding="utf-8"),
             )
             self.assertEqual(config["session_start_context_mode"], "safety_only")
             self.assertEqual(
@@ -6035,7 +6337,7 @@ class OneCommandInstallerTests(unittest.TestCase):
             "approve_worker_launch",
             "waiting_for_user_launch",
             "执行 <task-id> 任务",
-            "user-visible, inspectable, controllable Worker",
+            "separate user-visible and inspectable Worker thread or window",
             "<task-id> · <short title> · WG Worker",
             "Never substitute a hidden subagent or let Discussion implement the Task",
         ):

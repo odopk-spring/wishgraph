@@ -93,7 +93,7 @@ Do not create a full Task Spec, repeat product context, or request Worker author
 
 ## Fast Routing
 
-Prefer the original visible Worker when it is idle:
+Prefer the original user-visible and inspectable Worker thread or window when it is idle:
 
 1. Confirm the parent work is terminal and its old Claim is released.
 2. Confirm the historical Worker thread holds no unrelated active Claim.

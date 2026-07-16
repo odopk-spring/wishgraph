@@ -38,12 +38,12 @@ Refresh project status.
 ```
 
 - **Start discussion** loads the compact current-state entry points and opens planning.
-- **Execute task 012** starts or routes one authorized, user-visible Worker for that exact Task.
+- **Execute task 012** starts or routes one authorized, user-visible and inspectable Worker thread or window for that exact Task.
 - **Refresh project status** reads the current project snapshot and relevant terminal reports; it does not traverse the whole source tree by default.
 
 Low-risk English entry aliases are also accepted, including `Begin discussion`, `Open discussion`, `Enter discussion mode`, `Continue discussion`, `Resume discussion mode`, `Check project status`, `Update project status`, and `Reload project status`.
 
-Clear, low-risk feedback such as “change this button to warm gray” becomes a lightweight Revision of the original Task. A Worker window can also be reused after it releases the old Task and binds a new Claim. Small corrections stay small without losing validation or history.
+Clear, low-risk feedback such as “change this button to warm gray” becomes a lightweight Revision of the original Task. A Worker thread or window can also be reused after it releases the old Task and binds a new Claim. Small corrections stay small without losing validation or history.
 
 ## Start in 60 seconds
 
@@ -92,12 +92,12 @@ If `Start discussion` does not respond after reopening the session, run WishGrap
 | Responsibility | Where it runs | What it does |
 | --- | --- | --- |
 | **Discussion** | Long-lived user-facing window | Clarifies intent, creates bounded Task Specs, authorizes routing, integrates results, and presents decisions. It does not implement business code. |
-| **Worker** | Separate user-visible execution window | Claims one Task or Revision, changes only its allowed scope, validates the result, and writes an immutable Run Report. |
+| **Worker** | Separate user-visible and inspectable Agent thread or window | Claims one Task or Revision, changes only its allowed scope, validates the result, and writes an immutable Run Report. |
 | **Integration** | Temporary phase inside Discussion | Evaluates terminal reports, runs combined checks, updates shared project state, and asks only when a material product or risk decision is required. |
 
 Integration is a phase, not a hidden agent or a fourth window. If Discussion is inactive when a Worker finishes, WishGraph writes one pending reminder beside the shared Git runtime. The bound Discussion consumes and marks it read on its next activation; after switching hosts, an explicit `Start discussion` or status refresh adopts it. This uses no daemon, terminal polling, IPC service, or popup.
 
-Codex can route work to a visible Worker when the host supports it. Claude Code CLI prefers an inspectable native background session through the managed `wishgraph-worker` Agent. If that capability is absent or launch fails, WishGraph prints only `Execute task 012` and Discussion stops execution.
+Codex prefers the project `wishgraph-worker` custom Agent in a visible, inspectable thread; Claude Code CLI prefers an inspectable native background session through its managed Agent. Explorer, Reviewer, Plan, `/fork`, and hidden agents remain read-only Helpers unless every Formal Worker condition is satisfied. If native creation is absent or fails, WishGraph prints only `Execute task 012` and Discussion stops execution.
 
 ## The files humans and agents share
 

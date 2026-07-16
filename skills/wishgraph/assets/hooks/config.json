@@ -1,6 +1,6 @@
 {
   "version": 11,
-  "runtime_version": 15,
+  "runtime_version": 16,
   "mode": "enforce",
   "paths": {
     "prd": "PRD.md",
@@ -33,6 +33,7 @@
     ".wishgraph",
     ".wishgraph/**",
     ".codex/hooks.json",
+    ".codex/agents/wishgraph-worker.toml",
     ".claude/settings.json",
     ".claude/agents/wishgraph-worker.md",
     ".DS_Store",

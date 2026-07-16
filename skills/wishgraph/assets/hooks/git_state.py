@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": 11,
-    "runtime_version": 15,
+    "runtime_version": 16,
     "mode": "enforce",
     "paths": {
         "prd": "PRD.md",
@@ -46,6 +46,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         ".wishgraph",
         ".wishgraph/**",
         ".codex/hooks.json",
+        ".codex/agents/wishgraph-worker.toml",
         ".claude/settings.json",
         ".claude/agents/wishgraph-worker.md",
         ".DS_Store",
@@ -67,6 +68,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
 
 LEGACY_PROJECT_STATUS_PATH = "reports/DEV_REPORT.md"
 DEFAULT_PROJECT_STATUS_PATH = "reports/PROJECT_STATUS.md"
+FORMAL_WORKER_CONTAINER_KINDS = {
+    "manual_worker_window",
+    "codex_agent_thread",
+    "claude_background_session",
+}
 
 
 def run_git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
@@ -115,6 +121,7 @@ def worktree_is_clean(root: Path) -> bool:
             or path
             in {
                 ".codex/hooks.json",
+                ".codex/agents/wishgraph-worker.toml",
                 ".claude/settings.json",
                 ".claude/agents/wishgraph-worker.md",
             }
@@ -228,10 +235,16 @@ def acquire_claim(
     validation_plan: Optional[list[str]] = None,
     execution_ownership: str = "worker_claim",
     discussion_session_id: Optional[str] = None,
+    container_kind: str = "manual_worker_window",
+    agent_kind: str = "formal_worker",
     stale_after_seconds: int = 3600,
     require_clean: bool = True,
 ) -> dict[str, Any]:
     """Atomically acquire a repository-wide Worker Claim for one Task attempt."""
+    if agent_kind != "formal_worker":
+        return {"ok": False, "error": "helper_agent_cannot_acquire_worker_claim"}
+    if container_kind not in FORMAL_WORKER_CONTAINER_KINDS:
+        return {"ok": False, "error": "formal_worker_container_required"}
     if execution_mode not in {"exclusive", "competitive"}:
         return {"ok": False, "error": "invalid_execution_mode"}
     if attempt < 1:
@@ -308,6 +321,8 @@ def acquire_claim(
             "validation_plan": list(validation_plan or []),
             "execution_ownership": execution_ownership,
             "discussion_session_id": discussion_session_id or "",
+            "container_kind": container_kind,
+            "agent_kind": agent_kind,
         }
         path = task_dir / f"{claim_id}.json"
         descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
@@ -385,6 +400,8 @@ def rebind_worker_claim(
     allowed_scope: Optional[list[str]] = None,
     validation_plan: Optional[list[str]] = None,
     execution_ownership: str = "worker_claim",
+    container_kind: str = "manual_worker_window",
+    agent_kind: str = "formal_worker",
     require_clean: bool = True,
 ) -> dict[str, Any]:
     """Release a terminal binding, then acquire and persist one fresh binding.
@@ -440,6 +457,8 @@ def rebind_worker_claim(
         validation_plan=validation_plan,
         execution_ownership=execution_ownership,
         discussion_session_id=str(old_claim.get("discussion_session_id") or ""),
+        container_kind=container_kind,
+        agent_kind=agent_kind,
         require_clean=require_clean,
     )
     if not acquired.get("ok"):
@@ -490,6 +509,22 @@ def rebind_worker_claim(
                 "allowed_scope": list(allowed_scope),
                 "validation_plan": list(validation_plan),
                 "execution_ownership": execution_ownership,
+                "worker_handle": {
+                    "host": agent_platform,
+                    "container_kind": container_kind,
+                    "thread_or_session_id": host_thread_ref or session_id,
+                    "parent_discussion_id": str(
+                        new_claim.get("discussion_session_id") or ""
+                    ),
+                    "task_id": next_task_id,
+                    "claim_id": new_claim["claim_id"],
+                    "branch": new_claim["branch"],
+                    "worktree": new_claim["worktree"],
+                    "inspectable": True,
+                    "controllable": True,
+                    "terminal_state": "running",
+                    "last_observed_at": new_claim["updated_at"],
+                },
             }
         },
     )

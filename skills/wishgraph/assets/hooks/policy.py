@@ -257,7 +257,7 @@ def reduce_orchestration(
         revision_id = str(data.get("revision_id") or "")
         payload = data.get("work_payload")
         payload = payload if isinstance(payload, dict) else {}
-        if revision_id and host_capability.can_create_visible_worker:
+        if revision_id and host_capability.supports_formal_worker_thread:
             return FlowPlan(
                 accepted=True,
                 next_action="create_lightweight_revision",
@@ -342,7 +342,7 @@ def reduce_orchestration(
                     work_payload=payload,
                 )
             if session.role == "discussion":
-                if host_capability.can_route_existing_worker and runtime.host_window_or_thread_id:
+                if host_capability.can_route_worker_thread and runtime.host_window_or_thread_id:
                     return FlowPlan(
                         accepted=True,
                         next_action="route_to_active_worker",
@@ -402,8 +402,8 @@ def reduce_orchestration(
         )
         if (
             reusable_previous
-            and host_capability.can_route_existing_worker
-            and host_capability.can_reuse_worker
+            and host_capability.can_route_worker_thread
+            and host_capability.can_reuse_worker_thread
             and runtime.host_window_or_thread_id
         ):
             return FlowPlan(
@@ -416,7 +416,7 @@ def reduce_orchestration(
                 state_patch=revision_patch,
                 stop_after_action=True,
             )
-        if host_capability.can_create_visible_worker:
+        if host_capability.supports_formal_worker_thread:
             return FlowPlan(
                 accepted=True,
                 next_action="create_lightweight_revision",
@@ -979,7 +979,7 @@ def reduce_orchestration(
                 task_id=task_id,
                 host_route=(
                     "automatic_thread"
-                    if host_capability.can_create_visible_worker
+                    if host_capability.supports_formal_worker_thread
                     else "manual_window"
                 ),
                 state_patch={
@@ -1021,7 +1021,7 @@ def reduce_orchestration(
                 task_id=expected.task_id,
                 host_route=(
                     "automatic_thread"
-                    if host_capability.can_create_visible_worker
+                    if host_capability.supports_formal_worker_thread
                     else "manual_window"
                 ),
                 state_patch={

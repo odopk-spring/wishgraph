@@ -21,6 +21,7 @@ The stable entrypoint is `.wishgraph/hooks/memory_sync.py`. Its implementation r
 workflow_state.py   typed state and parsing
 policy.py           pure transition and gate decisions
 host_adapter.py     host events, CLI, and output mapping
+codex_worker_provider.py  private lazy Codex native-thread implementation
 git_state.py        Git facts, Claims, sessions, and Integration leases
 ```
 
@@ -28,7 +29,7 @@ git_state.py        Git facts, Claims, sessions, and Integration leases
 
 ### UserPromptSubmit
 
-Only after `.wishgraph/config.json` enables the project, route explicit entry commands. Low-risk Discussion entry and status refresh may normalize case, whitespace, terminal punctuation, and a bounded allowlist of polite wrappers before exact alias lookup. Task execution, stop, retry, takeover, and exact IDs remain strict and never receive that normalization. Missing config and `mode: off` are silent no-op states; `开始讨论` never installs or enables WishGraph. A neutral execution window receives the exact Task route and must acquire its Claim before business work. A Discussion window routes a visible Worker. Claude Code may ask the Host Adapter to start a native background session after authorization; the Hook itself never runs `claude --bg`. Failed or unavailable automatic routing exposes only the exact one-line command. Short approvals are accepted only through one persisted `expected_transition`.
+Only after `.wishgraph/config.json` enables the project, route explicit entry commands. Low-risk Discussion entry and status refresh may normalize case, whitespace, terminal punctuation, and a bounded allowlist of polite wrappers before exact alias lookup. Task execution, stop, retry, takeover, and exact IDs remain strict and never receive that normalization. Missing config and `mode: off` are silent no-op states; `开始讨论` never installs or enables WishGraph. A neutral execution window receives the exact Task route and must acquire its Claim before business work. A Discussion window routes a user-visible and inspectable Worker thread or window. Codex may ask the active host to start the project `wishgraph-worker` Agent; Claude Code may ask the Host Adapter to start a native background session. Hooks never create either Agent. Failed or unavailable automatic routing exposes only the exact one-line command. Short approvals are accepted only through one persisted `expected_transition`.
 
 When the Hook cannot resolve the whole prompt to one allowed command, it emits no route and does not mutate session state. The original prompt continues to the Agent. The Agent may ask whether the user wants Discussion or refresh, but an ambiguous execution request must be answered with a request for the exact command, such as `执行 012 任务`; Agent interpretation cannot manufacture authorization.
 
@@ -67,11 +68,12 @@ Claude Code may also expose `TaskCompleted`; keep it as a host adapter event rat
 .wishgraph/hooks/host_adapter.py
 .wishgraph/hooks/runtime-manifest.json
 .codex/hooks.json        # Codex
+.codex/agents/wishgraph-worker.toml  # managed Codex Formal Worker
 .claude/settings.json    # Claude Code
 .claude/agents/wishgraph-worker.md  # managed Claude background Worker
 ```
 
-The runtime manifest records one generated runtime version and SHA-256 fingerprints for all five runtime files. Doctor compares only those fixed paths. The installer merges host JSON, removes obsolete WishGraph handlers, preserves unrelated hook groups, and refuses to overwrite a locally modified generated runtime unless `--force-assets` is explicit. Codex users must trust the repository and review `/hooks`.
+The runtime manifest records one generated runtime version and SHA-256 fingerprints for the four public boundary files, stable entrypoint, and any private Host Adapter provider. Doctor compares only those fixed paths. The installer merges host JSON, removes obsolete WishGraph handlers, preserves unrelated hook groups, and refuses to overwrite a locally modified generated runtime unless `--force-assets` is explicit. Codex users must trust the repository and review `/hooks`.
 
 Updating the global Codex or Claude Skill refreshes the bundled runtime for future installs, but does not rewrite an existing project's `.wishgraph/hooks/` copy. The safe upgrade command repairs missing metadata for current bundled files or replaces a bundled-known generated version, and rolls back all runtime/config writes on failure. Unknown, incomplete, newer, or locally modified copies stop for review; `--force-assets` remains a deliberate human override.
 
@@ -120,12 +122,17 @@ python3 .wishgraph/hooks/memory_sync.py status --task 012
 python3 .wishgraph/hooks/memory_sync.py status --full
 python3 .wishgraph/hooks/memory_sync.py claim inspect
 python3 .wishgraph/hooks/memory_sync.py integration-lease inspect
+python3 .wishgraph/hooks/memory_sync.py codex-worker prepare 012 --discussion-session-id <discussion-session-id>
+python3 .wishgraph/hooks/memory_sync.py codex-worker register 012 --discussion-session-id <discussion-session-id> --thread-id <real-id> --inspectable --controllable --independent-context
+python3 .wishgraph/hooks/memory_sync.py codex-worker observe --discussion-session-id <discussion-session-id> --thread-id <real-id> --state completed
 python3 .wishgraph/hooks/memory_sync.py claude-worker capability
 python3 .wishgraph/hooks/memory_sync.py claude-worker launch 012 --discussion-session-id <discussion-session-id>
 python3 .wishgraph/hooks/memory_sync.py claude-worker refresh --discussion-session-id <discussion-session-id>
 ```
 
-The launch command invokes `claude --bg --agent wishgraph-worker "执行 012 任务"` only after the Discussion runtime and durable Task both prove authorization. Capability or launch failure prints only `执行 012 任务`. Refresh queries `claude agents --json --all --cwd <project>` and may expose `claude logs <id>` or `claude attach <id>` for humans; it never parses log prose as terminal evidence.
+Codex `prepare` returns the bounded native-Agent payload but does not create an Agent. The active host creates the thread and calls `register` only with the real stable ID and control attestations; only then does Discussion enter `waiting_for_worker`. `observe` accepts a structured host state, but Integration still requires the durable Task terminal state, Run Report, and released Claim. Spawn failure uses `codex-worker fail` and prints only `执行 012 任务`.
+
+The Claude launch command invokes `claude --bg --agent wishgraph-worker "执行 012 任务"` only after the Discussion runtime and durable Task both prove authorization. Capability or launch failure prints only `执行 012 任务`. Refresh queries `claude agents --json --all --cwd <project>` and may expose `claude logs <id>` or `claude attach <id>` for humans; it never parses log prose as terminal evidence.
 
 Use `flow-plan` to evaluate one pure state/event transition. Apply only its returned state patch through `session apply`; do not hand-edit a different semantic result.
 

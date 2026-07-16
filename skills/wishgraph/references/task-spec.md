@@ -85,7 +85,7 @@ Language mode:
 ## Execution Report Requirements
 ````
 
-Use exact structured IDs. Start in `draft` with `worker_creation_authorized: false`. Set authority only after the user explicitly authorizes a visible Worker.
+Use exact structured IDs. Start in `draft` with `worker_creation_authorized: false`. Set authority only after the user explicitly authorizes a user-visible and inspectable Worker thread or window.
 
 ## Review Checklist
 

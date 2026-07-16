@@ -26,12 +26,18 @@ CLAUDE_AGENT_ASSET = (
 )
 CLAUDE_AGENT_RELATIVE_PATH = Path(".claude/agents/wishgraph-worker.md")
 CLAUDE_AGENT_MARKER = "<!-- wishgraph-managed: wishgraph-worker -->"
+CODEX_AGENT_ASSET = (
+    SKILL_ROOT / "assets" / "codex-agents" / "wishgraph-worker.toml"
+)
+CODEX_AGENT_RELATIVE_PATH = Path(".codex/agents/wishgraph-worker.toml")
+CODEX_AGENT_MARKER = "# wishgraph-managed: wishgraph-worker"
 RUNTIME_FILES = (
     "memory_sync.py",
     "git_state.py",
     "workflow_state.py",
     "policy.py",
     "host_adapter.py",
+    "codex_worker_provider.py",
 )
 RUNTIME_MANIFEST_NAME = "runtime-manifest.json"
 HOST_OBSERVATION_EVENTS = ("session-start", "user-prompt-submit")
@@ -150,7 +156,8 @@ def validate_runtime_manifest(value: dict[str, Any], *, source: str) -> dict[str
         if not str(known_version).isdigit() or not isinstance(fingerprints, dict):
             raise ValueError(f"{source} contains an invalid known runtime version")
         if set(fingerprints) != set(RUNTIME_FILES) or any(
-            not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            not isinstance(digest, str)
+            or (digest != "" and not re.fullmatch(r"[0-9a-f]{64}", digest))
             for digest in fingerprints.values()
         ):
             raise ValueError(f"{source} contains invalid known-version fingerprints")
@@ -326,6 +333,24 @@ def claude_worker_agent_diagnosis(target: Path) -> dict[str, Any]:
     }
 
 
+def codex_worker_agent_diagnosis(target: Path) -> dict[str, Any]:
+    path = target / CODEX_AGENT_RELATIVE_PATH
+    if not path.is_file():
+        return {"path": str(path), "state": "missing"}
+    try:
+        installed = path.read_bytes().replace(b"\r\n", b"\n")
+        bundled = CODEX_AGENT_ASSET.read_bytes().replace(b"\r\n", b"\n")
+    except OSError as exc:
+        return {"path": str(path), "state": "invalid", "detail": str(exc)}
+    if installed == bundled:
+        return {"path": str(path), "state": "current"}
+    text = installed.decode("utf-8", errors="replace")
+    return {
+        "path": str(path),
+        "state": "outdated" if CODEX_AGENT_MARKER in text else "conflict",
+    }
+
+
 def expected_host_groups(host: str, python_executable: str) -> dict[str, set[str]]:
     incoming = _materialize_python_commands(
         read_json(host_asset_path(host)),
@@ -345,7 +370,11 @@ def host_adapter_diagnosis(
     target: Path, host: str, python_executable: str
 ) -> dict[str, Any]:
     path = host_config_path(target, host)
-    worker_agent = claude_worker_agent_diagnosis(target) if host == "claude" else None
+    worker_agent = (
+        claude_worker_agent_diagnosis(target)
+        if host == "claude"
+        else codex_worker_agent_diagnosis(target)
+    )
     if not path.is_file():
         result = {"host": host, "path": str(path), "state": "missing"}
         if worker_agent is not None:
@@ -406,7 +435,10 @@ def host_adapter_diagnosis(
             outdated_events.append("ClaudeWorktree:.wishgraph")
     agent_current = worker_agent is None or worker_agent["state"] == "current"
     if not agent_current:
-        outdated_events.append("ClaudeAgent:wishgraph-worker")
+        outdated_events.append(
+            ("ClaudeAgent:" if host == "claude" else "CodexAgent:")
+            + "wishgraph-worker"
+        )
     result = {
         "host": host,
         "path": str(path),
@@ -938,6 +970,18 @@ def install_claude_worker_agent(target: Path) -> Path:
     return destination
 
 
+def install_codex_worker_agent(target: Path) -> Path:
+    destination = target / CODEX_AGENT_RELATIVE_PATH
+    if destination.is_file():
+        existing = destination.read_text(encoding="utf-8", errors="replace")
+        if CODEX_AGENT_MARKER not in existing:
+            raise FileExistsError(
+                f"Refusing to replace non-WishGraph Codex Agent: {destination}"
+            )
+    write_bytes_atomic(destination, CODEX_AGENT_ASSET.read_bytes())
+    return destination
+
+
 def repair_host_adapter(target: Path, host: str) -> dict[str, Any]:
     if host not in {"codex", "claude"}:
         raise ValueError("Choose exactly one current host: codex or claude")
@@ -960,8 +1004,14 @@ def repair_host_adapter(target: Path, host: str) -> dict[str, Any]:
     before = host_adapter_diagnosis(target, host, python_executable)
     adapter_path = host_config_path(target, host)
     tracked = [adapter_path, config_path]
-    if host == "claude":
-        tracked.append(target / CLAUDE_AGENT_RELATIVE_PATH)
+    tracked.append(
+        target
+        / (
+            CLAUDE_AGENT_RELATIVE_PATH
+            if host == "claude"
+            else CODEX_AGENT_RELATIVE_PATH
+        )
+    )
     snapshot = snapshot_files(tracked)
     changed: list[Path] = []
     try:
@@ -973,6 +1023,8 @@ def repair_host_adapter(target: Path, host: str) -> dict[str, Any]:
             changed.append(install_host_config(target, host, python_executable))
             if host == "claude":
                 changed.append(install_claude_worker_agent(target))
+            else:
+                changed.append(install_codex_worker_agent(target))
     except Exception as exc:
         try:
             restore_snapshot(snapshot)
@@ -1228,6 +1280,8 @@ def main() -> int:
             installed.append(install_host_config(target, host, sys.executable))
             if host == "claude":
                 installed.append(install_claude_worker_agent(target))
+            else:
+                installed.append(install_codex_worker_agent(target))
         warning = None
         if args.git_hook:
             hook_path, warning = install_git_hook(target)
