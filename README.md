@@ -254,6 +254,16 @@ scripts/            Bash and PowerShell installers
 tests/              Installer and runtime regression tests
 ```
 
+## Community and contact
+
+- Bugs and concrete feature requests: [GitHub Issues](https://github.com/odopk-spring/wishgraph/issues)
+- Commercial licensing and partnerships: [zuelfma@foxmail.com](mailto:zuelfma@foxmail.com)
+- Chinese articles, practical notes, and project updates: WeChat Official Account **有言以对Spring**
+
+<img src="docs/assets/community/youyanyidui-spring-wechat.jpg" width="180" alt="QR code for the WeChat Official Account 有言以对Spring">
+
+The repository remains the source of truth for releases, installation instructions, compatibility, and project status.
+
 ## License
 
 WishGraph uses the [PolyForm Noncommercial License 1.0.0](LICENSE). You may download, study, modify, and redistribute it for noncommercial purposes. Commercial use requires separate written permission. It is a source-available noncommercial license, not an OSI open-source license.

@@ -254,6 +254,16 @@ scripts/            Bash 与 PowerShell 安装器
 tests/              安装器和 runtime 回归测试
 ```
 
+## 社区与联系
+
+- Bug 和明确的功能建议：[GitHub Issues](https://github.com/odopk-spring/wishgraph/issues)
+- 商业授权与合作：[zuelfma@foxmail.com](mailto:zuelfma@foxmail.com)
+- 中文文章、实践记录与项目更新：微信公众号 **有言以对Spring**
+
+<img src="docs/assets/community/youyanyidui-spring-wechat.jpg" width="180" alt="微信公众号有言以对Spring的二维码">
+
+正式版本、安装说明、兼容性和项目状态仍以本仓库为准。
+
 ## 许可证
 
 WishGraph 使用 [PolyForm Noncommercial License 1.0.0](LICENSE)。你可以为非商业目的下载、学习、修改和再分发；商业使用需要获得著作权人的单独书面许可。它是 source-available 非商业许可证，不是 OSI 开源许可证。
