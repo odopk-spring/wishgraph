@@ -1,15 +1,23 @@
 {
   "schema_version": 1,
-  "runtime_version": 19,
+  "runtime_version": 20,
   "files": {
     "memory_sync.py": "b53288bb2ecbe4f6fe3e9ff644d7ab70af1ea1142b829d7a1ece9461b961e6fd",
-    "git_state.py": "8604e187a7fdb5b81367f4b119a6e860c12a556d0d215611c09008eb53b06357",
+    "git_state.py": "6cf62d86bdfd71b12d74475cf2a26a71e036c8a1b83c87534b484ec3ab7dbc3b",
     "workflow_state.py": "830d3bdd8353d08bca81caff60ecf674c41fceb965e4035f1ec4af98d54ef05a",
     "policy.py": "1268864839cef37604e52ad8f0a647ff47748933ddd68262b6ac543d666de791",
-    "host_adapter.py": "b96653f938d78bcd116522b78e4dd06b4c28dca599dca946fa2455be10379405",
+    "host_adapter.py": "28cb98e5cb20e92608979c9642f0bccd04323bd9b77056d6bc93a67f20ccd71f",
     "codex_worker_provider.py": "b9191a83530b5105dfe9db6d96b305f268497a26e64592cb6acb61a21f0f1dfc"
   },
   "known_versions": {
+    "19": {
+      "memory_sync.py": "b53288bb2ecbe4f6fe3e9ff644d7ab70af1ea1142b829d7a1ece9461b961e6fd",
+      "git_state.py": "8604e187a7fdb5b81367f4b119a6e860c12a556d0d215611c09008eb53b06357",
+      "workflow_state.py": "830d3bdd8353d08bca81caff60ecf674c41fceb965e4035f1ec4af98d54ef05a",
+      "policy.py": "1268864839cef37604e52ad8f0a647ff47748933ddd68262b6ac543d666de791",
+      "host_adapter.py": "b96653f938d78bcd116522b78e4dd06b4c28dca599dca946fa2455be10379405",
+      "codex_worker_provider.py": "b9191a83530b5105dfe9db6d96b305f268497a26e64592cb6acb61a21f0f1dfc"
+    },
     "18": {
       "memory_sync.py": "b53288bb2ecbe4f6fe3e9ff644d7ab70af1ea1142b829d7a1ece9461b961e6fd",
       "git_state.py": "eae90246e55bbf02e45ad095471a2be21bbb0f4cb649de7a32a8f7bad7978f9b",

@@ -1105,8 +1105,28 @@ def launch_claude_worker(
             orphan_session_id=claude_session_id,
         )
 
+    worker_root = find_git_root(Path(launch_worktree))
+    if worker_root is None or str(worker_root.resolve()) != launch_worktree:
+        return _manual_worker_fallback(
+            root,
+            discussion_session_id,
+            canonical,
+            capability,
+            "claude_worker_git_worktree_unavailable",
+            orphan_session_id=claude_session_id,
+        )
+    launch_branch = current_branch(worker_root)
+    if not launch_branch:
+        return _manual_worker_fallback(
+            root,
+            discussion_session_id,
+            canonical,
+            capability,
+            "claude_worker_branch_unavailable",
+            orphan_session_id=claude_session_id,
+        )
+
     if full_session_id:
-        launch_branch = str((session or {}).get("branch") or current_branch(root))
         worker_handle = {
             "host": "claude",
             "container_kind": CLAUDE_BACKGROUND_CONTAINER,
@@ -2306,6 +2326,32 @@ def governance_ready(root: Path, config: dict[str, Any]) -> bool:
     return (root / status_path).is_file() and (root / paths["discussion_prompt"]).is_file()
 
 
+def formal_worker_launch_context(
+    host_action: str,
+    task_id: str,
+    discussion_session_id: str,
+    host_adapter_command: str,
+    task_path: str = "",
+) -> str:
+    """Give the current Discussion one unambiguous, non-delegable launch action."""
+    if host_action != "launch_claude_background_worker":
+        return ""
+    record = task_path or "the exact resolved Task record"
+    return (
+        "WishGraph Formal Worker launch contract (mandatory):\n"
+        f"1. Persist the authorization for {task_id} in {record}, then create the "
+        "bounded authorization commit. The working-tree Task record must exactly "
+        "match HEAD before launch.\n"
+        "2. In this current Discussion session, directly run this exact Host Adapter "
+        f"command: {host_adapter_command}\n"
+        "3. Do not use Task, Agent, /fork, a helper, or any ordinary background "
+        "subagent to run or replace that command. Only the Host Adapter may create "
+        "the managed wishgraph-worker.\n"
+        "4. Stop after the Host Adapter result. Never implement business code in "
+        f"Discussion. The originating Discussion session ID is {discussion_session_id}."
+    )
+
+
 def user_prompt_submit_main(
     root: Path, config: dict[str, Any], payload: dict[str, Any], host: str
 ) -> int:
@@ -2338,12 +2384,31 @@ def user_prompt_submit_main(
         action = map_flow_plan_to_host(plan, capability)
         if plan.accepted and session_id and action.state_patch:
             apply_session_runtime_patch(root, session_id, action.state_patch)
+        host_adapter_command = (
+            "python3 .wishgraph/hooks/memory_sync.py "
+            f"claude-worker launch {plan.task_id} "
+            f"--discussion-session-id {session_id}"
+            if action.action == "launch_claude_background_worker"
+            else (
+                "python3 .wishgraph/hooks/memory_sync.py "
+                f"codex-worker prepare {plan.task_id} "
+                f"--discussion-session-id {session_id}"
+                if action.action == "launch_codex_agent_worker"
+                else ""
+            )
+        )
         emit(
             {
                 "hookSpecificOutput": {
                     "hookEventName": "UserPromptSubmit",
                     "additionalContext": join_context(
                         notification_context,
+                        formal_worker_launch_context(
+                            action.action,
+                            plan.task_id,
+                            session_id,
+                            host_adapter_command,
+                        ),
                         "WishGraph contextual route:\n"
                         + json.dumps(
                             {
@@ -2351,20 +2416,12 @@ def user_prompt_submit_main(
                                 "next_action": action.action,
                                 "task_id": plan.task_id,
                                 "discussion_session_id": session_id,
-                                "host_adapter_command": (
-                                    "python3 .wishgraph/hooks/memory_sync.py "
-                                    f"claude-worker launch {plan.task_id} "
-                                    f"--discussion-session-id {session_id}"
-                                    if action.action
-                                    == "launch_claude_background_worker"
-                                    else (
-                                        "python3 .wishgraph/hooks/memory_sync.py "
-                                        f"codex-worker prepare {plan.task_id} "
-                                        f"--discussion-session-id {session_id}"
-                                        if action.action
-                                        == "launch_codex_agent_worker"
-                                        else ""
-                                    )
+                                "host_adapter_command": host_adapter_command,
+                                "launch_must_run_in_current_discussion": (
+                                    action.action == "launch_claude_background_worker"
+                                ),
+                                "delegation_forbidden": (
+                                    action.action == "launch_claude_background_worker"
                                 ),
                                 "user_message": action.user_message,
                                 "stop_after_action": action.stop_after_action,
@@ -2574,6 +2631,19 @@ def user_prompt_submit_main(
                     accepted = False
                     host_action = "no_action"
                     plan_payload["denial_reason"] = "authorization_runtime_persistence_failed"
+        host_adapter_command = (
+            "python3 .wishgraph/hooks/memory_sync.py "
+            f"claude-worker launch {task_id} "
+            f"--discussion-session-id {session_id}"
+            if host_action == "launch_claude_background_worker"
+            else (
+                "python3 .wishgraph/hooks/memory_sync.py "
+                f"codex-worker prepare {task_id} "
+                f"--discussion-session-id {session_id}"
+                if host_action == "launch_codex_agent_worker"
+                else ""
+            )
+        )
         route = {
             "ok": accepted,
             "command": command,
@@ -2582,19 +2652,7 @@ def user_prompt_submit_main(
             "host_action": host_action,
             "worker_session_id": session_id,
             "discussion_session_id": session_id if role == "discussion" else "",
-            "host_adapter_command": (
-                "python3 .wishgraph/hooks/memory_sync.py "
-                f"claude-worker launch {task_id} "
-                f"--discussion-session-id {session_id}"
-                if host_action == "launch_claude_background_worker"
-                else (
-                    "python3 .wishgraph/hooks/memory_sync.py "
-                    f"codex-worker prepare {task_id} "
-                    f"--discussion-session-id {session_id}"
-                    if host_action == "launch_codex_agent_worker"
-                    else ""
-                )
-            ),
+            "host_adapter_command": host_adapter_command,
             "manual_command": (
                 f"执行 {task_id} 任务"
                 if host_action == "show_manual_worker_command"
@@ -2602,6 +2660,18 @@ def user_prompt_submit_main(
             ),
             "stop_after_action": role == "discussion",
             "authorization_patch_required": role == "discussion",
+            "authorization_commit_required": bool(
+                role == "discussion"
+                and host_action == "launch_claude_background_worker"
+            ),
+            "launch_must_run_in_current_discussion": bool(
+                role == "discussion"
+                and host_action == "launch_claude_background_worker"
+            ),
+            "delegation_forbidden": bool(
+                role == "discussion"
+                and host_action == "launch_claude_background_worker"
+            ),
             "required_before_business_work": "execution_preflight_and_worker_claim",
             "read_boundary": "exact_task_scope_and_explicit_context_only",
         }
@@ -2611,6 +2681,13 @@ def user_prompt_submit_main(
                 "hookEventName": "UserPromptSubmit",
                 "additionalContext": join_context(
                     notification_context,
+                    formal_worker_launch_context(
+                        host_action,
+                        task_id,
+                        session_id,
+                        host_adapter_command,
+                        str(resolved["task"].get("task_path") or ""),
+                    ),
                     "WishGraph explicit route:\n"
                     + json.dumps(route, ensure_ascii=False, separators=(",", ":")),
                 ),
@@ -3821,6 +3898,36 @@ def execution_preflight(
     return {"ok": not errors, "task": task, "errors": errors}
 
 
+def _record_worker_claim_failure(
+    root: Path,
+    session_id: str,
+    discussion_session_id: str,
+    task_id: str,
+    reason: str,
+) -> None:
+    """Persist a recoverable terminal preflight state without claiming execution."""
+    patch = {
+        "worker_runtime": {
+            "claim_id": "",
+            "active_task_id": task_id,
+            "binding_status": "claim_failed",
+            "worker_availability": "blocked",
+            "sync_status": "manual_intervention_required",
+            "recovery_reason": reason,
+            "last_observed_at": _utc_now(),
+            "worker_handle": {
+                "claim_id": "",
+                "terminal_state": "claim_failed",
+                "last_observed_at": _utc_now(),
+            },
+        }
+    }
+    if session_id:
+        apply_session_runtime_patch(root, session_id, patch)
+    if discussion_session_id and discussion_session_id != session_id:
+        apply_session_runtime_patch(root, discussion_session_id, patch)
+
+
 def claim_main(args: argparse.Namespace) -> int:
     root = find_git_root(Path.cwd())
     if root is None:
@@ -4051,17 +4158,46 @@ def claim_main(args: argparse.Namespace) -> int:
                         expected_thread_id = str(
                             launch_context.get("thread_or_session_id") or ""
                         )
-                        actual_thread_id = str(
-                            args.host_thread_ref or args.session_id or args.worker_id
+                        expected_discussion_id = str(
+                            launch_context.get("discussion_session_id") or ""
                         )
+                        expected_worktree = str(launch_context.get("worktree") or "")
+                        expected_branch = str(launch_context.get("branch") or "")
+                        actual_thread_ids = {
+                            str(args.worker_id or ""),
+                            str(args.session_id or ""),
+                            str(args.host_thread_ref or ""),
+                        }
                         if launch_context.get("agent_kind") != "formal_worker":
                             launch_context_error = "formal_worker_launch_context_required"
                         elif launch_context.get("container_kind") != args.container_kind:
                             launch_context_error = "worker_container_kind_mismatch"
                         elif launch_context.get("task_id") != task["task_id"]:
                             launch_context_error = "worker_launch_task_mismatch"
-                        elif not expected_thread_id or expected_thread_id != actual_thread_id:
+                        elif (
+                            not expected_thread_id
+                            or "" in actual_thread_ids
+                            or actual_thread_ids != {expected_thread_id}
+                        ):
                             launch_context_error = "worker_thread_id_binding_mismatch"
+                        elif (
+                            not expected_discussion_id
+                            or discussion_session_id != expected_discussion_id
+                        ):
+                            launch_context_error = "worker_discussion_binding_mismatch"
+                        elif (
+                            not expected_worktree
+                            or str(root.resolve())
+                            != str(Path(expected_worktree).expanduser().resolve())
+                        ):
+                            launch_context_error = "worker_worktree_binding_mismatch"
+                        elif not expected_branch or current_branch(root) != expected_branch:
+                            launch_context_error = "worker_branch_binding_mismatch"
+                        elif (
+                            args.container_kind == CLAUDE_BACKGROUND_CONTAINER
+                            and args.host != "claude"
+                        ):
+                            launch_context_error = "worker_host_binding_mismatch"
                         elif launch_context.get("inspectable") is not True:
                             launch_context_error = "worker_thread_not_inspectable"
                         elif launch_context.get("controllable") is not True:
@@ -4090,6 +4226,17 @@ def claim_main(args: argparse.Namespace) -> int:
                             container_kind=args.container_kind,
                             agent_kind=args.agent_kind,
                             stale_after_seconds=args.stale_after,
+                        )
+                    if (
+                        args.container_kind != MANUAL_WORKER_WINDOW
+                        and not payload.get("ok")
+                    ):
+                        _record_worker_claim_failure(
+                            root,
+                            str(args.session_id or ""),
+                            discussion_session_id,
+                            task["task_id"],
+                            str(payload.get("error") or "worker_claim_acquire_failed"),
                         )
                     if payload.get("ok"):
                         payload["task"] = task
@@ -4170,6 +4317,14 @@ def claim_main(args: argparse.Namespace) -> int:
                                     "error": "worker_runtime_persistence_failed",
                                     "detail": runtime_payload,
                                 }
+                                if args.container_kind != MANUAL_WORKER_WINDOW:
+                                    _record_worker_claim_failure(
+                                        root,
+                                        str(args.session_id or ""),
+                                        discussion_session_id,
+                                        task["task_id"],
+                                        "worker_runtime_persistence_failed",
+                                    )
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if payload.get("ok") else 1
 

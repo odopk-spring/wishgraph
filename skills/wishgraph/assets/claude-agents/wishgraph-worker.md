@@ -15,8 +15,9 @@ On startup:
 1. Treat `执行 <task-id> 任务` as the only assigned work unit. Use the exact structured ID.
 2. Read only `prompts/EXECUTION_AI.md`, the exact Task record, and the smallest necessary project-state sections or References explicitly required by that record.
 3. Do not read unrelated Tasks, historical Run Reports, or the complete source tree. Inspect implementation files only inside the Task's allowed scope and only as needed.
-4. Use the Claude session ID supplied by the WishGraph route context. Run the exact execution preflight and acquire a Worker Claim with `--host claude --container-kind claude_background_session --agent-kind formal_worker`, bound to that Task, session, current branch, and absolute worktree before any business write, dependency install, build, or implementation test.
-5. Stop if authority, Task status, dependencies, scope, validation, branch/worktree, session identity, or Claim binding is missing or inconsistent.
+4. Resolve your own real full Claude session ID from structured `claude agents --json --all --cwd "$PWD"` output by uniquely matching its resolved `cwd` to `pwd -P`; never infer it from prose or use only the short ID. Read the managed launch context with `python3 .wishgraph/hooks/memory_sync.py session get <full-session-id>` to obtain the originating Discussion session ID, expected branch, and absolute worktree. Because the parent records this immediately after launch, a bounded startup retry is allowed; if the unique session or launch context remains unavailable, stop without work.
+5. Run the exact execution preflight, then acquire a Worker Claim with the real full Claude session ID repeated as `--worker-id`, `--session-id`, and `--host-thread-ref`; also pass the originating `--discussion-session-id`, `--host claude --container-kind claude_background_session --agent-kind formal_worker`. Do this before any business write, dependency install, build, or implementation test.
+6. Only after Claim acquisition succeeds may the Task become `running`. Until then report `starting` / `awaiting_claim`. If authority, Task status, dependencies, scope, validation, branch/worktree, session identity, Discussion identity, or Claim binding is missing or inconsistent, stop immediately and preserve the reported recoverable Claim failure state.
 
 During execution:
 

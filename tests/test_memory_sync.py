@@ -109,6 +109,8 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertIn("isolation: worktree", content)
         self.assertIn(memory_sync.CLAUDE_WORKER_AGENT_MARKER, content)
         self.assertIn("acquire a Worker Claim", content)
+        self.assertIn("claude agents --json --all", content)
+        self.assertIn("session get <full-session-id>", content)
         self.assertIn("Do not read unrelated Tasks", content)
         self.assertIn("Write exactly one immutable Run Report", content)
         self.assertIn("Release the Claim", content)
@@ -702,6 +704,24 @@ class OrchestrationStateMachineTests(unittest.TestCase):
         self.assertTrue(plan.required_claim)
         self.assertEqual(plan.state_patch["session"]["role"], "worker")
         self.assertEqual(plan.state_patch["task"]["lifecycle"], "running")
+
+    def test_neutral_window_cannot_execute_a_draft_task(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(
+                role="neutral",
+                phase="planning",
+                lifecycle="draft",
+                worker_authorized=False,
+                expected_kind=None,
+            ),
+            self.event("user_message", text="执行 002 任务"),
+            self.capability(host="claude", create_worker=True),
+        )
+        self.assertFalse(plan.accepted)
+        self.assertEqual(plan.next_action, "deny_execution_preflight")
+        self.assertEqual(
+            plan.denial_reason, "Task must be approved and Worker-authorized."
+        )
 
     def test_osm_03_claude_launch_routes_to_host_adapter_and_stops_discussion(self) -> None:
         plan = memory_sync.reduce_orchestration(
@@ -2992,7 +3012,18 @@ class MemorySyncTests(unittest.TestCase):
                 reason="native_background_session_available",
             )
             before = {"ok": True, "sessions": []}
-            actual_worktree = self.root.parent / "claude-worker-057"
+            actual_worktree = Path(tempfile.mkdtemp(prefix="claude-worker-057-"))
+            actual_worktree.rmdir()
+            self.addCleanup(shutil.rmtree, actual_worktree, True)
+            self.git(
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "worktree-agent-057",
+                str(actual_worktree),
+                "HEAD",
+            )
             after = {
                 "ok": True,
                 "sessions": [
@@ -3328,6 +3359,18 @@ class MemorySyncTests(unittest.TestCase):
         discussion_id = "discussion-036"
         worker_id = "12345678-1234-1234-1234-123456789abc"
         self.prepare_claude_worker_task(task_id, discussion_id)
+        worker_path = Path(tempfile.mkdtemp(prefix="claude-worker-036-"))
+        worker_path.rmdir()
+        self.addCleanup(shutil.rmtree, worker_path, True)
+        self.git(
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "worktree-agent-036",
+            str(worker_path),
+            "HEAD",
+        )
         host_adapter_module = sys.modules["host_adapter"]
         capability = memory_sync.ClaudeWorkerCapability(
             tier="background_session",
@@ -3345,7 +3388,7 @@ class MemorySyncTests(unittest.TestCase):
                 {
                     "id": "12345678",
                     "sessionId": worker_id,
-                    "cwd": str(self.root.parent / "claude-worker-036"),
+                    "cwd": str(worker_path),
                     "state": "working",
                 }
             ],
@@ -3401,6 +3444,11 @@ class MemorySyncTests(unittest.TestCase):
         self.assertEqual(runtime["worker_runtime"]["active_task_id"], task_id)
         self.assertEqual(runtime["worker_runtime"]["claim_id"], "")
         self.assertEqual(runtime["worker_runtime"]["binding_status"], "awaiting_claim")
+        self.assertEqual(runtime["worker_runtime"]["worker_availability"], "starting")
+        self.assertEqual(runtime["worker_runtime"]["launch_branch"], "worktree-agent-036")
+        self.assertEqual(
+            runtime["worker_runtime"]["launch_worktree"], str(worker_path.resolve())
+        )
         handle = runtime["worker_runtime"]["worker_handle"]
         self.assertEqual(handle["container_kind"], "claude_background_session")
         self.assertEqual(handle["thread_or_session_id"], worker_id)
@@ -3411,8 +3459,150 @@ class MemorySyncTests(unittest.TestCase):
         )
         self.assertEqual(
             worker_runtime["launch_context"]["worktree"],
-            str((self.root.parent / "claude-worker-036").resolve()),
+            str(worker_path.resolve()),
         )
+        rejected_claim = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "acquire",
+                task_id,
+                "--worker-id",
+                worker_id,
+                "--session-id",
+                worker_id,
+                "--host-thread-ref",
+                "wrong-claude-session",
+                "--discussion-session-id",
+                discussion_id,
+                "--host",
+                "claude",
+                "--container-kind",
+                "claude_background_session",
+                "--agent-kind",
+                "formal_worker",
+            ],
+            cwd=worker_path,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(rejected_claim.returncode, 1)
+        self.assertEqual(
+            json.loads(rejected_claim.stdout)["error"],
+            "worker_thread_id_binding_mismatch",
+        )
+        failed_runtime = memory_sync.read_session_runtime(self.root, worker_id)
+        assert failed_runtime is not None
+        self.assertEqual(
+            failed_runtime["worker_runtime"]["binding_status"], "claim_failed"
+        )
+        self.assertEqual(
+            failed_runtime["worker_runtime"]["sync_status"],
+            "manual_intervention_required",
+        )
+        self.assertFalse(memory_sync.inspect_claims(self.root, task_id))
+
+    def test_fake_claude_launch_and_claim_bind_real_managed_worker(self) -> None:
+        task_id = "058"
+        discussion_id = "discussion-058"
+        worker_id = "58585858-1234-1234-1234-123456789abc"
+        self.prepare_claude_worker_task(task_id, discussion_id)
+        worker_path = Path(tempfile.mkdtemp(prefix="claude-worker-058-"))
+        worker_path.rmdir()
+        self.addCleanup(shutil.rmtree, worker_path, True)
+        self.git(
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "worktree-agent-058",
+            str(worker_path),
+            "HEAD",
+        )
+        fake_dir = Path(tempfile.mkdtemp(prefix="fake-claude-"))
+        self.addCleanup(shutil.rmtree, fake_dir, True)
+        marker = fake_dir / "launched"
+        executable = fake_dir / "claude"
+        executable.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, sys\n"
+            "from pathlib import Path\n"
+            f"marker = Path({str(marker)!r})\n"
+            f"worktree = {str(worker_path)!r}\n"
+            f"worker_id = {worker_id!r}\n"
+            "args = sys.argv[1:]\n"
+            "if args == ['--help']:\n"
+            "    print('--bg --fork-session --worktree --settings agents')\n"
+            "elif args == ['agents', '--help']:\n"
+            "    print('--json --all --cwd')\n"
+            "elif args[:2] == ['agents', '--json']:\n"
+            "    sessions = [] if not marker.exists() else [{\n"
+            "        'id': '58585858', 'sessionId': worker_id,\n"
+            "        'cwd': worktree, 'state': 'working'}]\n"
+            "    print(json.dumps(sessions))\n"
+            "elif '--bg' in args and '--agent' in args:\n"
+            "    marker.touch()\n"
+            "    print('backgrounded · 58585858')\n"
+            "else:\n"
+            "    raise SystemExit(2)\n",
+            encoding="utf-8",
+        )
+        executable.chmod(0o755)
+
+        launched = memory_sync.launch_claude_worker(
+            self.root,
+            self.config,
+            task_id,
+            discussion_id,
+            claude_executable=str(executable),
+        )
+        self.assertTrue(launched["ok"], launched)
+        before_claim = memory_sync.read_session_runtime(self.root, discussion_id)
+        assert before_claim is not None
+        self.assertEqual(before_claim["task"]["lifecycle"], "approved")
+        self.assertEqual(before_claim["worker_runtime"]["binding_status"], "awaiting_claim")
+        self.assertEqual(before_claim["worker_runtime"]["worker_availability"], "starting")
+
+        claimed = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "acquire",
+                task_id,
+                "--worker-id",
+                worker_id,
+                "--session-id",
+                worker_id,
+                "--host-thread-ref",
+                worker_id,
+                "--discussion-session-id",
+                discussion_id,
+                "--host",
+                "claude",
+                "--container-kind",
+                "claude_background_session",
+                "--agent-kind",
+                "formal_worker",
+            ],
+            cwd=worker_path,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(claimed.returncode, 0, claimed.stdout + claimed.stderr)
+        claim = json.loads(claimed.stdout)["claim"]
+        self.assertEqual(claim["worker_id"], worker_id)
+        self.assertEqual(claim["host_thread_ref"], worker_id)
+        self.assertEqual(claim["discussion_session_id"], discussion_id)
+        self.assertEqual(claim["branch"], "worktree-agent-058")
+        self.assertEqual(claim["worktree"], str(worker_path.resolve()))
+        worker_runtime = memory_sync.read_session_runtime(self.root, worker_id)
+        assert worker_runtime is not None
+        self.assertEqual(worker_runtime["task"]["lifecycle"], "running")
+        self.assertEqual(worker_runtime["worker_runtime"]["binding_status"], "active")
 
     def test_parallel_claude_workers_receive_distinct_worktree_names(self) -> None:
         host_adapter_module = sys.modules["host_adapter"]
@@ -4331,6 +4521,90 @@ class MemorySyncTests(unittest.TestCase):
         assert runtime is not None
         self.assertEqual(runtime["session"]["role"], "discussion")
         self.assertEqual(self.git("status", "--porcelain").stdout, "")
+
+    def test_claude_discussion_route_requires_head_commit_and_direct_adapter_call(self) -> None:
+        task_id = "059"
+        discussion_id = "discussion-059"
+        task_path = f"tasks/build/{task_id}-claude-worker.md"
+        self.write(task_path, self.execution_ready_task(task_id))
+        self.git("add", task_path)
+        self.git("commit", "-qm", "prepare draft 059")
+        persisted = memory_sync.write_session_runtime(
+            self.root,
+            discussion_id,
+            {
+                "session": {
+                    "session_id": discussion_id,
+                    "role": "discussion",
+                    "host": "claude",
+                    "phase": "awaiting_worker_authorization",
+                    "expected_transition": {
+                        "kind": "approve_worker_launch",
+                        "task_id": task_id,
+                    },
+                },
+                "task": {
+                    "task_id": task_id,
+                    "lifecycle": "draft",
+                    "worker_authorized": False,
+                    "run_report": f"reports/runs/{task_id}-attempt-1.md",
+                },
+            },
+        )
+        self.assertTrue(persisted["ok"], persisted)
+        routed = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "user-prompt-submit",
+                "--host",
+                "claude",
+            ],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": discussion_id,
+                    "prompt": f"执行 {task_id} 任务",
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        context = json.loads(routed.stdout)["hookSpecificOutput"]["additionalContext"]
+        command = (
+            "python3 .wishgraph/hooks/memory_sync.py claude-worker launch "
+            f"{task_id} --discussion-session-id {discussion_id}"
+        )
+        self.assertIn("current Discussion session, directly run", context)
+        self.assertIn(command, context)
+        self.assertIn("Do not use Task, Agent, /fork", context)
+        self.assertIn("managed wishgraph-worker", context)
+        self.assertIn('"authorization_commit_required":true', context)
+        self.assertIn('"delegation_forbidden":true', context)
+
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="approved",
+                worker_authorized=True,
+            ),
+        )
+        rejected = memory_sync.launch_claude_worker(
+            self.root,
+            self.config,
+            task_id,
+            discussion_id,
+            claude_executable="definitely-not-claude",
+        )
+        self.assertFalse(rejected["ok"])
+        self.assertEqual(
+            rejected["error"],
+            "authorized_task_must_match_current_head_for_execution_thread",
+        )
 
     def test_internal_session_runtime_apply_deep_merges_reducer_patch(self) -> None:
         memory_sync.write_session_runtime(
@@ -6643,7 +6917,7 @@ class InstallerTests(unittest.TestCase):
 
             with mock.patch.object(installer_module, "ASSET_ROOT", asset_root):
                 manifest = installer_module.bundled_runtime_manifest()
-                self.assertEqual(manifest["runtime_version"], 19)
+                self.assertEqual(manifest["runtime_version"], 20)
 
                 policy_path = asset_root / "policy.py"
                 policy_path.write_bytes(policy_path.read_bytes() + b"# changed\r\n")
@@ -6737,7 +7011,7 @@ class InstallerTests(unittest.TestCase):
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["state"], "confirmed_recently")
             self.assertEqual(execution["last_event"], "session-start")
-            self.assertEqual(execution["observed_runtime_version"], 19)
+            self.assertEqual(execution["observed_runtime_version"], 20)
             self.assertTrue(payload["host_execution_confirmed"])
             self.assertEqual(payload["next_action"], "bootstrap_project_memory")
 
@@ -6903,12 +7177,12 @@ class InstallerTests(unittest.TestCase):
             payload = json.loads(upgraded.stdout)
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["after"]["state"], "current")
-            self.assertEqual(payload["after"]["installed_runtime_version"], 19)
+            self.assertEqual(payload["after"]["installed_runtime_version"], 20)
             config = json.loads(
                 (root / ".wishgraph" / "config.json").read_text(encoding="utf-8")
             )
             self.assertEqual(config["mode"], "enforce")
-            self.assertEqual(config["runtime_version"], 19)
+            self.assertEqual(config["runtime_version"], 20)
 
     def test_safe_upgrade_replaces_only_a_bundled_known_old_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -7242,7 +7516,7 @@ class InstallerTests(unittest.TestCase):
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["version"], 12)
-            self.assertEqual(config["runtime_version"], 19)
+            self.assertEqual(config["runtime_version"], 20)
             self.assertTrue(
                 (root / ".wishgraph" / "hooks" / "runtime-manifest.json").is_file()
             )
