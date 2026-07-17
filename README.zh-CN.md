@@ -158,6 +158,8 @@ Claude Code：
 
 `warn` 和 `enforce` 只对已经安装并实际加载 WishGraph Adapter 的宿主生效，不是操作系统沙箱。每个选中的 Agent 在第一次执行受管 Task 前都要重新打开一次会话，让 WishGraph 确认本会话 Hook 回执。
 
+用户级安装会合并一个全局 Adapter；它在未明确启用 WishGraph 的项目中保持静默。Claude 后台 Worker 的 Worktree 设置由每次启动临时注入，已启用项目无需重复创建 `.claude/settings.json`，也不会覆盖用户已有设置。
+
 ## 宿主适配
 
 你不需要选择“新窗口、后台会话还是子代理”。WishGraph 先判断当前宿主实际提供的能力，再选择最合适的 Worker 容器；原生创建不可用时，严格退回一行人工执行命令。
@@ -165,7 +167,7 @@ Claude Code：
 | 宿主 | 首选 Worker | 无法原生创建时 | 不变的边界 |
 | --- | --- | --- | --- |
 | **Codex** | 当前界面支持时，使用可查看、可追踪、可控制的 Agent thread。 | 输出 `执行 <task-id> 任务`，由用户在独立执行窗口输入。 | 精确授权、Claim、scope、验证、Run Report 和 Integration。 |
-| **Claude Code CLI** | 能力与 Agent 定义通过检查时，使用 `claude --bg --agent wishgraph-worker` 后台 session。 | 只输出 `执行 <task-id> 任务`。 | 同上；`/tasks` 只用于查看后台工作，不创建 WishGraph Task。 |
+| **Claude Code CLI** | 能力与 Agent 定义通过检查时，在独立 Worktree 中使用受管 `claude --bg --agent wishgraph-worker` 后台 session。 | 只输出 `执行 <task-id> 任务`。 | 同上；`/tasks` 只用于查看后台工作，不创建 WishGraph Task。 |
 | **其他宿主** | 使用宿主真正可检查的独立 thread 或窗口。 | 使用通用适配器和一行执行命令。 | 宿主能力不足不会扩大 Discussion 的执行权限。 |
 
 Python 3.9+ 是 WishGraph runtime 的要求，不代表你的业务项目必须使用 Python。

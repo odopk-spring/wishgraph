@@ -845,6 +845,14 @@ def reduce_orchestration(
                     "options": [],
                     "recommended_option": "",
                 },
+                "integration_runtime": {
+                    "decision_receipt": {
+                        "decision_id": decision_id,
+                        "task_id": task_id,
+                        "confirmed": True,
+                        "selected_option": str(data.get("selected_option") or ""),
+                    }
+                },
             },
         )
 
@@ -1162,16 +1170,18 @@ def report_state(report_path: str, content: str) -> ReportState:
     if state.work_type == "high_risk":
         if state.authorization not in EXPLICIT_AUTHORIZATIONS:
             errors.append(
-                "high-risk work requires explicit integration authorization"
+                "high-risk work requires a decision-required integration recommendation"
             )
     elif state.work_type == "parallel_batch" and state.execution_mode not in {
         "parallel_independent",
         "competitive",
     }:
         if state.authorization not in EXPLICIT_AUTHORIZATIONS:
-            errors.append("legacy parallel work requires explicit integration authorization")
+            errors.append(
+                "non-independent parallel work requires a decision-required integration recommendation"
+            )
     elif state.authorization not in EXPLICIT_AUTHORIZATIONS | INHERITED_AUTHORIZATIONS:
-        errors.append("missing or invalid integration authorization")
+        errors.append("missing or invalid integration recommendation")
     if state.readiness not in READY_STATUSES | BLOCKED_READINESS:
         errors.append("missing or invalid integration readiness")
 
@@ -1232,18 +1242,20 @@ def task_state(task_path: str, content: str) -> TaskState:
         )
     if state.work_type == "high_risk":
         if state.integration_policy != "requires_explicit_user_confirmation":
-            errors.append("high-risk task requires explicit integration confirmation policy")
+            errors.append("high-risk task requires decision_required integration route")
     elif state.work_type == "parallel_batch" and state.execution_mode not in {
         "parallel_independent",
         "competitive",
     }:
         if state.integration_policy != "requires_explicit_user_confirmation":
-            errors.append("legacy parallel task requires explicit integration confirmation policy")
+            errors.append(
+                "non-independent parallel task requires decision_required integration route"
+            )
     elif state.integration_policy not in {
         "inherited_task_approval",
         "requires_explicit_user_confirmation",
     }:
-        errors.append("missing or invalid integration policy")
+        errors.append("missing or invalid integration route")
     return state
 
 
@@ -1504,6 +1516,7 @@ def integration_state(
             task is not None
             and task.worker_creation_authorized
             and task.integration_policy == "inherited_task_approval"
+            and pending_by_path[path].authorization in INHERITED_AUTHORIZATIONS
             and dependencies_satisfied(task)
         )
         for path, task in zip(ready, structured_ready_tasks)
@@ -2282,6 +2295,8 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
     ignored = list(config.get("ignore_globs", []))
     changed = sorted(path for path in all_changed if not matches_any(path, ignored))
     result.changed_paths = changed
+    if not changed:
+        return result
 
     try:
         path_statuses = changed_path_statuses(root, scope)
@@ -2346,9 +2361,6 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
                 f"Duplicate revision_id {revision_id} is declared by: "
                 + ", ".join(sorted(duplicate_paths))
             )
-
-    if not changed:
-        return result
 
     paths = config["paths"]
     discussion_path = paths["discussion_prompt"]

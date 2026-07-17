@@ -142,7 +142,7 @@ Events must come from structured user commands, persisted runtime facts, validat
 - `approved + real user-visible and inspectable Worker thread/window + acquired Claim -> running + waiting_for_worker`.
 - `running + valid terminal report + released Claim -> completed|blocked|incomplete`.
 - Any Worker terminal result first enters `integration_pending`.
-- Safe completed evidence enters Discussion-local `integrating` after lease acquisition.
+- Safe completed evidence produces a one-time reducer transition grant, then the bound Discussion acquires the lease and enters local `integrating`.
 - Material risk or ambiguity enters `decision_required` with one concrete question.
 - Missing evidence or failed validation enters Worker repair rather than integration.
 - Successful integration moves formal Tasks to `integrated`; human acceptance moves them to `reviewed`.
@@ -189,7 +189,9 @@ The reducer asks whether the Formal Worker contract can be met. The Host Adapter
 - High-risk commands never inherit low-risk politeness stripping.
 - Exact ID parsing prevents prefix collisions.
 - Discussion business writes and implementation builds are denied.
+- A Worker session can never transition to Discussion; public `session set/apply` cannot write role, phase, expected transition, Worker identity, or Integration authority.
 - Worker entry requires approval, dependency checks, correct branch/worktree, and a fresh Claim.
+- Integration lease acquisition requires the bound Discussion's unconsumed transition grant plus fresh Task, Report, released-Claim, branch, and worktree evidence.
 - Integration never creates a user-visible window.
 - Safe integration never asks permission twice.
 - High-risk integration asks about the risk, not whether to start the process.

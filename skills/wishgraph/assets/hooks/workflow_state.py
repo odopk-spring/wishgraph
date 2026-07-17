@@ -819,7 +819,15 @@ def parse_report_state(report_path: str, content: str) -> ReportState:
         work_type = normalized_string(data.get("work_type"))
         batch_id = normalized_string(data.get("batch_id"), "n/a")
         readiness = normalized_string(data.get("integration_readiness"))
-        authorization = normalized_string(data.get("integration_authorization"))
+        recommendation = normalized_string(data.get("integration_recommendation"))
+        authorization = {
+            "safe_for_discussion_integration": "inherited_task_approval",
+            "decision_required": "explicit_user_confirmation",
+            "blocked": "blocked",
+        }.get(
+            recommendation,
+            normalized_string(data.get("integration_authorization")),
+        )
         scope_check = normalized_string(data.get("scope_check"))
         conflict_status = normalized_string(data.get("conflict_status"))
         new_decision = normalized_string(data.get("new_decision"))
@@ -944,6 +952,7 @@ def canonical_integration_policy(value: Any) -> str:
         "approved with task",
         "随任务批准授权",
         "任务批准",
+        "auto_in_discussion",
     }:
         return "inherited_task_approval"
     if policy in {
@@ -957,6 +966,7 @@ def canonical_integration_policy(value: Any) -> str:
         "需要用户明确确认",
         "requires_explicit_user_confirmation",
         "explicit_confirmation_required",
+        "decision_required",
     }:
         return "requires_explicit_user_confirmation"
     return policy
@@ -1059,7 +1069,9 @@ def parse_task_state(task_path: str, content: str) -> TaskState:
         worker_authorized = worker_authorized_value is True
         if not isinstance(worker_authorized_value, bool):
             errors.append("worker_creation_authorized must be true or false")
-        integration_policy = canonical_integration_policy(data.get("integration_policy"))
+        integration_policy = canonical_integration_policy(
+            data.get("integration_route", data.get("integration_policy"))
+        )
         state_source = "structured"
     else:
         task_id = Path(task_path).stem

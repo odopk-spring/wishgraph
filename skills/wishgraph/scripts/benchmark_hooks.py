@@ -327,6 +327,15 @@ def benchmark(args: argparse.Namespace) -> dict[str, Any]:
         factories = payload_factories(root)
         results: dict[str, Any] = {}
         for name, (event, factory) in factories.items():
+            # A full cold-process benchmark can outlive the production receipt TTL.
+            # Refresh outside the measured samples so long benchmark runs continue
+            # to exercise the intended gate path instead of measuring a stale host.
+            invoke(
+                runtime,
+                root,
+                "session-start",
+                {"cwd": str(root), "session_id": "bench-neutral", "host": "codex"},
+            )
             results[name] = measure_case(
                 runtime,
                 root,
@@ -347,6 +356,12 @@ def benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 "pretool_neutral_write_deny",
                 "pretool_worker_write_allow",
             ):
+                invoke(
+                    runtime,
+                    root,
+                    "session-start",
+                    {"cwd": str(root), "session_id": "bench-neutral", "host": "codex"},
+                )
                 event, factory = factories[name]
                 measured = measure_case(
                     runtime,

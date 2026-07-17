@@ -22,7 +22,7 @@ Task state 只记录 Task Lifecycle。Session Role、Flow Phase 与 `expected_tr
   "comparison_group": null,
   "run_report": "reports/runs/001-attempt-1.md",
   "worker_creation_authorized": false,
-  "integration_policy": "inherited_task_approval"
+  "integration_route": "auto_in_discussion"
 }
 ```
 <!-- wishgraph:task-state:end -->

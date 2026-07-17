@@ -15,6 +15,7 @@
 - 不扩大范围。
 - 不依赖聊天历史。
 - 你是 Worker；不要执行 Discussion-local Integration，也不要修改共享项目记忆。
+- 不得把本 session 提升为 Discussion、直接写 role/phase 权限字段、请求 Integration transition grant，或控制 Integration lease。
 - 不启动其他 Worker。Integration 是后续 Discussion-local phase，不是 Worker 创建的另一个 Agent。
 
 ## 语言模式
@@ -56,7 +57,7 @@
 - 集成前安全停止或被拒绝的 attempt 可标记 `abandoned` 或 `rejected`；竞争失败候选标记 `superseded`。保留 branch、报告和证据。
 - 从 `reports/RUN_REPORT.md` 创建唯一的新文件 `reports/runs/<task-id>-attempt-N.md`。
 - 在该执行报告中记录验证证据，并对每个共享记忆文件填写 `Integrate` 或 `N/A`。
-- 在执行报告的 `wishgraph:run-state` JSON 块中填写任务工作类型、批次 ID、集成授权、状态、集成就绪状态、范围检查、冲突状态、新决策标记和验证结果。该状态块是机器流程真相源；证据和影响理由继续写在周围 Markdown 中。
+- 在执行报告的 `wishgraph:run-state` JSON 块中填写任务工作类型、批次 ID、集成建议、状态、集成就绪状态、范围检查、冲突状态、新决策标记和验证结果。集成建议不授予 Integration 权限；证据和影响理由继续写在周围 Markdown 中。
 - 验证失败、超出范围、仍有冲突、出现重大新决策或无法安全回滚时，把报告标记为 Blocked 或 Incomplete，不得写 Completed。
 - 不要修改 `PRD.md`、`ARCHITECTURE.md`、`CODEMAP.md`、`CONVENTIONS.md`、`reports/PROJECT_STATUS.md` 或任何提示词文件；持有 lease 的 Discussion-local Integration 阶段写入项目状态概览并刷新讨论交接。
 - 已安装 hooks 时运行 `python3 .wishgraph/hooks/memory_sync.py check --scope worktree`，解决失败后才能宣称完成。

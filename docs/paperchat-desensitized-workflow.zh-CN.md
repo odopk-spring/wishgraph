@@ -137,7 +137,7 @@ tasks/build/002-import-local-text.md
 - 验证命令
 - 手动检查
 - 执行后必须更新的文件
-- 工作类型、批次 ID 和集成授权
+- 工作类型、批次 ID 和未来的 Integration route
 - 回滚边界
 - 报告格式
 

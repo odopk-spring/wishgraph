@@ -14,7 +14,7 @@
 
 1. 核对准确的 Task ID 和不可变 Run Report。
 2. 确认集成评估为安全，或所有必要实质决策都已解决。
-3. 原子获取 Integration lease，并绑定当前 Discussion session、integration ID、base branch、绝对 worktree、所选 Task ID 与 Run Report。
+3. 要求 reducer 为本次精确选择生成且尚未消费的一次性 transition grant，再原子获取 Integration lease，并绑定当前 Discussion session、integration ID、base branch、绝对 worktree、所选 Task ID 与 Run Report。
 4. 已存在 active 或 stale lease 时停止，禁止并发集成。
 
 Integration lease 只授权本次所选结果的合并、有限冲突解决、组合验证、共享状态更新和集成提交，不授权实现新功能。

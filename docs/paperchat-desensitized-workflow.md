@@ -137,7 +137,7 @@ A good task spec should include:
 - validation commands
 - manual checks
 - files that must be updated after execution
-- work type, batch ID, and integration authorization
+- work type, batch ID, and future Integration route
 - rollback boundary
 - report format
 

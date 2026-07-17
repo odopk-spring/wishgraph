@@ -158,6 +158,8 @@ See [Getting Started](GETTING_STARTED.md) for existing-project adoption, other i
 
 `warn` and `enforce` apply only when the current host has installed and loaded its WishGraph Adapter. They are not an operating-system sandbox. Reopen each selected Agent before its first managed Task so WishGraph can confirm a current-session Hook receipt.
 
+The user-level installer merges a global Adapter that stays silent outside explicitly enabled projects. Claude background launch injects its Worktree settings per launch, so an enabled project does not need a duplicate `.claude/settings.json`; existing user settings are not overwritten.
+
 ## Host support
 
 You do not choose between a new window, background session, or subagent. WishGraph checks what the current host can genuinely provide and selects the best Worker container; when native creation is unavailable, it falls back strictly to one manual execution command.
@@ -165,7 +167,7 @@ You do not choose between a new window, background session, or subagent. WishGra
 | Host | Preferred Worker | Native creation unavailable | Boundaries that do not change |
 | --- | --- | --- | --- |
 | **Codex** | A user-visible, inspectable, controllable Agent thread when the current surface supports it. | Print `执行 <task-id> 任务` for a separate execution window. | Exact authorization, Claim, scope, validation, Run Report, and Integration. |
-| **Claude Code CLI** | A `claude --bg --agent wishgraph-worker` background session after capability and Agent checks pass. | Print only `执行 <task-id> 任务`. | Same boundaries; `/tasks` views background work and does not create a WishGraph Task. |
+| **Claude Code CLI** | A managed `claude --bg --agent wishgraph-worker` background session in a unique Worktree after capability and Agent checks pass. | Print only `执行 <task-id> 任务`. | Same boundaries; `/tasks` views background work and does not create a WishGraph Task. |
 | **Other hosts** | A genuinely inspectable independent thread or window. | Use the generic adapter and the one-line command. | Missing host capabilities never expand Discussion authority. |
 
 Python 3.9+ is a WishGraph runtime requirement; your business project does not need to be written in Python.

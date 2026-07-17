@@ -30,9 +30,11 @@ The installer:
 - Installs the Skill at `~/.claude/skills/wishgraph/`, making `/wishgraph` available.
 - Installs the `.wishgraph/` runtime in the current project.
 - Defaults the project to `required_hosts: [codex, claude]` and atomically installs both project adapters. Add `--project-hosts claude` only for a deliberate Claude-only project.
-- Safely merges WishGraph Hooks into `.claude/settings.json` while preserving unrelated configuration.
+- Installs a user-level Adapter that stays silent outside explicitly enabled projects; project-local Hooks remain available for compatibility.
 - Installs the managed `.claude/agents/wishgraph-worker.md` definition.
-- Preserves existing Worktree configuration, defaults an unset `baseRef` to `head`, and makes the `.wishgraph` runtime available inside isolated worktrees.
+- Passes the minimal Worktree configuration per launch, without rewriting existing user or project settings, and makes the `.wishgraph` runtime available inside isolated worktrees.
+
+The global Adapter and managed Agent may serve every project that explicitly opts in through `.wishgraph/config.json`. A duplicate project `.claude/settings.json` is optional.
 
 The default `warn` mode reports problems without blocking completion or commits. After one successful full run, append `--strict` to the Bash command or `-Strict` on PowerShell if you want blocking gates.
 
@@ -56,15 +58,15 @@ After Discussion receives exact authority, the Host Adapter detects the current 
 
 | Capability tier | Behavior |
 | --- | --- |
-| `background_session` | Run `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"`, query `claude agents --json --all --cwd <project>`, and persist the stable session ID. |
+| `background_session` | Run the equivalent of `claude --bg --agent wishgraph-worker --worktree <unique> --settings <ephemeral-json> "执行 <task-id> 任务"`, query `claude agents --json --all --cwd <project>`, and persist the stable session ID plus the observed worktree. |
 | `forked_subagent` | Use only for short, low-risk, read-only-by-default assistance; it is not a Formal business Worker. |
 | `manual_command_only` | Print only `执行 <task-id> 任务`, then stop Discussion execution. |
 
 `background_session` requires all of the following:
 
-- The current CLI supports `--bg` and `agents --json`.
+- The current CLI supports `--bg`, `agents --json`, `--worktree`, and `--settings`.
 - The managed `wishgraph-worker` Agent definition exists.
-- Worktree configuration exposes the shared runtime to an isolated Worker.
+- The per-launch Worktree configuration exposes the shared runtime to an isolated Worker.
 - The exact Task is authorized and its record matches the current `HEAD`.
 
 A successful `claude --bg` return does not make the Task `running`. WishGraph must persist the real session ID, and the Worker must acquire a Claim bound to Task, session, branch, absolute worktree, scope, and validation plan after entering its actual worktree.
@@ -81,15 +83,14 @@ Discussion never implements business code because Claude background support is u
 
 ```bash
 claude agents --json --all --cwd /path/to/project
-claude logs <session-id>
-claude attach <session-id>
-claude stop <session-id>
+claude agents --cwd /path/to/project
+claude --resume <full-session-id>
 ```
 
-- `claude agents` provides structured session state.
-- `claude logs` is diagnostic only; a prose “done” message is not terminal evidence.
-- `claude attach` restores interactive control.
-- `claude stop` stops the session without fabricating a successful closeout.
+- `claude agents --json` provides structured session state for WishGraph refresh.
+- `claude agents --cwd` opens Claude's native interactive view for inspection and control.
+- `claude --resume` continues a selected conversation by its full stable session ID when recovery is appropriate.
+- Current Claude Code does not expose `claude logs`, `claude attach`, or `claude stop` subcommands. WishGraph does not call or advertise them; a created session that fails verification is recorded as `manual_intervention_required`.
 - `/tasks` only displays background work associated with the current Claude session. It does not create a WishGraph Task or grant a Claim.
 
 WishGraph enters Integration only when terminal Task state, an immutable Run Report, validation, and released Claim evidence agree.

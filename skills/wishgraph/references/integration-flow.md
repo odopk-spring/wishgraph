@@ -58,9 +58,24 @@ Require all applicable evidence:
 - Rollback remains safe.
 - For `parallel_independent`, every expected Worker is terminal and overlap, interface, dependency, and combined-validation gates pass.
 
-Task approval carries authority for later safe sequential integration. Do not ask twice. Parallel, competitive, high-risk, or ambiguous results follow their explicit policy.
+Task approval carries the user's approval forward so the original Discussion can perform a later safe sequential Integration without asking twice. It grants the Worker no Integration authority. Parallel, competitive, high-risk, or ambiguous results follow their explicit route.
+
+Task `integration_route` describes future routing only: `auto_in_discussion` or `decision_required`. Run Report `integration_recommendation` records `safe_for_discussion_integration`, `decision_required`, or `blocked`; it never grants the Worker Integration authority. Continue parsing legacy `integration_policy` and `integration_authorization`, but never let a Run Report enlarge the approved Task route. The Task route is immutable after approval.
 
 ## Integration Lease
+
+The legal authority chain is:
+
+```text
+Discussion integration_pending
+-> reducer evaluates durable evidence
+-> one-time Integration transition grant
+-> exact grant is atomically consumed
+-> bound Integration lease
+-> Discussion-local Integration
+```
+
+The grant is short-lived runtime evidence, not project truth. Bind it to the Discussion session, Integration ID, selected Task/Revision IDs, selected reports, evaluation or confirmed-decision outcome, base branch, and absolute worktree. Never generate it from a direct runtime patch. A Worker, Helper, neutral session, different Discussion, changed selection, or replayed grant must be rejected.
 
 Before entering `integrating`, atomically acquire one lease bound to:
 
@@ -71,13 +86,14 @@ base branch
 absolute worktree
 selected Task IDs
 selected Run Reports
+transition grant ID
 optional Revision ID
 lease status and heartbeat
 ```
 
 Use the lease as the single-writer authority for merge resolution, combined validation, shared-state writes, and the integration commit. Do not use it to implement new product work.
 
-Only one active lease may exist for the repository's Git common directory. Release it after durable completion; revoke only through explicit recovery authority.
+Lease acquisition rechecks that every work unit and report exists and is terminal, validation is complete, every matching Worker Claim is released, no active Claim remains, the route is still safe or specifically confirmed, and the branch/worktree binding still matches. Only one active lease may exist for the repository's Git common directory. A new Worker Claim is also rejected while a lease is active. Release the lease after durable completion; revoke only through explicit recovery authority.
 
 ## Merge And Combined Validation
 

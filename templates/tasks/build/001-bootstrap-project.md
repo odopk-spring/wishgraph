@@ -22,7 +22,7 @@ Task state records only Task Lifecycle. Session Role, Flow Phase, and `expected_
   "comparison_group": null,
   "run_report": "reports/runs/001-attempt-1.md",
   "worker_creation_authorized": false,
-  "integration_policy": "inherited_task_approval"
+  "integration_route": "auto_in_discussion"
 }
 ```
 <!-- wishgraph:task-state:end -->

@@ -179,7 +179,7 @@ project/
 - 验证命令和手动检查。
 - 有 task 文件时必须更新任务状态。
 - 指定 `reports/runs/` 下唯一的不可变执行报告路径。
-- 工作类型、并行时的批次 ID 和集成授权。
+- 工作类型、并行时的批次 ID 和未来的 Integration route。
 - 对共享记忆填写 Integrate 或 N/A；Worker 不直接应用这些建议。
 - 安装 WishGraph hooks 后运行 `python3 .wishgraph/hooks/memory_sync.py check --scope worktree`。
 - 回滚边界。
@@ -195,7 +195,7 @@ project/
 - 手动启动时只向新 Worker 提供 `执行 <task-id> 任务`；Worker 从仓库读取执行提示词和准确 Task。
 - 对单个安全的 `sequential` 结果，任务批准已经授权正常集成，不重复提问。只有执行报告为 Completed 且可集成、规定验证全部通过、范围未变化、没有冲突或新增产品／架构／数据决策，并且目标工作区安全时才能启动。
 - `parallel_independent` 在所有预期 Worker 终态且重叠、依赖、接口、风险、组合合并和验证都机械通过时静默集成；高风险、冲突、阻塞、竞争或无法判断时才返回本窗口。
-- 明确区分集成授权和结果 Review。集成后仍回到本窗口由用户审查结果。
+- 明确区分 Integration 路由和结果 Review。Task route 与 Worker 建议都不授予执行权限；真正权限只来自 reducer 签发的 grant 和绑定 lease。集成后仍回到本窗口由用户审查结果。
 - 用户接受集成结果后，只把对应 task-state 从 `integrated` 改为 `reviewed`。如果用户拒绝或要求修改，留在讨论阶段创建有边界的后续／重试任务，不得虚假标记 reviewed。
 - 每个 Worker 终态都进入 `integration_pending`。安全证据自动获取 Integration lease 并进入 Discussion-local Integration；不得创建 Integration 窗口，也不询问是否开始。Discussion 不活跃时持久化 pending，在下次开始或刷新时恢复。重大风险进入 `decision_required`，只询问具体决定。
 - 换窗口继续前保持本文件的精简交接为最新状态；新窗口输入“开始讨论”，已经处于 Discussion 时输入“刷新项目状态”。不要输出完整提示词让用户手工搬运。

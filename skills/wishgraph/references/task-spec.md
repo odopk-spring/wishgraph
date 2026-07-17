@@ -51,10 +51,12 @@ Language mode:
   "comparison_group": null,
   "run_report": "reports/runs/001-attempt-1.md",
   "worker_creation_authorized": false,
-  "integration_policy": "inherited_task_approval"
+  "integration_route": "auto_in_discussion"
 }
 ```
 <!-- wishgraph:task-state:end -->
+
+`integration_route` is immutable after approval and controls only the later Discussion route. Use `decision_required` for high-risk work. Legacy `integration_policy` remains readable but never grants the Worker Integration authority.
 
 ## Intent
 
@@ -99,7 +101,7 @@ Before Worker authorization, confirm:
 - Validation commands are concrete and available.
 - Rollback is safe and bounded.
 - Dependencies and parent identity are exact.
-- Work type, execution mode, batch/comparison group, and integration policy are correct.
+- Work type, execution mode, batch/comparison group, and future Integration route are correct.
 - The Run Report path is unique for the Task and attempt.
 - Shared-memory impact and WishGraph checks are required.
 - Human-facing language follows the project mode without translating technical literals.

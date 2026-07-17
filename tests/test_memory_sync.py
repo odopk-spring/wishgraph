@@ -112,6 +112,66 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertIn("Write exactly one immutable Run Report", content)
         self.assertIn("Release the Claim", content)
 
+    def test_global_host_adapter_preserves_settings_and_is_noop_when_project_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            home = Path(tempdir) / ".claude"
+            home.mkdir(parents=True)
+            settings_path = home / "settings.json"
+            settings_path.write_text(
+                json.dumps(
+                    {
+                        "permissions": {"allow": ["Read"]},
+                        "hooks": {
+                            "SessionStart": [
+                                {
+                                    "hooks": [
+                                        {
+                                            "type": "command",
+                                            "command": "echo keep-global-hook",
+                                        },
+                                        {
+                                            "type": "command",
+                                            "command": "python3 ${CLAUDE_PROJECT_DIR}/.wishgraph/hooks/memory_sync.py session-start --host claude",
+                                        },
+                                    ]
+                                }
+                            ]
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            installer = ROOT / "skills" / "wishgraph" / "scripts" / "install_global_adapter.py"
+            installed = subprocess.run(
+                [sys.executable, str(installer), "--host", "claude", "--config-home", str(home)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(installed.returncode, 0, installed.stderr)
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+            self.assertEqual(settings["permissions"]["allow"], ["Read"])
+            self.assertIn("global_host_hook.py", json.dumps(settings["hooks"]))
+            self.assertIn("echo keep-global-hook", json.dumps(settings["hooks"]))
+            self.assertNotIn(
+                ".wishgraph/hooks/memory_sync.py", json.dumps(settings["hooks"])
+            )
+
+            project = Path(tempdir) / "plain-project"
+            project.mkdir()
+            subprocess.run(["git", "-C", str(project), "init", "-q"], check=True)
+            bridge = ROOT / "skills" / "wishgraph" / "scripts" / "global_host_hook.py"
+            result = subprocess.run(
+                [sys.executable, str(bridge), "session-start", "--host", "claude"],
+                cwd=project,
+                input=json.dumps({"cwd": str(project), "session_id": "plain"}),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), {})
+
     def test_codex_worker_agent_uses_current_project_custom_agent_format(self) -> None:
         content = (
             ROOT
@@ -753,9 +813,42 @@ class OrchestrationStateMachineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
             subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            grants = []
+            for session_id, integration_id, task_id in (
+                ("discussion-1", "integration-1", "002"),
+                ("discussion-2", "integration-2", "003"),
+            ):
+                memory_sync.write_session_runtime(
+                    root,
+                    session_id,
+                    {
+                        "session": {
+                            "session_id": session_id,
+                            "role": "discussion",
+                            "host": "codex",
+                            "phase": "integrating",
+                            "expected_transition": None,
+                        },
+                        "session_provenance": {
+                            "initial_role": "neutral",
+                            "discussion_authorized": True,
+                        },
+                    },
+                )
+                grants.append(
+                    memory_sync.create_integration_transition_grant(
+                        root,
+                        session_id=session_id,
+                        integration_id=integration_id,
+                        task_ids=[task_id],
+                        reports=[f"reports/runs/{task_id}-attempt-1.md"],
+                        outcome="safe",
+                    )["grant"]["grant_id"]
+                )
             first = memory_sync.acquire_integration_lease(
                 root,
                 session_id="discussion-1",
+                grant_id=grants[0],
                 integration_id="integration-1",
                 task_ids=["002"],
                 reports=["reports/runs/002-attempt-1.md"],
@@ -764,6 +857,7 @@ class OrchestrationStateMachineTests(unittest.TestCase):
             second = memory_sync.acquire_integration_lease(
                 root,
                 session_id="discussion-2",
+                grant_id=grants[1],
                 integration_id="integration-2",
                 task_ids=["003"],
                 reports=["reports/runs/003-attempt-1.md"],
@@ -1783,6 +1877,11 @@ class MemorySyncTests(unittest.TestCase):
                         "task_id": task_id,
                     },
                 },
+                "session_provenance": {
+                    "initial_role": "neutral",
+                    "host": host,
+                    "discussion_authorized": True,
+                },
                 "task": {
                     "task_id": task_id,
                     "lifecycle": "approved",
@@ -1792,6 +1891,103 @@ class MemorySyncTests(unittest.TestCase):
             },
         )
         self.assertTrue(persisted["ok"], persisted)
+
+    def prepare_safe_integration(
+        self,
+        task_id: str,
+        discussion_session_id: str,
+        integration_id: str,
+    ) -> dict[str, object]:
+        task_path = f"tasks/build/{task_id}-integration.md"
+        report_path = f"reports/runs/{task_id}-attempt-1.md"
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="approved",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.git("add", task_path)
+        self.git("commit", "-qm", f"authorize {task_id}")
+        claimed = memory_sync.acquire_claim(
+            self.root,
+            task_id,
+            1,
+            f"worker-{task_id}",
+            discussion_session_id=discussion_session_id,
+            require_clean=True,
+        )
+        self.assertTrue(claimed["ok"], claimed)
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="completed",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.write(
+            report_path,
+            self.structured_run_report(
+                f"{task_id}-attempt-1",
+                task_id=task_id,
+                changed_paths=["src/app.py"],
+            ),
+        )
+        released = memory_sync.update_claim(
+            self.root,
+            claimed["claim"]["claim_id"],
+            "release",
+            branch=claimed["claim"]["branch"],
+            worktree=claimed["claim"]["worktree"],
+        )
+        self.assertTrue(released["ok"], released)
+        runtime = memory_sync.write_session_runtime(
+            self.root,
+            discussion_session_id,
+            {
+                "session": {
+                    "session_id": discussion_session_id,
+                    "role": "discussion",
+                    "host": "codex",
+                    "phase": "integration_pending",
+                    "expected_transition": {
+                        "kind": "auto_integrate",
+                        "task_id": task_id,
+                        "report_id": report_path,
+                    },
+                },
+                "session_provenance": {
+                    "initial_role": "neutral",
+                    "host": "codex",
+                    "discussion_authorized": True,
+                },
+                "task": {
+                    "task_id": task_id,
+                    "lifecycle": "completed",
+                    "worker_authorized": True,
+                    "run_report": report_path,
+                },
+            },
+        )
+        self.assertTrue(runtime["ok"], runtime)
+        transition = memory_sync.transition_session_runtime(
+            self.root,
+            self.config,
+            discussion_session_id,
+            "integration_evaluated",
+            {
+                "outcome": "safe",
+                "integration_id": integration_id,
+                "task_ids": [task_id],
+                "reports": [report_path],
+            },
+        )
+        self.assertTrue(transition["ok"], transition)
+        return transition
 
     def overview(
         self,
@@ -1885,6 +2081,37 @@ class MemorySyncTests(unittest.TestCase):
         self.assertEqual(state.status, "completed")
         self.assertEqual(state.readiness, "ready")
         self.assertEqual(state.safety_errors, [])
+
+    def test_new_integration_route_and_recommendation_fields_are_canonical(self) -> None:
+        task_content = self.structured_task("061", status="approved").replace(
+            '"integration_policy": "inherited_task_approval"',
+            '"integration_route": "auto_in_discussion"',
+        )
+        task = memory_sync.parse_task_state("tasks/build/061.md", task_content)
+        self.assertEqual(task.integration_policy, "inherited_task_approval")
+
+        report_content = self.structured_run_report("061-attempt-1").replace(
+            '"integration_authorization": "inherited_task_approval"',
+            '"integration_recommendation": "safe_for_discussion_integration"',
+        )
+        report = memory_sync.report_state(
+            "reports/runs/061-attempt-1.md", report_content
+        )
+        self.assertEqual(report.authorization, "inherited_task_approval")
+        self.assertEqual(report.safety_errors, [])
+
+    def test_worker_report_recommendation_cannot_downgrade_high_risk_route(self) -> None:
+        content = self.structured_run_report(
+            "062-attempt-1", work_type="high_risk"
+        ).replace(
+            '"integration_authorization": "explicit_user_confirmation"',
+            '"integration_recommendation": "safe_for_discussion_integration"',
+        )
+        report = memory_sync.report_state("reports/runs/062-attempt-1.md", content)
+        self.assertIn(
+            "high-risk work requires a decision-required integration recommendation",
+            report.safety_errors,
+        )
 
     def test_task_id_suffixes_are_unbounded_excel_style_sequences(self) -> None:
         self.assertEqual(memory_sync.task_id_parts("012"), ("012", ""))
@@ -2535,7 +2762,9 @@ class MemorySyncTests(unittest.TestCase):
 
     def test_claude_worker_capability_levels_use_only_native_host_facts(self) -> None:
         host_adapter_module = sys.modules["host_adapter"]
-        agent_path = self.root / ".claude" / "agents" / "wishgraph-worker.md"
+        config_home = self.root / "claude-config"
+        (self.root / ".claude" / "agents" / "wishgraph-worker.md").unlink()
+        agent_path = config_home / "agents" / "wishgraph-worker.md"
         agent_path.parent.mkdir(parents=True, exist_ok=True)
         agent_path.write_text(
             "---\nname: wishgraph-worker\n---\n"
@@ -2543,21 +2772,13 @@ class MemorySyncTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
-        (self.root / ".claude" / "settings.json").write_text(
-            json.dumps(
-                {
-                    "worktree": {
-                        "baseRef": "head",
-                        "symlinkDirectories": [".wishgraph"],
-                    }
-                }
-            ),
-            encoding="utf-8",
-        )
         main_help = subprocess.CompletedProcess(
             ["claude", "--help"],
             0,
-            stdout="--bg --fork-session\nCommands:\n  agents [options]\n",
+            stdout=(
+                "--bg --fork-session --worktree --settings\n"
+                "Commands:\n  agents [options]\n"
+            ),
             stderr="",
         )
         agents_help = subprocess.CompletedProcess(
@@ -2566,7 +2787,8 @@ class MemorySyncTests(unittest.TestCase):
             stdout="--json --all --cwd",
             stderr="",
         )
-        isolated_env = {"CLAUDE_CONFIG_DIR": str(self.root / "claude-config")}
+        (self.root / ".claude" / "settings.json").unlink()
+        isolated_env = {"CLAUDE_CONFIG_DIR": str(config_home)}
         with (
             mock.patch.dict(os.environ, isolated_env),
             mock.patch.object(host_adapter_module.shutil, "which", return_value="/bin/claude"),
@@ -2604,6 +2826,160 @@ class MemorySyncTests(unittest.TestCase):
         ):
             manual = memory_sync.detect_claude_worker_capability(self.root)
         self.assertEqual(manual.tier, "manual_command_only")
+
+    def test_global_claude_adapter_and_agent_satisfy_enabled_project_guard(self) -> None:
+        config_home = self.root / "global-claude"
+        installer = ROOT / "skills" / "wishgraph" / "scripts" / "install_global_adapter.py"
+        installed = subprocess.run(
+            [
+                sys.executable,
+                str(installer),
+                "--host",
+                "claude",
+                "--config-home",
+                str(config_home),
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        global_agent = config_home / "agents" / "wishgraph-worker.md"
+        global_agent.parent.mkdir(parents=True)
+        shutil.copy2(
+            ROOT
+            / "skills"
+            / "wishgraph"
+            / "assets"
+            / "claude-agents"
+            / "wishgraph-worker.md",
+            global_agent,
+        )
+        (self.root / ".claude" / "settings.json").unlink()
+        (self.root / ".claude" / "agents" / "wishgraph-worker.md").unlink()
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(config_home)}):
+            state = memory_sync.current_host_adapter_state(self.root, "claude")
+        self.assertEqual(state["state"], "current")
+        self.assertEqual(state["scope"], "global")
+        self.assertEqual(Path(state["agent_path"]), global_agent)
+
+    def test_global_claude_install_launches_without_project_settings(self) -> None:
+        task_id = "057"
+        discussion_id = "discussion-057"
+        worker_id = "87654321-4321-4321-4321-cba987654321"
+        host_adapter_module = sys.modules["host_adapter"]
+        with tempfile.TemporaryDirectory() as tempdir:
+            config_home = Path(tempdir) / ".claude"
+            installer = (
+                ROOT
+                / "skills"
+                / "wishgraph"
+                / "scripts"
+                / "install_global_adapter.py"
+            )
+            installed = subprocess.run(
+                [
+                    sys.executable,
+                    str(installer),
+                    "--host",
+                    "claude",
+                    "--config-home",
+                    str(config_home),
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(installed.returncode, 0, installed.stderr)
+            global_agent = config_home / "agents" / "wishgraph-worker.md"
+            global_agent.parent.mkdir(parents=True)
+            shutil.copy2(
+                ROOT
+                / "skills"
+                / "wishgraph"
+                / "assets"
+                / "claude-agents"
+                / "wishgraph-worker.md",
+                global_agent,
+            )
+            self.git(
+                "rm",
+                "-q",
+                ".claude/settings.json",
+                ".claude/agents/wishgraph-worker.md",
+            )
+            self.git("commit", "-qm", "use global Claude adapter")
+            self.prepare_claude_worker_task(task_id, discussion_id)
+            observed = memory_sync.record_host_observation(
+                self.root, "claude", "session-start", self.config["runtime_version"]
+            )
+            self.assertTrue(observed["ok"], observed)
+            capability = memory_sync.ClaudeWorkerCapability(
+                tier="background_session",
+                claude_executable="/bin/claude",
+                agent_definition=str(global_agent),
+                supports_background=True,
+                supports_agents_json=True,
+                supports_worktree=True,
+                supports_settings=True,
+                reason="native_background_session_available",
+            )
+            before = {"ok": True, "sessions": []}
+            actual_worktree = self.root.parent / "claude-worker-057"
+            after = {
+                "ok": True,
+                "sessions": [
+                    {
+                        "id": "87654321",
+                        "sessionId": worker_id,
+                        "cwd": str(actual_worktree),
+                        "state": "working",
+                    }
+                ],
+            }
+            launched_process = subprocess.CompletedProcess(
+                [], 0, stdout="backgrounded · 87654321\n", stderr=""
+            )
+            global_settings_before = (
+                config_home / "settings.json"
+            ).read_bytes()
+            with (
+                mock.patch.dict(
+                    os.environ, {"CLAUDE_CONFIG_DIR": str(config_home)}
+                ),
+                mock.patch.object(
+                    host_adapter_module,
+                    "detect_claude_worker_capability",
+                    return_value=capability,
+                ),
+                mock.patch.object(
+                    host_adapter_module,
+                    "_query_claude_agents",
+                    side_effect=[before, after],
+                ),
+                mock.patch.object(
+                    host_adapter_module,
+                    "_run_process",
+                    return_value=launched_process,
+                ),
+            ):
+                payload = memory_sync.launch_claude_worker(
+                    self.root, self.config, task_id, discussion_id
+                )
+            self.assertTrue(payload["ok"], payload)
+            self.assertTrue(payload["launched"])
+            self.assertFalse((self.root / ".claude" / "settings.json").exists())
+            self.assertEqual(
+                (config_home / "settings.json").read_bytes(),
+                global_settings_before,
+            )
+            self.assertEqual(payload["claude_session_id"], worker_id)
+            runtime = memory_sync.read_session_runtime(self.root, discussion_id)
+            assert runtime is not None
+            self.assertEqual(
+                runtime["worker_runtime"]["worker_handle"]["worktree"],
+                str(actual_worktree.resolve()),
+            )
 
     def test_codex_native_worker_requires_real_registered_thread_before_waiting(self) -> None:
         task_id = "041"
@@ -2902,7 +3278,7 @@ class MemorySyncTests(unittest.TestCase):
                 {
                     "id": "12345678",
                     "sessionId": worker_id,
-                    "cwd": str(self.root),
+                    "cwd": str(self.root.parent / "claude-worker-036"),
                     "state": "working",
                 }
             ],
@@ -2916,6 +3292,7 @@ class MemorySyncTests(unittest.TestCase):
             ),
             stderr="",
         )
+        settings_before = (self.root / ".claude" / "settings.json").read_bytes()
         with (
             mock.patch.object(
                 host_adapter_module,
@@ -2934,19 +3311,22 @@ class MemorySyncTests(unittest.TestCase):
             payload = memory_sync.launch_claude_worker(
                 self.root, self.config, task_id, discussion_id
             )
+        self.assertEqual(
+            (self.root / ".claude" / "settings.json").read_bytes(), settings_before
+        )
         self.assertTrue(payload["ok"], payload)
         self.assertTrue(payload["launched"])
         self.assertEqual(payload["claude_session_id"], worker_id)
+        actual_command = run_process.call_args.args[0]
+        self.assertEqual(actual_command[:4], ["/bin/claude", "--bg", "--agent", "wishgraph-worker"])
+        self.assertEqual(actual_command[4], "--worktree")
+        self.assertRegex(actual_command[5], r"^wishgraph-036-[0-9a-f]{8}$")
+        self.assertEqual(actual_command[6], "--settings")
         self.assertEqual(
-            run_process.call_args.args[0],
-            [
-                "/bin/claude",
-                "--bg",
-                "--agent",
-                "wishgraph-worker",
-                "执行 036 任务",
-            ],
+            json.loads(actual_command[7]),
+            {"worktree": {"baseRef": "head", "symlinkDirectories": [".wishgraph"]}},
         )
+        self.assertEqual(actual_command[8], "执行 036 任务")
         runtime = memory_sync.read_session_runtime(self.root, discussion_id)
         assert runtime is not None
         self.assertEqual(runtime["session"]["phase"], "waiting_for_worker")
@@ -2962,36 +3342,17 @@ class MemorySyncTests(unittest.TestCase):
         self.assertEqual(
             worker_runtime["launch_context"]["agent_kind"], "formal_worker"
         )
-        claim_process = subprocess.run(
-            [
-                sys.executable,
-                str(HOOK_ASSETS / "memory_sync.py"),
-                "claim",
-                "acquire",
-                task_id,
-                "--worker-id",
-                worker_id,
-                "--session-id",
-                worker_id,
-                "--host-thread-ref",
-                worker_id,
-                "--host",
-                "claude",
-                "--container-kind",
-                "claude_background_session",
-                "--agent-kind",
-                "formal_worker",
-            ],
-            cwd=self.root,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        self.assertEqual(claim_process.returncode, 0, claim_process.stderr)
         self.assertEqual(
-            json.loads(claim_process.stdout)["claim"]["container_kind"],
-            "claude_background_session",
+            worker_runtime["launch_context"]["worktree"],
+            str((self.root.parent / "claude-worker-036").resolve()),
         )
+
+    def test_parallel_claude_workers_receive_distinct_worktree_names(self) -> None:
+        host_adapter_module = sys.modules["host_adapter"]
+        first = host_adapter_module._claude_worker_worktree_name("056")
+        second = host_adapter_module._claude_worker_worktree_name("056")
+        self.assertNotEqual(first, second)
+        self.assertRegex(first, r"^wishgraph-056-[0-9a-f]{8}$")
 
     def test_claude_launch_failure_cli_outputs_only_manual_command(self) -> None:
         task_id = "037"
@@ -3052,6 +3413,74 @@ class MemorySyncTests(unittest.TestCase):
             exit_code = host_adapter_module.claude_worker_main(args)
         self.assertEqual(exit_code, 0)
         printed.assert_called_once_with("执行 037 任务")
+
+    def test_claude_unverified_created_session_uses_real_recovery_surface(self) -> None:
+        task_id = "063"
+        discussion_id = "discussion-063"
+        worker_id = "12345678-aaaa-bbbb-cccc-123456789abc"
+        self.prepare_claude_worker_task(task_id, discussion_id)
+        host_adapter_module = sys.modules["host_adapter"]
+        capability = memory_sync.ClaudeWorkerCapability(
+            tier="background_session",
+            claude_executable="/bin/claude",
+            agent_definition="managed-agent",
+            supports_background=True,
+            supports_agents_json=True,
+            supports_worktree=True,
+            supports_settings=True,
+            reason="native_background_session_available",
+        )
+        launched_process = subprocess.CompletedProcess(
+            [], 0, stdout="backgrounded · 12345678\n", stderr=""
+        )
+        before = {"ok": True, "sessions": []}
+        after = {
+            "ok": True,
+            "sessions": [
+                {
+                    "id": "12345678",
+                    "sessionId": worker_id,
+                    "cwd": str(self.root),
+                    "state": "working",
+                }
+            ],
+        }
+        with (
+            mock.patch.object(
+                host_adapter_module,
+                "detect_claude_worker_capability",
+                return_value=capability,
+            ),
+            mock.patch.object(
+                host_adapter_module,
+                "_query_claude_agents",
+                side_effect=[before, after],
+            ),
+            mock.patch.object(
+                host_adapter_module,
+                "_run_process",
+                return_value=launched_process,
+            ) as run_process,
+        ):
+            payload = memory_sync.launch_claude_worker(
+                self.root, self.config, task_id, discussion_id
+            )
+        self.assertTrue(payload["fallback"])
+        self.assertEqual(payload["user_message"], "执行 063 任务")
+        self.assertEqual(payload["orphaned_background_session_id"], worker_id)
+        self.assertEqual(run_process.call_count, 1)
+        self.assertNotIn(" stop ", f" {payload['recovery_command']} ")
+        self.assertIn(" agents --cwd ", f" {payload['recovery_command']} ")
+        runtime = memory_sync.read_session_runtime(self.root, discussion_id)
+        assert runtime is not None
+        self.assertEqual(
+            runtime["worker_runtime"]["sync_status"],
+            "manual_intervention_required",
+        )
+        self.assertEqual(
+            runtime["worker_runtime"]["worker_handle"]["terminal_state"],
+            "manual_intervention_required",
+        )
 
     def test_claude_forked_subagent_never_launches_formal_business_worker(self) -> None:
         task_id = "039"
@@ -3836,7 +4265,7 @@ class MemorySyncTests(unittest.TestCase):
         self.assertEqual(runtime["session"]["role"], "discussion")
         self.assertEqual(self.git("status", "--porcelain").stdout, "")
 
-    def test_session_runtime_apply_deep_merges_reducer_patch(self) -> None:
+    def test_internal_session_runtime_apply_deep_merges_reducer_patch(self) -> None:
         memory_sync.write_session_runtime(
             self.root,
             "discussion-apply",
@@ -3858,6 +4287,23 @@ class MemorySyncTests(unittest.TestCase):
                 },
             },
         )
+        internal = memory_sync.apply_session_runtime_patch(
+            self.root,
+            "discussion-apply",
+            {
+                "session": {"phase": "routing_worker", "expected_transition": None},
+                "task": {"lifecycle": "approved", "worker_authorized": True},
+            },
+        )
+        self.assertTrue(internal["ok"], internal)
+        runtime = internal["runtime"]
+        self.assertEqual(runtime["session"]["role"], "discussion")
+        self.assertEqual(runtime["session"]["phase"], "routing_worker")
+        self.assertIsNone(runtime["session"]["expected_transition"])
+        self.assertEqual(runtime["task"]["task_id"], "002")
+        self.assertEqual(runtime["task"]["lifecycle"], "approved")
+
+    def test_public_session_apply_rejects_authority_fields(self) -> None:
         process = subprocess.run(
             [
                 sys.executable,
@@ -3882,16 +4328,255 @@ class MemorySyncTests(unittest.TestCase):
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+        )
+        self.assertEqual(process.returncode, 1)
+        payload = json.loads(process.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "session_direct_authority_write_forbidden")
+
+    def test_public_session_set_cannot_promote_worker_to_discussion(self) -> None:
+        process = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "session",
+                "set",
+                "worker-promote",
+                "--role",
+                "discussion",
+                "--phase",
+                "integrating",
+            ],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(process.returncode, 1)
+        self.assertEqual(
+            json.loads(process.stdout)["error"],
+            "session_direct_authority_write_forbidden",
+        )
+
+    def test_worker_control_commands_cannot_change_session_or_acquire_lease(self) -> None:
+        memory_sync.write_session_runtime(
+            self.root,
+            "worker-control",
+            {
+                "session": {
+                    "session_id": "worker-control",
+                    "role": "worker",
+                    "host": "codex",
+                    "phase": "waiting_for_worker",
+                    "expected_transition": None,
+                },
+                "task": {
+                    "task_id": "002",
+                    "lifecycle": "running",
+                    "worker_authorized": True,
+                },
+            },
+        )
+
+        def invoke(command: str) -> dict[str, object]:
+            process = subprocess.run(
+                [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "pre-tool-use"],
+                cwd=self.root,
+                input=json.dumps(
+                    {
+                        "cwd": str(self.root),
+                        "session_id": "worker-control",
+                        "tool_name": "Bash",
+                        "tool_input": {"command": command},
+                    }
+                ),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+            return json.loads(process.stdout)
+
+        commands = (
+            "python3 .wishgraph/hooks/memory_sync.py session set worker-control --role discussion --phase integrating",
+            "python3 .wishgraph/hooks/memory_sync.py session apply worker-control",
+            "python3 .wishgraph/hooks/memory_sync.py session transition other-discussion integration_evaluated --data-json '{}'",
+            "python3 .wishgraph/hooks/memory_sync.py integration-lease acquire --session-id worker-control --grant-id fake --integration-id fake --task-id 002 --report reports/runs/002.md",
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                payload = invoke(command)
+                self.assertEqual(
+                    payload["hookSpecificOutput"]["permissionDecision"], "deny"
+                )
+
+    def test_helper_agent_cannot_control_claim_or_integration_lease(self) -> None:
+        memory_sync.write_session_runtime(
+            self.root,
+            "helper-control",
+            {
+                "session": {
+                    "session_id": "helper-control",
+                    "role": "neutral",
+                    "host": "codex",
+                    "phase": "planning",
+                    "expected_transition": None,
+                },
+                "launch_context": {"agent_kind": "helper"},
+            },
+        )
+        for command in (
+            "python3 .wishgraph/hooks/memory_sync.py claim acquire 002 --worker-id helper-control --session-id helper-control --agent-kind helper --container-kind helper_subagent",
+            "python3 .wishgraph/hooks/memory_sync.py integration-lease acquire --session-id helper-control --grant-id fake --integration-id fake --task-id 002 --report reports/runs/002.md",
+            "python3 .wishgraph/hooks/memory_sync.py integration-lease revoke --session-id helper-control",
+        ):
+            process = subprocess.run(
+                [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "pre-tool-use"],
+                cwd=self.root,
+                input=json.dumps(
+                    {
+                        "cwd": str(self.root),
+                        "session_id": "helper-control",
+                        "tool_name": "Bash",
+                        "tool_input": {"command": command},
+                    }
+                ),
+                text=True,
+                stdout=subprocess.PIPE,
+                check=True,
+            )
+            payload = json.loads(process.stdout)
+            self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_worker_cannot_turn_its_session_into_discussion_by_user_alias(self) -> None:
+        memory_sync.write_session_runtime(
+            self.root,
+            "worker-discussion-alias",
+            {
+                "session": {
+                    "session_id": "worker-discussion-alias",
+                    "role": "worker",
+                    "host": "codex",
+                    "phase": "waiting_for_worker",
+                    "expected_transition": None,
+                }
+            },
+        )
+        process = subprocess.run(
+            [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "user-prompt-submit"],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": "worker-discussion-alias",
+                    "prompt": "开始讨论",
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            check=True,
+        )
+        context = json.loads(process.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("cannot become Discussion", context)
+        runtime = memory_sync.read_session_runtime(self.root, "worker-discussion-alias")
+        assert runtime is not None
+        self.assertEqual(runtime["session"]["role"], "worker")
+
+    def test_unclaimed_formal_worker_thread_cannot_enter_discussion(self) -> None:
+        session_id = "unclaimed-formal-worker"
+        memory_sync.write_session_runtime(
+            self.root,
+            session_id,
+            {
+                "session": {
+                    "session_id": session_id,
+                    "role": "neutral",
+                    "host": "claude",
+                    "phase": "planning",
+                    "expected_transition": None,
+                },
+                "session_provenance": {
+                    "initial_role": "neutral",
+                    "host": "claude",
+                    "discussion_authorized": False,
+                },
+                "launch_context": {
+                    "agent_kind": "formal_worker",
+                    "task_id": "002",
+                },
+            },
+        )
+        process = subprocess.run(
+            [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "user-prompt-submit"],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": session_id,
+                    "prompt": "开始讨论",
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            check=True,
+        )
+        context = json.loads(process.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("cannot become Discussion", context)
+        runtime = memory_sync.read_session_runtime(self.root, session_id)
+        assert runtime is not None
+        self.assertEqual(runtime["session"]["role"], "neutral")
+        self.assertFalse(runtime["session_provenance"]["discussion_authorized"])
+
+    def test_worker_cannot_edit_approved_task_integration_route(self) -> None:
+        task_path = "tasks/build/052-policy.md"
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                "052", status="approved", worker_authorized=True
+            ),
+        )
+        self.git("add", task_path)
+        self.git("commit", "-qm", "approve policy fixture")
+        memory_sync.write_session_runtime(
+            self.root,
+            "worker-policy",
+            {
+                "session": {
+                    "session_id": "worker-policy",
+                    "role": "worker",
+                    "host": "unknown",
+                    "phase": "waiting_for_worker",
+                    "expected_transition": None,
+                },
+                "task": {
+                    "task_id": "052",
+                    "lifecycle": "running",
+                    "worker_authorized": True,
+                },
+            },
+        )
+        process = subprocess.run(
+            [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "pre-tool-use"],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": "worker-policy",
+                    "tool_name": "Edit",
+                    "tool_input": {
+                        "file_path": str(self.root / task_path),
+                        "old_string": '"integration_policy": "inherited_task_approval"',
+                        "new_string": '"integration_policy": "requires_explicit_user_confirmation"',
+                    },
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
             check=True,
         )
         payload = json.loads(process.stdout)
-        self.assertTrue(payload["ok"])
-        runtime = payload["runtime"]
-        self.assertEqual(runtime["session"]["role"], "discussion")
-        self.assertEqual(runtime["session"]["phase"], "routing_worker")
-        self.assertIsNone(runtime["session"]["expected_transition"])
-        self.assertEqual(runtime["task"]["task_id"], "002")
-        self.assertEqual(runtime["task"]["lifecycle"], "approved")
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("immutable", payload["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_pre_tool_use_denies_discussion_build_without_claim(self) -> None:
         memory_sync.write_session_runtime(
@@ -4168,27 +4853,10 @@ class MemorySyncTests(unittest.TestCase):
         self.assertEqual(denied["hookSpecificOutput"]["permissionDecision"], "deny")
 
     def test_integration_lease_cli_requires_discussion_integrating_runtime(self) -> None:
-        memory_sync.write_session_runtime(
-            self.root,
-            "discussion-cli",
-            {
-                "session": {
-                    "session_id": "discussion-cli",
-                    "role": "discussion",
-                    "host": "codex",
-                    "phase": "integrating",
-                    "expected_transition": {
-                        "kind": "auto_integrate",
-                        "task_id": "002",
-                    },
-                },
-                "task": {
-                    "task_id": "002",
-                    "lifecycle": "completed",
-                    "worker_authorized": True,
-                },
-            },
+        transition = self.prepare_safe_integration(
+            "002", "discussion-cli", "integration-cli"
         )
+        grant_id = transition["grant"]["grant_id"]
         process = subprocess.run(
             [
                 sys.executable,
@@ -4197,12 +4865,15 @@ class MemorySyncTests(unittest.TestCase):
                 "acquire",
                 "--session-id",
                 "discussion-cli",
+                "--grant-id",
+                grant_id,
                 "--integration-id",
                 "integration-cli",
                 "--task-id",
                 "002",
                 "--report",
                 "reports/runs/002-attempt-1.md",
+                "--allow-dirty",
             ],
             cwd=self.root,
             text=True,
@@ -4218,34 +4889,264 @@ class MemorySyncTests(unittest.TestCase):
             runtime["integration_runtime"]["lease_id"], payload["lease"]["lease_id"]
         )
 
+    def test_integration_transition_rejects_missing_task_and_report(self) -> None:
+        memory_sync.write_session_runtime(
+            self.root,
+            "discussion-missing-evidence",
+            {
+                "session": {
+                    "session_id": "discussion-missing-evidence",
+                    "role": "discussion",
+                    "host": "codex",
+                    "phase": "integration_pending",
+                    "expected_transition": {
+                        "kind": "auto_integrate",
+                        "task_id": "099",
+                        "report_id": "reports/runs/099.md",
+                    },
+                },
+                "session_provenance": {
+                    "initial_role": "neutral",
+                    "discussion_authorized": True,
+                },
+                "task": {
+                    "task_id": "099",
+                    "lifecycle": "completed",
+                    "worker_authorized": True,
+                    "run_report": "reports/runs/099.md",
+                },
+            },
+        )
+        transition = memory_sync.transition_session_runtime(
+            self.root,
+            self.config,
+            "discussion-missing-evidence",
+            "integration_evaluated",
+            {
+                "outcome": "safe",
+                "integration_id": "integration-missing",
+                "task_ids": ["099"],
+                "reports": ["reports/runs/099.md"],
+            },
+        )
+        self.assertFalse(transition["ok"])
+        self.assertEqual(transition["error"], "integration_evidence_not_safe")
+
+    def test_integration_grant_is_one_time_and_exactly_bound(self) -> None:
+        transition = self.prepare_safe_integration(
+            "053", "discussion-grant", "integration-grant"
+        )
+        grant_id = transition["grant"]["grant_id"]
+        mismatches = (
+            {"integration_id": "integration-other"},
+            {"task_ids": ["053a"]},
+            {"reports": ["reports/runs/053-other.md"]},
+            {"branch": "wrong-branch"},
+            {"worktree": str(self.root.parent.resolve())},
+        )
+        for override in mismatches:
+            with self.subTest(override=override):
+                arguments = {
+                    "session_id": "discussion-grant",
+                    "grant_id": grant_id,
+                    "integration_id": "integration-grant",
+                    "task_ids": ["053"],
+                    "reports": ["reports/runs/053-attempt-1.md"],
+                    "require_clean": False,
+                    **override,
+                }
+                mismatch = memory_sync.acquire_integration_lease(
+                    self.root, **arguments
+                )
+                self.assertFalse(mismatch["ok"])
+                self.assertEqual(
+                    mismatch["error"], "integration_transition_grant_mismatch"
+                )
+        acquired = memory_sync.acquire_integration_lease(
+            self.root,
+            session_id="discussion-grant",
+            grant_id=grant_id,
+            integration_id="integration-grant",
+            task_ids=["053"],
+            reports=["reports/runs/053-attempt-1.md"],
+            require_clean=False,
+        )
+        self.assertTrue(acquired["ok"], acquired)
+        released = memory_sync.update_integration_lease(
+            self.root,
+            "release",
+            session_id="discussion-grant",
+            branch=acquired["lease"]["base_branch"],
+            worktree=acquired["lease"]["worktree"],
+        )
+        self.assertTrue(released["ok"], released)
+        replay = memory_sync.acquire_integration_lease(
+            self.root,
+            session_id="discussion-grant",
+            grant_id=grant_id,
+            integration_id="integration-grant",
+            task_ids=["053"],
+            reports=["reports/runs/053-attempt-1.md"],
+            require_clean=False,
+        )
+        self.assertFalse(replay["ok"])
+        self.assertEqual(replay["error"], "integration_transition_grant_consumed")
+
+    def test_active_worker_claim_blocks_integration_transition(self) -> None:
+        task_id = "054"
+        task_path = f"tasks/build/{task_id}-active.md"
+        report_path = f"reports/runs/{task_id}-attempt-1.md"
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="approved",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.git("add", task_path)
+        self.git("commit", "-qm", "authorize active claim fixture")
+        claimed = memory_sync.acquire_claim(
+            self.root,
+            task_id,
+            1,
+            "worker-054",
+            discussion_session_id="discussion-active",
+            require_clean=True,
+        )
+        self.assertTrue(claimed["ok"], claimed)
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="completed",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.write(
+            report_path,
+            self.structured_run_report(
+                f"{task_id}-attempt-1",
+                task_id=task_id,
+                changed_paths=["src/app.py"],
+            ),
+        )
+        memory_sync.write_session_runtime(
+            self.root,
+            "discussion-active",
+            {
+                "session": {
+                    "session_id": "discussion-active",
+                    "role": "discussion",
+                    "host": "codex",
+                    "phase": "integration_pending",
+                    "expected_transition": {
+                        "kind": "auto_integrate",
+                        "task_id": task_id,
+                        "report_id": report_path,
+                    },
+                },
+                "session_provenance": {
+                    "initial_role": "neutral",
+                    "discussion_authorized": True,
+                },
+                "task": {
+                    "task_id": task_id,
+                    "lifecycle": "completed",
+                    "worker_authorized": True,
+                    "run_report": report_path,
+                },
+            },
+        )
+        transition = memory_sync.transition_session_runtime(
+            self.root,
+            self.config,
+            "discussion-active",
+            "integration_evaluated",
+            {
+                "outcome": "safe",
+                "integration_id": "integration-active",
+                "task_ids": [task_id],
+                "reports": [report_path],
+            },
+        )
+        self.assertFalse(transition["ok"])
+        self.assertEqual(transition["error"], "active_worker_claim_exists")
+
+    def test_safe_grant_cannot_be_reused_after_evidence_becomes_high_risk(self) -> None:
+        transition = self.prepare_safe_integration(
+            "055", "discussion-risk", "integration-risk"
+        )
+        task_path = "tasks/build/055-integration.md"
+        report_path = "reports/runs/055-attempt-1.md"
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                "055",
+                status="completed",
+                work_type="high_risk",
+                worker_authorized=True,
+                integration_policy="requires_explicit_user_confirmation",
+                run_report=report_path,
+            ),
+        )
+        self.write(
+            report_path,
+            self.structured_run_report(
+                "055-attempt-1",
+                task_id="055",
+                work_type="high_risk",
+                changed_paths=["src/app.py"],
+                security_impact=True,
+            ),
+        )
+        process = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "integration-lease",
+                "acquire",
+                "--session-id",
+                "discussion-risk",
+                "--grant-id",
+                transition["grant"]["grant_id"],
+                "--integration-id",
+                "integration-risk",
+                "--task-id",
+                "055",
+                "--report",
+                report_path,
+                "--allow-dirty",
+            ],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(process.returncode, 1)
+        payload = json.loads(process.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertIn(
+            payload["error"],
+            {"integration_evidence_not_safe", "integration_run_report_invalid"},
+        )
+
     def test_pre_tool_use_allows_discussion_local_integration_merge_with_lease(self) -> None:
+        transition = self.prepare_safe_integration(
+            "002", "discussion-1", "integration-1"
+        )
         acquired = memory_sync.acquire_integration_lease(
             self.root,
             session_id="discussion-1",
+            grant_id=transition["grant"]["grant_id"],
             integration_id="integration-1",
             task_ids=["002"],
             reports=["reports/runs/002-attempt-1.md"],
             require_clean=False,
         )
         self.assertTrue(acquired["ok"])
-        memory_sync.write_session_runtime(
-            self.root,
-            "discussion-1",
-            {
-                "session": {
-                    "session_id": "discussion-1",
-                    "role": "discussion",
-                    "host": "codex",
-                    "phase": "integrating",
-                    "expected_transition": None,
-                },
-                "task": {
-                    "task_id": "002",
-                    "lifecycle": "completed",
-                    "worker_authorized": True,
-                },
-            },
-        )
         process = subprocess.run(
             [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "pre-tool-use"],
             cwd=self.root,
@@ -4265,33 +5166,19 @@ class MemorySyncTests(unittest.TestCase):
         self.assertEqual(json.loads(process.stdout), {})
 
     def test_integration_lease_allows_closeout_but_not_new_business_implementation(self) -> None:
+        transition = self.prepare_safe_integration(
+            "002", "discussion-closeout", "integration-closeout"
+        )
         acquired = memory_sync.acquire_integration_lease(
             self.root,
             session_id="discussion-closeout",
+            grant_id=transition["grant"]["grant_id"],
             integration_id="integration-closeout",
             task_ids=["002"],
             reports=["reports/runs/002-attempt-1.md"],
             require_clean=False,
         )
         self.assertTrue(acquired["ok"])
-        memory_sync.write_session_runtime(
-            self.root,
-            "discussion-closeout",
-            {
-                "session": {
-                    "session_id": "discussion-closeout",
-                    "role": "discussion",
-                    "host": "codex",
-                    "phase": "integrating",
-                    "expected_transition": None,
-                },
-                "task": {
-                    "task_id": "002",
-                    "lifecycle": "completed",
-                    "worker_authorized": True,
-                },
-            },
-        )
 
         def invoke(tool_name: str, tool_input: dict[str, str]) -> dict[str, object]:
             process = subprocess.run(
@@ -5689,7 +6576,7 @@ class InstallerTests(unittest.TestCase):
 
             with mock.patch.object(installer_module, "ASSET_ROOT", asset_root):
                 manifest = installer_module.bundled_runtime_manifest()
-                self.assertEqual(manifest["runtime_version"], 18)
+                self.assertEqual(manifest["runtime_version"], 19)
 
                 policy_path = asset_root / "policy.py"
                 policy_path.write_bytes(policy_path.read_bytes() + b"# changed\r\n")
@@ -5783,7 +6670,7 @@ class InstallerTests(unittest.TestCase):
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["state"], "confirmed_recently")
             self.assertEqual(execution["last_event"], "session-start")
-            self.assertEqual(execution["observed_runtime_version"], 18)
+            self.assertEqual(execution["observed_runtime_version"], 19)
             self.assertTrue(payload["host_execution_confirmed"])
             self.assertEqual(payload["next_action"], "bootstrap_project_memory")
 
@@ -5949,12 +6836,12 @@ class InstallerTests(unittest.TestCase):
             payload = json.loads(upgraded.stdout)
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["after"]["state"], "current")
-            self.assertEqual(payload["after"]["installed_runtime_version"], 18)
+            self.assertEqual(payload["after"]["installed_runtime_version"], 19)
             config = json.loads(
                 (root / ".wishgraph" / "config.json").read_text(encoding="utf-8")
             )
             self.assertEqual(config["mode"], "enforce")
-            self.assertEqual(config["runtime_version"], 18)
+            self.assertEqual(config["runtime_version"], 19)
 
     def test_safe_upgrade_replaces_only_a_bundled_known_old_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -6288,7 +7175,7 @@ class InstallerTests(unittest.TestCase):
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["version"], 12)
-            self.assertEqual(config["runtime_version"], 18)
+            self.assertEqual(config["runtime_version"], 19)
             self.assertTrue(
                 (root / ".wishgraph" / "hooks" / "runtime-manifest.json").is_file()
             )

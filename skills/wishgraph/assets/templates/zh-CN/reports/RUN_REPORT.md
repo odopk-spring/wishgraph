@@ -12,6 +12,8 @@
 
 下面的 JSON 块是生命周期状态的机器可读真相源；叙述性证据继续写在后续章节中。串行任务的 `batch_id` 使用 `null`。
 
+`integration_recommendation` 只向 Discussion 提供路由建议，不给 Worker 集成权限。真正的集成权限只来自 reducer 生成的一次性 transition grant 和绑定 Discussion 的 Integration lease。
+
 `change_class: micro` 只用于读取旧报告，不再创建新的 ad-hoc micro 工作。新的局部修正使用 Task Revision，新功能使用正式 Task。只有 Task 定义了完整客观评分表时，竞争候选才填写分数；涉及偏好或接近的取舍时设 `selection_requires_judgment: true`。
 
 执行 Task Revision 时使用 `change_class: revision`，`task_id` 保持为原 Task，填写精确 `revision_id` 并列出全部 changed paths。所有显式风险字段必须为 false；否则停止并请求正式后续 Task。
@@ -44,7 +46,7 @@
   "change_class": "formal",
   "candidate_score": null,
   "selection_requires_judgment": false,
-  "integration_authorization": "inherited_task_approval",
+  "integration_recommendation": "safe_for_discussion_integration",
   "integration_readiness": "ready",
   "scope_check": "pass",
   "conflict_status": "none",

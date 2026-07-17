@@ -146,20 +146,21 @@ Hook 不创建 Agent。`prepare` 成功不等于 Worker 已创建；真实 threa
 
 | 能力 | 当前行为 |
 | --- | --- |
-| `background_session` | 运行 `claude --bg --agent wishgraph-worker "执行 <task-id> 任务"` |
+| `background_session` | 运行等价于 `claude --bg --agent wishgraph-worker --worktree <unique> --settings <ephemeral-json> "执行 <task-id> 任务"` 的命令 |
 | `forked_subagent` | 只用于短时、低风险 Helper 检查 |
 | `manual_command_only` | 只输出 `执行 <task-id> 任务` |
 
-进入 `background_session` 需要：`--bg`、`agents --json`、受管 Agent、Worktree `baseRef: head`、隔离 worktree 可见的 `.wishgraph`、以及与当前 `HEAD` 一致的已授权 Task。
+进入 `background_session` 需要：`--bg`、`agents --json`、`--worktree`、`--settings`、受管 Agent、隔离 worktree 可见的 `.wishgraph`，以及与当前 `HEAD` 一致的已授权 Task。Worktree 设置只对本次启动生效，不改写用户或项目设置；全局 Adapter 与 Agent 可以服务多个已启用项目，但每个项目仍须存在有效 `.wishgraph/config.json`。
 
 启动后保存稳定完整 session ID，并可使用：
 
 ```text
 claude agents --json --all --cwd <project>
-claude logs <id>
-claude attach <id>
-claude stop <id>
+claude agents --cwd <project>
+claude --resume <full-session-id>
 ```
+
+第一条用于结构化刷新，第二条打开原生交互视图进行查看与控制，第三条用于适合恢复时按完整 ID 继续会话。当前 CLI 不提供 `claude logs`、`claude attach` 或 `claude stop` 子命令，WishGraph 不得假装这些命令成功。已创建但 Worktree/runtime 验证失败的 session 进入明确人工处理状态，同时用户侧降级仍只显示一行执行命令。
 
 `claude --bg` 返回不等于 Task 已 `running`。Worker 进入实际 worktree 后仍需取得绑定 Claim。`/tasks` 只查看当前 Claude session 关联的后台工作，不创建 WishGraph Task，也不授予权限。
 
@@ -230,6 +231,18 @@ completed|blocked|incomplete
 
 宿主的 `completed` 状态或自然语言“做完了”都不是充分证据。Integration 必须重新读取准确 Task/Revision、预期 Run Report、Claim、branch 和 worktree。
 
+合法权限链固定为：
+
+```text
+已验证的 Discussion(integration_pending)
+-> reducer 计算唯一 transition
+-> 根据持久证据签发一次性 Integration grant
+-> lease 获取前重新核对并原子消费 grant
+-> Discussion-local Integration
+```
+
+公开 `session set` 不能写角色或阶段，公开 `session apply` 只接受诊断元数据。Worker、Helper、neutral session、其他 Discussion、选择变化或重复使用的 grant 都会被拒绝；Worker 也不能修改已批准 Task 的 Integration route 来扩大权限。Claim 获取与 Integration lease 获取共享互斥门禁，避免实现与集成同时写入。
+
 ## 10. 门禁能力的真实边界
 
 ```text
@@ -250,6 +263,9 @@ WishGraph 能拦截受支持的原生写入工具、可识别的 shell 写入／
 5. Worker 没有 Claim 不能写业务代码或构建。
 6. Helper 和 Hidden Agent 不能取得 Worker Claim。
 7. 启动失败只输出一行执行命令，Discussion 不接管实现。
+8. Worker 不能通过公开 session 命令或“开始讨论”把自己提升为 Discussion。
+9. Integration lease 必须消费 reducer 签发、精确绑定且尚未使用的 grant。
+10. Task、Report、Claim、branch 或 worktree 在 grant 后变化时，lease 获取失败关闭。
 8. 没有 Run Report 或 Claim 未释放时不能集成。
 9. 安全结果不再询问“是否开始集成”。
 10. Revision 不会让已集成或已 review 的 parent Task 生命周期回退。

@@ -12,6 +12,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +21,7 @@ from typing import Any, Optional
 from git_state import (
     HOST_OBSERVATION_EVENTS,
     LEGACY_PROJECT_STATUS_PATH,
+    RUNTIME_ID_RE,
     apply_session_runtime_patch,
     acquire_claim,
     acquire_integration_lease,
@@ -27,10 +29,12 @@ from git_state import (
     configured_task_globs,
     current_branch,
     consume_worker_notifications,
+    create_integration_transition_grant,
     enqueue_worker_notification,
     find_git_root,
     load_config,
     inspect_claims,
+    inspect_integration_grant,
     inspect_integration_lease,
     read_version,
     read_session_runtime,
@@ -146,6 +150,8 @@ class ClaudeWorkerCapability:
     agent_definition: str = ""
     supports_background: bool = False
     supports_agents_json: bool = False
+    supports_worktree: bool = False
+    supports_settings: bool = False
     supports_fork: bool = False
     reason: str = ""
 
@@ -156,6 +162,8 @@ class ClaudeWorkerCapability:
             "agent_definition": self.agent_definition,
             "supports_background": self.supports_background,
             "supports_agents_json": self.supports_agents_json,
+            "supports_worktree": self.supports_worktree,
+            "supports_settings": self.supports_settings,
             "supports_fork": self.supports_fork,
             "reason": self.reason,
         }
@@ -199,47 +207,83 @@ def _value_contains_wishgraph_handler(value: Any) -> bool:
         return any(_value_contains_wishgraph_handler(item) for item in value.values())
     if isinstance(value, list):
         return any(_value_contains_wishgraph_handler(item) for item in value)
-    return isinstance(value, str) and ".wishgraph/hooks/memory_sync.py" in value.replace(
-        "\\", "/"
+    if not isinstance(value, str):
+        return False
+    normalized = value.replace("\\", "/")
+    return (
+        ".wishgraph/hooks/memory_sync.py" in normalized
+        or "skills/wishgraph/scripts/global_host_hook.py" in normalized
     )
 
 
 def current_host_adapter_state(root: Path, host: str) -> dict[str, Any]:
     if host not in {"codex", "claude"}:
         return {"state": "missing", "error": "current_host_unknown"}
-    config_path = root / (
+    config_home = (
+        Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+        if host == "codex"
+        else Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    ).expanduser()
+    project_config = root / (
         ".codex/hooks.json" if host == "codex" else ".claude/settings.json"
     )
-    agent_path = root / HOST_AGENT_PATHS[host]
-    try:
-        value = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"state": "missing", "path": str(config_path)}
-    hooks = value.get("hooks") if isinstance(value, dict) else None
-    if not isinstance(hooks, dict):
-        return {"state": "outdated", "path": str(config_path)}
-    missing_events = [
-        event
-        for event in sorted(HOST_ADAPTER_EVENTS[host])
-        if not _value_contains_wishgraph_handler(hooks.get(event, []))
-    ]
-    try:
-        agent_text = agent_path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        agent_text = ""
-    if HOST_AGENT_MARKERS[host] not in agent_text:
+    global_config = config_home / ("hooks.json" if host == "codex" else "settings.json")
+    config_candidates = [project_config, global_config]
+    selected_config: Optional[Path] = None
+    selected_missing: list[str] = []
+    for candidate in config_candidates:
+        try:
+            value = json.loads(candidate.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        hooks = value.get("hooks") if isinstance(value, dict) else None
+        if not isinstance(hooks, dict):
+            continue
+        missing = [
+            event
+            for event in sorted(HOST_ADAPTER_EVENTS[host])
+            if not _value_contains_wishgraph_handler(hooks.get(event, []))
+        ]
+        if selected_config is None or len(missing) < len(selected_missing):
+            selected_config = candidate
+            selected_missing = missing
+        if not missing:
+            break
+
+    project_agent = root / HOST_AGENT_PATHS[host]
+    global_agent = config_home / "agents" / HOST_AGENT_PATHS[host].name
+    agent_candidates = [project_agent, global_agent]
+    agent_path: Optional[Path] = None
+    for candidate in agent_candidates:
+        try:
+            agent_text = candidate.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if HOST_AGENT_MARKERS[host] in agent_text:
+            agent_path = candidate
+            break
+    missing_events = list(selected_missing)
+    if selected_config is None:
+        missing_events.extend(sorted(HOST_ADAPTER_EVENTS[host]))
+    if agent_path is None:
         missing_events.append("wishgraph-worker")
-    state = "current" if not missing_events else "outdated"
+    missing_events = sorted(set(missing_events))
+    state = "current" if not missing_events else (
+        "missing" if selected_config is None else "outdated"
+    )
     mtimes: list[float] = []
-    for path in (config_path, agent_path):
+    for path in (selected_config, agent_path):
+        if path is None:
+            continue
         try:
             mtimes.append(path.stat().st_mtime)
         except OSError:
             pass
     return {
         "state": state,
-        "path": str(config_path),
-        "agent_path": str(agent_path),
+        "path": str(selected_config or project_config),
+        "scope": "global" if selected_config == global_config else "project",
+        "agent_path": str(agent_path or project_agent),
         "missing_or_outdated": missing_events,
         "updated_at_epoch": max(mtimes) if mtimes else 0.0,
     }
@@ -480,21 +524,22 @@ def _managed_claude_worker_agent(root: Path) -> Optional[Path]:
     return None
 
 
-def _claude_worktree_runtime_ready(root: Path) -> bool:
-    path = root / ".claude" / "settings.json"
-    try:
-        settings = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    worktree = settings.get("worktree") if isinstance(settings, dict) else None
-    if not isinstance(worktree, dict):
-        return False
-    symlinks = worktree.get("symlinkDirectories")
-    return (
-        worktree.get("baseRef") == "head"
-        and isinstance(symlinks, list)
-        and ".wishgraph" in symlinks
+def _claude_worker_settings_json() -> str:
+    """Inject only the per-launch worktree contract; never rewrite user settings."""
+    return json.dumps(
+        {
+            "worktree": {
+                "baseRef": "head",
+                "symlinkDirectories": [".wishgraph"],
+            }
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
     )
+
+
+def _claude_worker_worktree_name(task_id: str) -> str:
+    return f"wishgraph-{task_id}-{uuid.uuid4().hex[:8]}"
 
 
 def _run_process(
@@ -519,7 +564,7 @@ def detect_claude_worker_capability(
     if not executable:
         return ClaudeWorkerCapability(
             tier=CLAUDE_MANUAL_COMMAND_ONLY,
-            reason="claude_cli_not_found",
+            reason="claude_cli_missing",
         )
     try:
         help_result = _run_process([executable, "--help"], root, timeout=5)
@@ -527,11 +572,13 @@ def detect_claude_worker_capability(
         return ClaudeWorkerCapability(
             tier=CLAUDE_MANUAL_COMMAND_ONLY,
             claude_executable=executable,
-            reason=f"claude_help_unavailable:{type(exc).__name__}",
+            reason="background_flag_unsupported",
         )
     help_text = help_result.stdout + "\n" + help_result.stderr
     supports_background = help_result.returncode == 0 and "--bg" in help_text
     supports_fork = help_result.returncode == 0 and "--fork-session" in help_text
+    supports_worktree = help_result.returncode == 0 and "--worktree" in help_text
+    supports_settings = help_result.returncode == 0 and "--settings" in help_text
     supports_agents_json = False
     if supports_background and "agents" in help_text:
         try:
@@ -547,13 +594,15 @@ def detect_claude_worker_capability(
     disabled = str(os.environ.get("CLAUDE_CODE_DISABLE_AGENT_VIEW") or "").lower()
     background_disabled = disabled not in {"", "0", "false", "no", "off"}
     agent_definition = _managed_claude_worker_agent(root)
-    worktree_runtime_ready = _claude_worktree_runtime_ready(root)
+    project_enabled = (root / ".wishgraph" / "config.json").is_file()
     if (
         supports_background
         and supports_agents_json
+        and supports_worktree
+        and supports_settings
         and not background_disabled
         and agent_definition is not None
-        and worktree_runtime_ready
+        and project_enabled
     ):
         return ClaudeWorkerCapability(
             tier=CLAUDE_BACKGROUND_SESSION,
@@ -561,21 +610,34 @@ def detect_claude_worker_capability(
             agent_definition=str(agent_definition),
             supports_background=True,
             supports_agents_json=True,
+            supports_worktree=True,
+            supports_settings=True,
             supports_fork=supports_fork,
             reason="native_background_session_available",
         )
     if supports_fork:
-        reason = (
-            "background_agent_view_disabled"
-            if background_disabled
-            else "managed_worker_agent_or_worktree_runtime_unavailable"
-        )
+        if not supports_background:
+            reason = "background_flag_unsupported"
+        elif not supports_agents_json:
+            reason = "agents_json_unsupported"
+        elif background_disabled:
+            reason = "agent_view_disabled"
+        elif agent_definition is None:
+            reason = "managed_worker_agent_missing"
+        elif not supports_worktree or not supports_settings:
+            reason = "worktree_runtime_unavailable"
+        elif not project_enabled:
+            reason = "wishgraph_not_enabled"
+        else:
+            reason = "background_launch_unavailable"
         return ClaudeWorkerCapability(
             tier=CLAUDE_FORKED_SUBAGENT,
             claude_executable=executable,
             agent_definition=str(agent_definition or ""),
             supports_background=supports_background,
             supports_agents_json=supports_agents_json,
+            supports_worktree=supports_worktree,
+            supports_settings=supports_settings,
             supports_fork=True,
             reason=reason,
         )
@@ -586,7 +648,23 @@ def detect_claude_worker_capability(
         supports_background=supports_background,
         supports_agents_json=supports_agents_json,
         supports_fork=False,
-        reason="native_background_and_fork_capabilities_unavailable",
+        supports_worktree=supports_worktree,
+        supports_settings=supports_settings,
+        reason=(
+            "background_flag_unsupported"
+            if not supports_background
+            else "agents_json_unsupported"
+            if not supports_agents_json
+            else "agent_view_disabled"
+            if background_disabled
+            else "managed_worker_agent_missing"
+            if agent_definition is None
+            else "worktree_runtime_unavailable"
+            if not supports_worktree or not supports_settings
+            else "wishgraph_not_enabled"
+            if not project_enabled
+            else "background_launch_unavailable"
+        ),
     )
 
 
@@ -649,8 +727,23 @@ def _manual_worker_fallback(
     task_id: str,
     capability: ClaudeWorkerCapability,
     reason: str,
+    *,
+    orphan_session_id: str = "",
 ) -> dict[str, Any]:
     message = f"执行 {task_id} 任务"
+    orphaned = bool(orphan_session_id)
+    recovery_command = (
+        shlex.join(
+            [
+                capability.claude_executable or "claude",
+                "agents",
+                "--cwd",
+                str(root),
+            ]
+        )
+        if orphaned
+        else ""
+    )
     persisted = apply_session_runtime_patch(
         root,
         discussion_session_id,
@@ -668,23 +761,35 @@ def _manual_worker_fallback(
                 "active_task_id": task_id,
                 "launch_status": "manual_required",
                 "launch_error": reason,
+                "orphaned_background_session_id": orphan_session_id,
+                "recovery_command": recovery_command,
                 "claim_id": "",
                 "binding_status": "unbound",
-                "worker_availability": "manual_required",
-                "sync_status": "waiting_for_user_launch",
+                "worker_availability": (
+                    "manual_intervention_required" if orphaned else "manual_required"
+                ),
+                "sync_status": (
+                    "manual_intervention_required"
+                    if orphaned
+                    else "waiting_for_user_launch"
+                ),
                 "last_observed_at": _utc_now(),
                 "worker_handle": {
                     "host": "claude",
-                    "container_kind": "",
-                    "thread_or_session_id": "",
+                    "container_kind": (
+                        CLAUDE_BACKGROUND_CONTAINER if orphaned else ""
+                    ),
+                    "thread_or_session_id": orphan_session_id,
                     "parent_discussion_id": discussion_session_id,
                     "task_id": task_id,
                     "claim_id": "",
                     "branch": "",
                     "worktree": "",
-                    "inspectable": False,
-                    "controllable": False,
-                    "terminal_state": "not_created",
+                    "inspectable": orphaned,
+                    "controllable": orphaned,
+                    "terminal_state": (
+                        "manual_intervention_required" if orphaned else "not_created"
+                    ),
                     "last_observed_at": _utc_now(),
                 },
             },
@@ -698,6 +803,8 @@ def _manual_worker_fallback(
         "user_message": message,
         "stop_after_action": True,
         "runtime_persisted": bool(persisted.get("ok")),
+        "orphaned_background_session_id": orphan_session_id,
+        "recovery_command": recovery_command,
     }
 
 
@@ -876,11 +983,17 @@ def launch_claude_worker(
         )
 
     executable = capability.claude_executable
+    worktree_name = _claude_worker_worktree_name(canonical)
+    launch_settings = _claude_worker_settings_json()
     command = [
         executable,
         "--bg",
         "--agent",
         "wishgraph-worker",
+        "--worktree",
+        worktree_name,
+        "--settings",
+        launch_settings,
         f"执行 {canonical} 任务",
     ]
     before = _query_claude_agents(root, executable)
@@ -894,6 +1007,8 @@ def launch_claude_worker(
                 "active_task_id": canonical,
                 "launch_status": "starting",
                 "launch_command": command,
+                "launch_worktree_name": worktree_name,
+                "launch_settings_source": "inline_ephemeral",
                 "launch_branch": current_branch(root),
                 "launch_worktree": str(root.resolve()),
                 "claim_id": "",
@@ -925,17 +1040,13 @@ def launch_claude_worker(
     id_match = CLAUDE_BACKGROUND_ID_RE.search(combined_output)
     short_id = id_match.group("session_id") if id_match else ""
     if "no agent named 'wishgraph-worker'" in combined_output.lower():
-        if short_id:
-            try:
-                _run_process([executable, "stop", short_id], root, timeout=10)
-            except (OSError, subprocess.TimeoutExpired):
-                pass
         return _manual_worker_fallback(
             root,
             discussion_session_id,
             canonical,
             capability,
             "managed_worker_agent_not_loaded",
+            orphan_session_id=short_id,
         )
     if launched.returncode != 0:
         return _manual_worker_fallback(
@@ -971,11 +1082,31 @@ def launch_claude_worker(
             canonical,
             capability,
             "claude_stable_session_id_missing",
+            orphan_session_id=short_id,
+        )
+
+    session_worktree = str(
+        (session or {}).get("cwd")
+        or (session or {}).get("worktree")
+        or (session or {}).get("worktreePath")
+        or ""
+    )
+    try:
+        launch_worktree = str(Path(session_worktree).expanduser().resolve())
+    except (OSError, RuntimeError):
+        launch_worktree = ""
+    if not launch_worktree or launch_worktree == str(root.resolve()):
+        return _manual_worker_fallback(
+            root,
+            discussion_session_id,
+            canonical,
+            capability,
+            "worktree_runtime_unavailable",
+            orphan_session_id=claude_session_id,
         )
 
     if full_session_id:
-        launch_branch = current_branch(root)
-        launch_worktree = str(root.resolve())
+        launch_branch = str((session or {}).get("branch") or current_branch(root))
         worker_handle = {
             "host": "claude",
             "container_kind": CLAUDE_BACKGROUND_CONTAINER,
@@ -1001,6 +1132,12 @@ def launch_claude_worker(
                     "phase": "planning",
                     "expected_transition": None,
                 },
+                "session_provenance": {
+                    "initial_role": "neutral",
+                    "host": "claude",
+                    "discussion_authorized": False,
+                    "created_at": _utc_now(),
+                },
                 "launch_context": {
                     "discussion_session_id": discussion_session_id,
                     "task_id": canonical,
@@ -1019,16 +1156,13 @@ def launch_claude_worker(
             },
         )
         if not worker_runtime.get("ok"):
-            try:
-                _run_process([executable, "stop", short_id], root, timeout=10)
-            except (OSError, subprocess.TimeoutExpired):
-                pass
             return _manual_worker_fallback(
                 root,
                 discussion_session_id,
                 canonical,
                 capability,
                 "worker_session_runtime_persistence_failed",
+                orphan_session_id=claude_session_id,
             )
 
     persisted = apply_session_runtime_patch(
@@ -1052,8 +1186,10 @@ def launch_claude_worker(
                 "host_window_or_thread_id": claude_session_id,
                 "launch_status": "launched",
                 "launch_command": command,
-                "launch_branch": current_branch(root),
-                "launch_worktree": str(root.resolve()),
+                "launch_branch": launch_branch,
+                "launch_worktree": launch_worktree,
+                "launch_worktree_name": worktree_name,
+                "launch_settings_source": "inline_ephemeral",
                 "claim_id": "",
                 "binding_status": "awaiting_claim",
                 "worker_availability": "starting",
@@ -1066,8 +1202,8 @@ def launch_claude_worker(
                     "parent_discussion_id": discussion_session_id,
                     "task_id": canonical,
                     "claim_id": "",
-                    "branch": current_branch(root),
-                    "worktree": str(root.resolve()),
+                    "branch": launch_branch,
+                    "worktree": launch_worktree,
                     "inspectable": True,
                     "controllable": True,
                     "terminal_state": "starting",
@@ -1077,16 +1213,13 @@ def launch_claude_worker(
         },
     )
     if not persisted.get("ok"):
-        try:
-            _run_process([executable, "stop", short_id], root, timeout=10)
-        except (OSError, subprocess.TimeoutExpired):
-            pass
         return _manual_worker_fallback(
             root,
             discussion_session_id,
             canonical,
             capability,
             "discussion_runtime_persistence_failed",
+            orphan_session_id=claude_session_id,
         )
     return {
         "ok": True,
@@ -1798,6 +1931,187 @@ def classify_tool_operation(
     return None
 
 
+def _wishgraph_control_command(command: str) -> Optional[dict[str, Any]]:
+    """Parse one bounded memory_sync control command without evaluating the shell."""
+    if "memory_sync.py" not in command.replace("\\", "/"):
+        return None
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return {"mixed": True, "error": "wishgraph_control_command_unparseable"}
+    script_indexes = [
+        index
+        for index, token in enumerate(tokens)
+        if token.replace("\\", "/").endswith("/memory_sync.py")
+        or token == "memory_sync.py"
+    ]
+    if len(script_indexes) != 1 or any(token in {";", "&&", "&", "|", "||"} for token in tokens):
+        return {"mixed": True, "error": "mixed_wishgraph_control_actions"}
+    index = script_indexes[0]
+    if index + 1 >= len(tokens):
+        return {"mixed": True, "error": "wishgraph_control_action_missing"}
+    command_name = tokens[index + 1]
+    if command_name not in {"session", "integration-lease", "claim"}:
+        return None
+    arguments = tokens[index + 2 :]
+    action = arguments[0] if arguments else ""
+
+    def option(name: str) -> str:
+        try:
+            return arguments[arguments.index(name) + 1]
+        except (ValueError, IndexError):
+            return ""
+
+    target_session_id = ""
+    if command_name == "session" and len(arguments) >= 2:
+        target_session_id = arguments[1]
+    elif command_name == "integration-lease":
+        target_session_id = option("--session-id")
+    elif command_name == "claim" and action in {"acquire", "rebind"}:
+        target_session_id = option("--session-id")
+    elif command_name == "claim" and action in {"heartbeat", "release", "revoke"}:
+        target_session_id = option("--session-id")
+    return {
+        "mixed": False,
+        "command": command_name,
+        "action": action,
+        "target_session_id": target_session_id,
+        "arguments": arguments,
+        "agent_kind": option("--agent-kind"),
+        "container_kind": option("--container-kind"),
+        "authorized_by_user": "--authorized-by-user" in arguments,
+    }
+
+
+def wishgraph_control_gate_plan(
+    root: Path, payload: dict[str, Any]
+) -> Optional[FlowPlan]:
+    tool_input = payload.get("tool_input")
+    command_text = (
+        str(tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
+    )
+    control = _wishgraph_control_command(command_text)
+    if control is None:
+        return None
+    if control.get("mixed"):
+        return FlowPlan(
+            accepted=False,
+            next_action="deny_wishgraph_control_command",
+            denial_reason=str(control.get("error") or "mixed_wishgraph_control_actions"),
+        )
+    session_id = hook_session_id(payload)
+    runtime = read_session_runtime(root, session_id) if session_id else None
+    session = runtime.get("session") if isinstance(runtime, dict) and isinstance(runtime.get("session"), dict) else {}
+    launch_context = (
+        runtime.get("launch_context")
+        if isinstance(runtime, dict) and isinstance(runtime.get("launch_context"), dict)
+        else {}
+    )
+    role = str(session.get("role") or "neutral")
+    agent_kind = str(launch_context.get("agent_kind") or "")
+    command_name = str(control.get("command") or "")
+    action = str(control.get("action") or "")
+    target_session_id = str(control.get("target_session_id") or "")
+
+    if command_name == "session" and action == "get":
+        return FlowPlan(accepted=True, next_action="allow_control_read")
+    if command_name == "claim" and action == "inspect":
+        return FlowPlan(accepted=True, next_action="allow_control_read")
+    if command_name == "integration-lease" and action == "inspect":
+        return FlowPlan(accepted=True, next_action="allow_control_read")
+    if agent_kind in {"helper", "hidden_internal"}:
+        return FlowPlan(
+            accepted=False,
+            next_action="deny_helper_authority",
+            denial_reason="helper_or_hidden_agent_cannot_modify_claim_or_integration_authority",
+        )
+    if command_name == "session":
+        allowed = (
+            action == "transition"
+            and role == "discussion"
+            and target_session_id == session_id
+        )
+        return FlowPlan(
+            accepted=allowed,
+            next_action="allow_session_transition" if allowed else "deny_session_authority_write",
+            denial_reason="session authority fields require an own-session Discussion transition" if not allowed else "",
+        )
+    if command_name == "integration-lease":
+        allowed = (
+            role == "discussion"
+            and target_session_id == session_id
+            and action in {"acquire", "heartbeat", "release", "revoke"}
+        )
+        return FlowPlan(
+            accepted=allowed,
+            next_action="allow_integration_control" if allowed else "deny_integration_authority",
+            denial_reason="only the bound Discussion session may control its Integration lease" if not allowed else "",
+        )
+    if command_name == "claim":
+        requested_agent_kind = str(control.get("agent_kind") or "formal_worker")
+        if requested_agent_kind != "formal_worker":
+            return FlowPlan(
+                accepted=False,
+                next_action="deny_helper_authority",
+                denial_reason="only a Formal Worker may acquire or rebind a Worker Claim",
+            )
+        if action == "revoke":
+            allowed = bool(control.get("authorized_by_user")) and role == "discussion"
+        elif action in {"acquire", "rebind", "heartbeat", "release"}:
+            allowed = role in {"neutral", "worker"} and target_session_id == session_id
+        else:
+            allowed = False
+        return FlowPlan(
+            accepted=allowed,
+            next_action="allow_worker_claim_control" if allowed else "deny_worker_claim_control",
+            denial_reason="Claim control must stay in its bound Formal Worker session" if not allowed else "",
+        )
+    return FlowPlan(
+        accepted=False,
+        next_action="deny_wishgraph_control_command",
+        denial_reason="unrecognized_wishgraph_control_action",
+    )
+
+
+def worker_policy_mutation_plan(
+    root: Path, payload: dict[str, Any]
+) -> Optional[FlowPlan]:
+    tool_input = payload.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return None
+    serialized = json.dumps(tool_input, ensure_ascii=False)
+    if not re.search(r"integration_(?:policy|route)", serialized, re.IGNORECASE):
+        return None
+    session_id = hook_session_id(payload)
+    runtime = read_session_runtime(root, session_id) if session_id else None
+    if not isinstance(runtime, dict):
+        return None
+    session = runtime.get("session") if isinstance(runtime.get("session"), dict) else {}
+    task = runtime.get("task") if isinstance(runtime.get("task"), dict) else {}
+    if session.get("role") != "worker" or task.get("lifecycle") == "draft":
+        return None
+    paths = _tool_paths(tool_input)
+    if not paths:
+        command = str(tool_input.get("command") or "")
+        paths = _shell_write_paths(command)
+    normalized_paths = {_relative_tool_path(root, value) for value in paths}
+    task_paths = {
+        item["task_path"]
+        for item in task_specs(root, load_config(root) or {})
+        if item.get("task_id") == task.get("task_id")
+    }
+    if normalized_paths & task_paths:
+        return FlowPlan(
+            accepted=False,
+            next_action="deny_task_policy_mutation",
+            task_id=str(task.get("task_id") or ""),
+            denial_reason="approved Task integration route is immutable and cannot be edited by a Worker",
+        )
+    return None
+
+
 def orchestration_gate_plan(
     root: Path,
     config: dict[str, Any],
@@ -2002,6 +2316,9 @@ def user_prompt_submit_main(
     runtime = read_session_runtime(root, session_id) if session_id else None
     command_action = str((command or {}).get("action") or "")
     runtime_role = str(((runtime or {}).get("session") or {}).get("role") or "neutral")
+    runtime_agent_kind = str(
+        ((runtime or {}).get("launch_context") or {}).get("agent_kind") or ""
+    )
     notification_context = ""
     if runtime_role == "discussion" and command_action not in {
         "start_discussion",
@@ -2077,6 +2394,24 @@ def user_prompt_submit_main(
 
     action = command["action"]
     if action == "start_discussion":
+        if runtime_role == "worker" or runtime_agent_kind in {
+            "formal_worker",
+            "helper",
+            "hidden_internal",
+        }:
+            emit(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "UserPromptSubmit",
+                        "additionalContext": (
+                            "WishGraph role boundary: a Worker session cannot become "
+                            "Discussion. Return to the original Discussion or open a "
+                            "neutral session and say '开始讨论'."
+                        ),
+                    }
+                }
+            )
+            return 0
         if session_id:
             patch = {
                 "session": {
@@ -2085,7 +2420,8 @@ def user_prompt_submit_main(
                     "host": host,
                     "phase": "planning",
                     "expected_transition": None,
-                }
+                },
+                "session_provenance": _discussion_provenance_patch(host),
             }
             if runtime is None:
                 write_session_runtime(root, session_id, patch)
@@ -2172,21 +2508,77 @@ def user_prompt_submit_main(
         route = resolved
     else:
         role = str(((runtime or {}).get("session") or {}).get("role") or "neutral")
-        if role == "discussion":
-            if host == "codex":
-                host_action = "launch_codex_agent_worker"
-            elif host == "claude":
-                host_action = "launch_claude_background_worker"
-            else:
-                host_action = "show_manual_worker_command"
-        elif role == "worker":
+        if role == "worker":
             host_action = "continue_or_rebind_current_worker"
+            accepted = True
+            plan_payload: dict[str, Any] = {}
         else:
-            host_action = "enter_current_window_as_worker"
+            task_record = resolved["task"]
+            transition_runtime = dict(runtime or {})
+            transition_runtime["session"] = {
+                **(
+                    transition_runtime.get("session")
+                    if isinstance(transition_runtime.get("session"), dict)
+                    else {}
+                ),
+                "session_id": session_id,
+                "role": role,
+                "host": host,
+                "phase": str(
+                    ((runtime or {}).get("session") or {}).get("phase") or "planning"
+                ),
+            }
+            transition_runtime["task"] = {
+                "task_id": task_id,
+                "lifecycle": str(task_record.get("status") or "draft"),
+                "attempt": int(task_record.get("attempt") or 1),
+                "worker_authorized": task_record.get("worker_creation_authorized") is True,
+                "run_report": str(task_record.get("run_report") or ""),
+            }
+            plan = reduce_orchestration(
+                orchestration_state_from_dict(transition_runtime),
+                UserEvent(kind="user_message", data={"text": text}),
+                capability,
+            )
+            mapped = map_flow_plan_to_host(plan, capability)
+            accepted = plan.accepted
+            host_action = (
+                "enter_current_window_as_worker"
+                if mapped.action == "enter_worker"
+                else mapped.action
+            )
+            plan_payload = flow_plan_to_dict(plan)
+            if accepted and session_id and mapped.state_patch:
+                if runtime is None:
+                    transition_runtime["session_provenance"] = {
+                        "initial_role": "neutral",
+                        "host": host,
+                        "discussion_authorized": False,
+                        "created_at": _utc_now(),
+                    }
+                    created = write_session_runtime(
+                        root, session_id, transition_runtime
+                    )
+                    persisted = (
+                        apply_session_runtime_patch(
+                            root, session_id, mapped.state_patch
+                        )
+                        if created.get("ok")
+                        else created
+                    )
+                else:
+                    persisted = apply_session_runtime_patch(
+                        root, session_id, mapped.state_patch
+                    )
+                if not persisted.get("ok"):
+                    accepted = False
+                    host_action = "no_action"
+                    plan_payload["denial_reason"] = "authorization_runtime_persistence_failed"
         route = {
-            "ok": True,
+            "ok": accepted,
             "command": command,
             "task": resolved["task"],
+            "plan": plan_payload,
             "host_action": host_action,
             "worker_session_id": session_id,
             "discussion_session_id": session_id if role == "discussion" else "",
@@ -2263,7 +2655,13 @@ def hook_main(event: str, host: str = "unknown") -> int:
                         "host": host,
                         "phase": "planning",
                         "expected_transition": None,
-                    }
+                    },
+                    "session_provenance": {
+                        "initial_role": "neutral",
+                        "host": host,
+                        "discussion_authorized": False,
+                        "created_at": _utc_now(),
+                    },
                 },
             )
             session_runtime = read_session_runtime(root, session_id)
@@ -2303,6 +2701,24 @@ def hook_main(event: str, host: str = "unknown") -> int:
     if event == "pre-tool-use":
         tool_input = payload.get("tool_input")
         command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+        for authority_plan in (
+            wishgraph_control_gate_plan(root, payload),
+            worker_policy_mutation_plan(root, payload),
+        ):
+            if authority_plan is not None and not authority_plan.accepted:
+                emit(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": (
+                                "WishGraph authority gate blocked this operation. "
+                                + authority_plan.denial_reason
+                            ),
+                        }
+                    }
+                )
+                return 0
         commit_command = payload.get("tool_name") == "Bash" and is_git_commit_command(
             str(command)
         )
@@ -2589,6 +3005,297 @@ def flow_plan_main(args: argparse.Namespace) -> int:
     return 0
 
 
+SESSION_DIAGNOSTIC_PATCH_KEYS = {"diagnostics", "adapter_diagnostics"}
+DISCUSSION_TRANSITION_EVENTS = {
+    "integration_evaluated",
+    "decision_resolved",
+    "integration_completed",
+}
+
+
+def _discussion_provenance_patch(host: str) -> dict[str, Any]:
+    return {
+        "initial_role": "neutral",
+        "host": host,
+        "discussion_authorized": True,
+        "discussion_authorized_at": _utc_now(),
+    }
+
+
+def _verified_discussion_runtime(
+    runtime: Optional[dict[str, Any]], session_id: str
+) -> bool:
+    if not isinstance(runtime, dict):
+        return False
+    session = runtime.get("session") if isinstance(runtime.get("session"), dict) else {}
+    provenance = (
+        runtime.get("session_provenance")
+        if isinstance(runtime.get("session_provenance"), dict)
+        else {}
+    )
+    launch_context = (
+        runtime.get("launch_context")
+        if isinstance(runtime.get("launch_context"), dict)
+        else {}
+    )
+    return bool(
+        session.get("session_id") == session_id
+        and session.get("role") == "discussion"
+        and provenance.get("initial_role") == "neutral"
+        and provenance.get("discussion_authorized") is True
+        and launch_context.get("agent_kind")
+        not in {"formal_worker", "helper", "hidden_internal"}
+    )
+
+
+def _integration_transition_selection(
+    root: Path,
+    config: dict[str, Any],
+    runtime: dict[str, Any],
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    """Recompute exact safe Integration evidence from durable Task/Report/Claim facts."""
+    session = runtime.get("session") if isinstance(runtime.get("session"), dict) else {}
+    task_runtime = runtime.get("task") if isinstance(runtime.get("task"), dict) else {}
+    expected = (
+        session.get("expected_transition")
+        if isinstance(session.get("expected_transition"), dict)
+        else {}
+    )
+    if session.get("phase") != "integration_pending":
+        return {"ok": False, "error": "integration_pending_phase_required"}
+    if expected.get("kind") != "auto_integrate":
+        return {"ok": False, "error": "auto_integration_transition_required"}
+
+    raw_task_ids = data.get("task_ids")
+    if not isinstance(raw_task_ids, list) or not raw_task_ids:
+        raw_task_ids = [task_runtime.get("task_id") or expected.get("task_id")]
+    task_ids = [canonical_task_id(value) for value in raw_task_ids]
+    if any(not value for value in task_ids) or len(set(task_ids)) != len(task_ids):
+        return {"ok": False, "error": "invalid_or_duplicate_integration_task_id"}
+    raw_reports = data.get("reports")
+    if not isinstance(raw_reports, list) or not raw_reports:
+        raw_reports = [expected.get("report_id") or task_runtime.get("run_report")]
+    reports = [str(value or "").replace("\\", "/") for value in raw_reports]
+    if any(not value for value in reports) or len(reports) != len(task_ids):
+        return {"ok": False, "error": "integration_task_report_cardinality_mismatch"}
+    integration_id = str(data.get("integration_id") or expected.get("integration_id") or "")
+    if not integration_id or not RUNTIME_ID_RE.fullmatch(integration_id):
+        return {"ok": False, "error": "invalid_integration_id"}
+
+    status = integration_state(
+        root,
+        config,
+        view="active",
+        task_id=task_ids[0] if len(task_ids) == 1 else None,
+    ).as_dict()
+    decision_receipt = (
+        (runtime.get("integration_runtime") or {}).get("decision_receipt")
+        if isinstance(runtime.get("integration_runtime"), dict)
+        else None
+    )
+    decision_confirmed = bool(
+        isinstance(decision_receipt, dict)
+        and decision_receipt.get("confirmed") is True
+        and decision_receipt.get("task_id") in task_ids
+    )
+    safe_route = bool(status.get("auto_integration_eligible"))
+    selected_reports = list(status.get("selected_reports") or [])
+    if safe_route:
+        if sorted(selected_reports) != sorted(reports):
+            return {"ok": False, "error": "integration_report_selection_mismatch"}
+        outcome = "safe"
+    elif decision_confirmed:
+        if not set(reports).issubset(set(status.get("ready_reports") or [])):
+            return {"ok": False, "error": "confirmed_report_selection_not_ready"}
+        outcome = "decision_confirmed"
+    else:
+        return {
+            "ok": False,
+            "error": "integration_evidence_not_safe",
+            "next_action": status.get("next_action"),
+        }
+
+    units_by_report = {
+        str(item.get("run_report") or ""): item
+        for item in status.get("work_units", [])
+        if isinstance(item, dict)
+    }
+    for task_id, report_path in zip(task_ids, reports):
+        unit = units_by_report.get(report_path)
+        if unit is None:
+            return {"ok": False, "error": "integration_report_not_bound_to_work_unit"}
+        unit_task_id = canonical_task_id(
+            unit.get("task_id") or unit.get("parent_task_id")
+        )
+        if unit_task_id != task_id:
+            return {"ok": False, "error": "integration_task_report_mismatch"}
+        if unit.get("lifecycle_status") != "completed" or unit.get("errors"):
+            return {"ok": False, "error": "integration_work_unit_not_completed"}
+        if unit.get("active_claims"):
+            return {"ok": False, "error": "active_worker_claim_exists"}
+        report_content = read_version(root, report_path, "worktree")
+        if report_content is None:
+            return {"ok": False, "error": "integration_run_report_missing"}
+        parsed_report = report_state(report_path, report_content)
+        if parsed_report.status not in {"completed", "done"} or parsed_report.safety_errors:
+            return {"ok": False, "error": "integration_run_report_invalid"}
+        matching_claims = [
+            claim
+            for claim in inspect_claims(root, task_id)
+            if (
+                str(claim.get("revision_id") or "")
+                == str(unit.get("revision_id") or "")
+            )
+        ]
+        if any(
+            claim.get("effective_lease_status") == "active"
+            for claim in matching_claims
+        ):
+            return {"ok": False, "error": "active_worker_claim_exists"}
+        if not any(claim.get("lease_status") == "released" for claim in matching_claims):
+            return {"ok": False, "error": "released_worker_claim_required"}
+
+    return {
+        "ok": True,
+        "integration_id": integration_id,
+        "task_ids": task_ids,
+        "reports": reports,
+        "outcome": outcome,
+        "status": status,
+    }
+
+
+def transition_session_runtime(
+    root: Path,
+    config: dict[str, Any],
+    session_id: str,
+    event_kind: str,
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    runtime = read_session_runtime(root, session_id)
+    if not _verified_discussion_runtime(runtime, session_id):
+        return {"ok": False, "error": "verified_discussion_session_required"}
+    if event_kind not in DISCUSSION_TRANSITION_EVENTS:
+        return {"ok": False, "error": "unsupported_public_session_transition"}
+    assert runtime is not None
+    evidence: Optional[dict[str, Any]] = None
+    reducer_data = dict(data)
+    if event_kind == "integration_evaluated" and data.get("outcome") == "safe":
+        evidence = _integration_transition_selection(root, config, runtime, data)
+        if not evidence.get("ok"):
+            return evidence
+        reducer_data["outcome"] = "safe"
+        reducer_data["integration_id"] = evidence["integration_id"]
+    plan = reduce_orchestration(
+        orchestration_state_from_dict(runtime),
+        UserEvent(kind=event_kind, data=reducer_data),
+        host_capability_for(str((runtime.get("session") or {}).get("host") or "unknown")),
+    )
+    if not plan.accepted:
+        return {
+            "ok": False,
+            "error": plan.denial_reason or "session_transition_rejected",
+            "plan": flow_plan_to_dict(plan),
+        }
+    previous = dict(runtime)
+    persisted = apply_session_runtime_patch(root, session_id, plan.state_patch)
+    if not persisted.get("ok"):
+        return {"ok": False, "error": "session_transition_persistence_failed"}
+    grant_payload: Optional[dict[str, Any]] = None
+    if plan.required_integration_lease:
+        if evidence is None:
+            write_session_runtime(root, session_id, previous)
+            return {"ok": False, "error": "integration_transition_evidence_required"}
+        grant_payload = create_integration_transition_grant(
+            root,
+            session_id=session_id,
+            integration_id=evidence["integration_id"],
+            task_ids=evidence["task_ids"],
+            reports=evidence["reports"],
+            outcome=evidence["outcome"],
+        )
+        if not grant_payload.get("ok"):
+            write_session_runtime(root, session_id, previous)
+            return grant_payload
+        grant = grant_payload["grant"]
+        bound = apply_session_runtime_patch(
+            root,
+            session_id,
+            {
+                "integration_runtime": {
+                    "integration_id": evidence["integration_id"],
+                    "transition_grant_id": grant["grant_id"],
+                    "selected_task_ids": evidence["task_ids"],
+                    "selected_reports": evidence["reports"],
+                    "base_branch": grant["base_branch"],
+                    "worktree": grant["worktree"],
+                }
+            },
+        )
+        if not bound.get("ok"):
+            write_session_runtime(root, session_id, previous)
+            return {"ok": False, "error": "integration_grant_binding_failed"}
+    return {
+        "ok": True,
+        "plan": flow_plan_to_dict(plan),
+        "runtime": read_session_runtime(root, session_id),
+        "grant": grant_payload.get("grant") if grant_payload else None,
+    }
+
+
+def _validate_integration_grant_evidence(
+    root: Path,
+    config: dict[str, Any],
+    runtime: dict[str, Any],
+    grant_id: str,
+    integration_id: str,
+    task_ids: list[str],
+    reports: list[str],
+) -> dict[str, Any]:
+    grant = inspect_integration_grant(root, grant_id)
+    if grant is None:
+        return {"ok": False, "error": "integration_transition_grant_not_found"}
+    session_id = str((runtime.get("session") or {}).get("session_id") or "")
+    expected = {
+        "discussion_session_id": session_id,
+        "integration_id": integration_id,
+        "selected_task_ids": list(task_ids),
+        "selected_reports": list(reports),
+        "base_branch": current_branch(root),
+        "worktree": str(root.resolve()),
+    }
+    for field, value in expected.items():
+        if grant.get(field) != value:
+            return {"ok": False, "error": "integration_transition_grant_mismatch", "field": field}
+    if grant.get("consumed_at"):
+        return {"ok": False, "error": "integration_transition_grant_consumed"}
+
+    pending_runtime = json.loads(json.dumps(runtime))
+    pending_runtime["session"]["phase"] = "integration_pending"
+    pending_runtime["session"]["expected_transition"] = {
+        "kind": "auto_integrate",
+        "task_id": task_ids[0],
+        "report_id": reports[0] if len(reports) == 1 else "",
+        "integration_id": integration_id,
+    }
+    evidence = _integration_transition_selection(
+        root,
+        config,
+        pending_runtime,
+        {
+            "task_ids": task_ids,
+            "reports": reports,
+            "integration_id": integration_id,
+        },
+    )
+    if not evidence.get("ok"):
+        return evidence
+    if evidence.get("outcome") != grant.get("outcome"):
+        return {"ok": False, "error": "integration_transition_outcome_changed"}
+    return {"ok": True, "grant": grant, "evidence": evidence}
+
+
 def session_main(args: argparse.Namespace) -> int:
     root = find_git_root(Path.cwd())
     if root is None:
@@ -2600,6 +3307,26 @@ def session_main(args: argparse.Namespace) -> int:
             if runtime is not None
             else {"ok": False, "error": "session_runtime_not_found"}
         )
+    elif args.session_action == "transition":
+        config = load_config(root)
+        if config is None:
+            payload = {"ok": False, "error": "wishgraph_not_enabled"}
+        else:
+            try:
+                data = (
+                    json.loads(args.data_json)
+                    if args.data_json
+                    else json.load(sys.stdin)
+                )
+            except (OSError, json.JSONDecodeError) as exc:
+                payload = {"ok": False, "error": "invalid_transition_event", "detail": str(exc)}
+            else:
+                if not isinstance(data, dict):
+                    payload = {"ok": False, "error": "transition_event_must_be_object"}
+                else:
+                    payload = transition_session_runtime(
+                        root, config, args.session_id, args.event_kind, data
+                    )
     elif args.session_action == "apply":
         try:
             patch = json.load(sys.stdin)
@@ -2610,34 +3337,21 @@ def session_main(args: argparse.Namespace) -> int:
                 "detail": str(exc),
             }
         else:
-            payload = apply_session_runtime_patch(root, args.session_id, patch)
+            invalid = sorted(set(patch) - SESSION_DIAGNOSTIC_PATCH_KEYS) if isinstance(patch, dict) else []
+            if not isinstance(patch, dict) or invalid:
+                payload = {
+                    "ok": False,
+                    "error": "session_direct_authority_write_forbidden",
+                    "forbidden_fields": invalid,
+                }
+            else:
+                payload = apply_session_runtime_patch(root, args.session_id, patch)
     else:
-        expected = None
-        if args.expected_kind:
-            expected = {
-                "kind": args.expected_kind,
-                "task_id": args.task_id,
-                "report_id": args.report_id,
-                "decision_id": args.decision_id,
-                "integration_id": args.integration_id,
-            }
-        runtime = {
-            "session": {
-                "session_id": args.session_id,
-                "role": args.role,
-                "host": args.host,
-                "phase": args.phase,
-                "expected_transition": expected,
-            }
+        payload = {
+            "ok": False,
+            "error": "session_direct_authority_write_forbidden",
+            "message": "Use session transition; role and phase cannot be set directly.",
         }
-        if args.task_id:
-            runtime["task"] = {
-                "task_id": args.task_id,
-                "lifecycle": args.task_lifecycle,
-                "worker_authorized": args.worker_authorized,
-                "run_report": args.report_id,
-            }
-        payload = write_session_runtime(root, args.session_id, runtime)
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if payload.get("ok") else 1
 
@@ -2649,21 +3363,44 @@ def integration_lease_main(args: argparse.Namespace) -> int:
     elif args.lease_action == "inspect":
         payload = {"ok": True, "lease": inspect_integration_lease(root)}
     elif args.lease_action == "acquire":
+        config = load_config(root)
         runtime = read_session_runtime(root, args.session_id)
         session = runtime.get("session", {}) if isinstance(runtime, dict) else {}
-        if not isinstance(session, dict) or session.get("role") != "discussion":
-            payload = {"ok": False, "error": "discussion_session_required"}
+        integration_runtime = (
+            runtime.get("integration_runtime", {}) if isinstance(runtime, dict) else {}
+        )
+        if config is None:
+            payload = {"ok": False, "error": "wishgraph_not_enabled"}
+        elif not _verified_discussion_runtime(runtime, args.session_id):
+            payload = {"ok": False, "error": "verified_discussion_session_required"}
         elif session.get("phase") != "integrating":
             payload = {"ok": False, "error": "integration_phase_required"}
+        elif not isinstance(integration_runtime, dict) or integration_runtime.get(
+            "transition_grant_id"
+        ) != args.grant_id:
+            payload = {"ok": False, "error": "integration_transition_grant_not_bound"}
         else:
-            payload = acquire_integration_lease(
+            evidence = _validate_integration_grant_evidence(
                 root,
-                session_id=args.session_id,
-                integration_id=args.integration_id,
-                task_ids=args.task_id,
-                reports=args.report,
-                require_clean=not args.allow_dirty,
+                config,
+                runtime,
+                args.grant_id,
+                args.integration_id,
+                args.task_id,
+                args.report,
             )
+            if not evidence.get("ok"):
+                payload = evidence
+            else:
+                payload = acquire_integration_lease(
+                    root,
+                    session_id=args.session_id,
+                    grant_id=args.grant_id,
+                    integration_id=args.integration_id,
+                    task_ids=args.task_id,
+                    reports=args.report,
+                    require_clean=not args.allow_dirty,
+                )
             if payload.get("ok"):
                 persisted = apply_session_runtime_patch(
                     root,
@@ -3552,6 +4289,12 @@ def main() -> int:
     session_get_parser.add_argument("session_id")
     session_apply_parser = session_subparsers.add_parser("apply")
     session_apply_parser.add_argument("session_id")
+    session_transition_parser = session_subparsers.add_parser("transition")
+    session_transition_parser.add_argument("session_id")
+    session_transition_parser.add_argument(
+        "event_kind", choices=sorted(DISCUSSION_TRANSITION_EVENTS)
+    )
+    session_transition_parser.add_argument("--data-json", default="")
     session_set_parser = session_subparsers.add_parser("set")
     session_set_parser.add_argument("session_id")
     session_set_parser.add_argument("--role", choices=sorted(SESSION_ROLES), required=True)
@@ -3569,6 +4312,7 @@ def main() -> int:
     lease_subparsers.add_parser("inspect")
     lease_acquire = lease_subparsers.add_parser("acquire")
     lease_acquire.add_argument("--session-id", required=True)
+    lease_acquire.add_argument("--grant-id", required=True)
     lease_acquire.add_argument("--integration-id", required=True)
     lease_acquire.add_argument("--task-id", action="append", required=True)
     lease_acquire.add_argument("--report", action="append", required=True)

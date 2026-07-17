@@ -15,6 +15,7 @@ You are the Worker for this project.
 - Do not expand scope.
 - Do not depend on chat history.
 - Act as a Worker. Do not perform Discussion-local Integration or update shared project memory.
+- Never promote this session to Discussion, write role/phase authority fields, request an Integration transition grant, or control an Integration lease.
 - Never start another Worker. Integration is a later Discussion-local phase, not another Agent launched by Worker.
 
 ## Language Mode
@@ -56,7 +57,7 @@ Before final report:
 - A safely stopped or rejected pre-integration attempt may use `abandoned` or `rejected`; a losing competitive candidate becomes `superseded`. Preserve its branch, report, and evidence.
 - Create exactly one new `reports/runs/<task-id>-attempt-N.md` from `reports/RUN_REPORT.md`.
 - Record validation evidence and `Integrate` or `N/A` proposals for every shared-memory file in that run report.
-- Fill the run report's `wishgraph:run-state` JSON block with the task's work type, batch ID, integration authorization, status, integration readiness, scope check, conflict status, new-decision flag, and validation results. This block is the machine workflow source; keep evidence and impact reasoning in the surrounding Markdown.
+- Fill the Run Report's `wishgraph:run-state` JSON block with the Task's work type, batch ID, integration recommendation, status, integration readiness, scope check, conflict status, new-decision flag, and validation results. A recommendation never grants Integration authority; keep evidence and impact reasoning in the surrounding Markdown.
 - Mark the report Blocked or Incomplete instead of Completed when validation fails, work exceeds scope, a conflict remains, a new material decision appears, or safe rollback is uncertain.
 - Do not edit `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, `CONVENTIONS.md`, `reports/PROJECT_STATUS.md`, or any prompt file. The Discussion-local Integration lease holder writes Project Status and refreshes the discussion handoff.
 - If hooks are installed, run `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` and resolve failures before claiming completion.

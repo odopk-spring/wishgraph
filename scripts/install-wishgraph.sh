@@ -168,13 +168,15 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 python_bin=""
+if [[ ( "$setup_project" -eq 1 || "$target" != "claude-project" ) && "$preflight_failed" -eq 0 ]]; then
+  if ! python_bin="$(find_python)"; then
+    print_python_help
+    preflight_failed=1
+  fi
+fi
 if [[ "$setup_project" -eq 1 && "$preflight_failed" -eq 0 ]]; then
   if [[ ! -d "$project_dir" ]]; then
     echo "Project directory does not exist: $project_dir" >&2
-    preflight_failed=1
-  fi
-  if [[ "$preflight_failed" -eq 0 ]] && ! python_bin="$(find_python)"; then
-    print_python_help
     preflight_failed=1
   fi
   if [[ "$preflight_failed" -eq 0 ]]; then
@@ -268,6 +270,14 @@ if [[ "$target" == "claude-user" || "$target" == "claude-project" ]]; then
   mkdir -p "$(dirname "$agent_dest")"
   cp "$agent_source" "$agent_dest"
   echo "Installed WishGraph Claude Worker Agent to $agent_dest"
+fi
+
+if [[ "$target" == "codex" || "$target" == "claude-user" ]]; then
+  global_host="codex"
+  if [[ "$target" == "claude-user" ]]; then
+    global_host="claude"
+  fi
+  "$python_bin" "$dest/scripts/install_global_adapter.py" --host "$global_host"
 fi
 
 if [[ "$setup_project" -eq 1 ]]; then

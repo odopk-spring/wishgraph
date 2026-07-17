@@ -59,7 +59,7 @@ continue without chat history.
 - Require a live Worker Claim bound to work unit, session, branch, absolute worktree, scope, and validation before implementation.
 - Before Formal Worker creation or Claim acquisition, require the current host to be listed in `required_hosts`, its Adapter to be current, and a recent matching `SessionStart` or `UserPromptSubmit` receipt from this runtime.
 - Release or revoke the old Claim before Worker rebind. Never let one window hold two active work units or inherit stale scope.
-- Require a Discussion-local Integration lease before merge resolution, combined validation, shared-state writes, or integration commit.
+- Require a reducer-issued one-time transition grant and bound Discussion-local Integration lease before merge resolution, combined validation, shared-state writes, or integration commit.
 - Keep shared project memory single-writer: Workers propose updates in Run Reports; Integration applies them.
 - Preserve immutable Task, attempt, Claim, Revision, Run Report, and losing competitive evidence.
 - Use `write/build gate: required`. Describe source-read enforcement as `read gate: host capability dependent` unless the host can intercept every read path.

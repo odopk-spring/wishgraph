@@ -91,17 +91,17 @@ if (-not $gitCommand) {
 }
 
 $pythonExecutable = $null
+if (($SetupProject -or $Target -ne "claude-project") -and -not $preflightFailed) {
+    $pythonExecutable = Find-PythonExecutable
+    if (-not $pythonExecutable) {
+        Write-PythonHelp
+        $preflightFailed = $true
+    }
+}
 if ($SetupProject -and -not $preflightFailed) {
     if (-not (Test-Path -LiteralPath $Project -PathType Container)) {
         [Console]::Error.WriteLine("Project directory does not exist: $Project")
         $preflightFailed = $true
-    }
-    if (-not $preflightFailed) {
-        $pythonExecutable = Find-PythonExecutable
-        if (-not $pythonExecutable) {
-            Write-PythonHelp
-            $preflightFailed = $true
-        }
     }
     if (-not $preflightFailed) {
         $detectedRoot = (& git -C $Project rev-parse --show-toplevel 2>$null | Select-Object -First 1)
@@ -197,6 +197,12 @@ if ($Target -eq "claude-user" -or $Target -eq "claude-project") {
     New-Item -ItemType Directory -Path (Split-Path -Parent $agentDestination) -Force | Out-Null
     Copy-Item -LiteralPath $agentSource -Destination $agentDestination -Force
     Write-Host "Installed WishGraph Claude Worker Agent to $agentDestination"
+}
+
+if ($Target -eq "codex" -or $Target -eq "claude-user") {
+    $globalHost = if ($Target -eq "codex") { "codex" } else { "claude" }
+    & $pythonExecutable (Join-Path $destination "scripts/install_global_adapter.py") --host $globalHost
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
 if ($SetupProject) {

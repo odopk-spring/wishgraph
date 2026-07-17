@@ -16,6 +16,8 @@ Use this reference only for Skill installation, project-hook setup, environment 
 
 Global Skill installation means WishGraph is available, not active in every folder. A project is enabled only when its Git root contains a readable `.wishgraph/config.json` whose `mode` is `warn` or `enforce`.
 
+The user-level installers also merge a global no-op Host Adapter into the selected host config; Claude user installation also installs the managed global Worker Agent. The bridge returns immediately outside an enabled Git project, so global capability does not activate WishGraph elsewhere. Project-local adapters remain supported for teams that want repository-contained host configuration.
+
 - In a project with no config or `mode: off`, generic phrases such as `开始讨论`, `刷新项目状态`, and `执行 012 任务` are ordinary user requests. Do not bootstrap WishGraph, load its References, or create files from those phrases.
 - `使用 WishGraph`, `为这个项目启用 WishGraph`, `Use WishGraph`, or an equally explicit request naming WishGraph authorizes the recommended safe project setup unless the user names another mode.
 - Command-line `--setup-project` or `-SetupProject` is also explicit project activation.
@@ -137,7 +139,7 @@ python3 scripts/install_project_hooks.py --target PROJECT_ROOT --host codex --mo
 python3 scripts/install_project_hooks.py --target PROJECT_ROOT --host claude --mode warn
 ```
 
-The first command installs both adapters. The other commands are explicit single-host choices. Dual-host activation preflights and snapshots the runtime, config, both adapter files, and both Worker Agent definitions before writing; any conflict or failed write restores the whole snapshot. Existing unrelated Hook groups are merged and preserved.
+The first command installs both project-local adapters. The other commands are explicit single-host choices. Dual-host activation preflights and snapshots the runtime, config, both adapter files, and both Worker Agent definitions before writing; any conflict or failed write restores the whole snapshot. Existing unrelated Hook groups are merged and preserved. A globally installed current Adapter and Agent may satisfy host execution without duplicating `.claude/settings.json` in every enabled project.
 
 Old configs without `required_hosts` retain the Adapter scope already installed. If no managed Adapter can be identified, they are interpreted as requiring both hosts so Doctor reports the incomplete state instead of silently claiming protection. The next successful activation or upgrade persists the resolved value. Upgrade preserves an existing choice; repair changes only the named Adapter.
 
@@ -191,7 +193,7 @@ Never pass `--host all` for a one-host repair. To add a host later, run activati
 After installation:
 
 1. Read `.wishgraph/config.json` and confirm the selected mode.
-2. Confirm every selected `required_host` Adapter was installed: Codex uses `.codex/hooks.json` plus `.codex/agents/wishgraph-worker.toml`; Claude uses `.claude/settings.json` plus `.claude/agents/wishgraph-worker.md`. Refuse to overwrite a same-path non-WishGraph Agent definition. Claude setup preserves existing Worktree settings, defaults an unset `worktree.baseRef` to `head`, and adds `.wishgraph` to `worktree.symlinkDirectories` so isolated Workers can use the same runtime and current committed Task records.
+2. Confirm every selected `required_host` has one current Adapter and Worker definition, either project-local or user-global. Refuse to overwrite a same-path non-WishGraph Agent definition. Claude background launch injects its Worktree settings per launch, so missing project `.claude/settings.json` is not by itself a failure and user settings remain unchanged.
 3. Confirm the host commands use the exact Python executable recorded in `.wishgraph/config.json`; then run that interpreter with `.wishgraph/hooks/memory_sync.py check --scope worktree`.
 4. Treat a missing governance skeleton as a next setup step, not a dependency failure; safe mode remains non-blocking.
 5. Finish with the selected mode and one next action: reopen the current Agent session, then use `开始讨论` / `Start discussion`. Do not teach Hook internals during normal setup.

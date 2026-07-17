@@ -14,7 +14,7 @@ Before merging or running combined validation:
 
 1. Verify the exact selected Task IDs and immutable Run Reports.
 2. Verify the integration evaluation is safe or that every required material decision has been resolved.
-3. Atomically acquire the Integration lease bound to the current Discussion session, integration ID, base branch, absolute worktree, selected Task IDs, and selected Run Reports.
+3. Require the reducer-issued, unconsumed one-time transition grant for this exact selection, then atomically acquire the Integration lease bound to the current Discussion session, integration ID, base branch, absolute worktree, selected Task IDs, and selected Run Reports.
 4. Stop if another active or stale lease exists. Never integrate concurrently.
 
 The Integration lease authorizes only the selected merge, bounded conflict resolution, combined validation, shared-state update, and integration commit. It does not authorize new feature implementation.

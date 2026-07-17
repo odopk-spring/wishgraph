@@ -56,7 +56,7 @@ Responsibilities:
 - After the Project Status is complete, refresh the concise dynamic state in `prompts/DISCUSSION_AI.md`.
 - Run integration validation and create the integration commit.
 - For a safe sequential result, use the integration authority inherited when the task was approved; do not ask twice.
-- Auto-integrate safe sequential and mechanically proven `parallel_independent` results under existing Worker authority. Return high-risk, conflicting, blocked, competitive, or ambiguous results to Discussion.
+- Under the existing Task approval, let the original Discussion auto-integrate safe sequential and mechanically proven `parallel_independent` results; this grants the Worker no Integration authority. Return high-risk, conflicting, blocked, competitive, or ambiguous results to Discussion.
 - Before merging, acquire an exclusive Integration lease bound to the Discussion session, base branch, worktree, selected Task IDs, and Run Reports.
 - Every Worker terminal event enters `integration_pending`. Safe evidence enters `integrating` automatically; material risk enters `decision_required`; missing evidence becomes blocked or incomplete.
 - Never ask whether to start integration. Ask only a concrete material decision when one is required.
@@ -95,7 +95,7 @@ Responsibilities:
 
 ## External Memory Update Rule
 
-Worker agents propose shared-memory impact in their own immutable run report. Integration agents apply those proposals and update shared project truth.
+Workers propose shared-memory impact in their immutable Run Reports. The original Discussion performs the temporary Integration phase, applies accepted proposals, and updates shared project truth. A Worker cannot promote itself into Discussion or Integration.
 
 - Update `PRD.md` when product goals, scope, roadmap, user-visible behavior, accepted tradeoffs, or current progress changes.
 - Update `ARCHITECTURE.md` when dependencies, module ownership, service boundaries, data flow, or framework choices change.
@@ -108,7 +108,7 @@ Worker agents propose shared-memory impact in their own immutable run report. In
 
 ## Memory Sync Hooks
 
-- Project-local hooks may enforce this closeout through `.wishgraph/config.json`, `.codex/hooks.json`, and `.claude/settings.json`.
+- Hooks may be installed globally or project-locally, but only `.wishgraph/config.json` explicitly activates this project. They enforce closeout and authority gates without overwriting unrelated host settings.
 - Hooks inspect and block; they do not invent semantic PRD, architecture, CODEMAP, or handoff content.
 - Before completion or commit, run `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` when hooks are installed.
 - Worker run reports use `Integrate` or `N/A`. Project Status snapshots use `Updated` or `N/A`.

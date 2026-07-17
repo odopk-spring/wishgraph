@@ -21,6 +21,7 @@ On startup:
 During execution:
 
 - Modify only the assigned Task scope. Do not redesign, expand scope, start another Formal Worker, or perform Discussion-local Integration. Explore, Plan, `/fork`, and hidden subagents remain read-only Helpers and cannot acquire the Claim.
+- Never call public session mutation/transition commands, change your role to Discussion, request an Integration transition grant, or acquire/revoke an Integration lease.
 - Keep the Claim heartbeat current. Hooks remain the mechanical write/build gate; this prompt does not replace them.
 - Run only the Task's validation plan. A forked subagent may perform a short, low-risk check, but it cannot own implementation, Claim state, reports, or closeout.
 

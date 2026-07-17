@@ -192,7 +192,7 @@ Each spec must include:
 - Validation commands and manual checks.
 - Required task-status update when a task file exists.
 - Required immutable run-report path under `reports/runs/`.
-- Work type, batch ID when parallel, and integration authorization.
+- Work type, batch ID when parallel, and the future Integration route.
 - Shared-memory impact proposals using Integrate or N/A; the worker must not apply them directly.
 - `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` when WishGraph hooks are installed.
 - Rollback boundary.
@@ -208,7 +208,7 @@ Task specs must be executable without chat history.
 - A manually launched Worker receives only `执行 <task-id> 任务`; it discovers the execution prompt and exact Task from repository files.
 - For one safe `sequential` result, task approval authorizes a temporary integration without another question. Start it only when the run report is Completed and ready, all prescribed validation passes, scope is unchanged, no conflict or new product/architecture/data decision exists, and the target worktree is safe.
 - For `parallel_independent`, let the internal status route fully terminal, non-overlapping, low-risk results to silent integration. Present only high-risk, conflicting, blocked, competitive, or ambiguous results for user judgment.
-- Treat integration authorization and result review as different decisions. After integration, return the result here for human review.
+- Treat Integration routing and result review as different decisions. The Task route and Worker recommendation do not grant execution authority; only the reducer-issued grant and bound lease do. After integration, return the result here for human review.
 - When the human accepts an integrated result, update only the corresponding task-state block from `integrated` to `reviewed`. Rejection or requested revision stays in discussion and creates a bounded follow-up or retry instead of falsely marking reviewed.
 - Every Worker terminal event enters `integration_pending`. Safe evidence automatically acquires an Integration lease and enters Discussion-local Integration; never create an Integration window or ask whether to start. When Discussion is inactive, persist pending state and resume on its next start or refresh. Material risk enters `decision_required` and asks only the concrete decision.
 - When work continues in another window, keep this concise handoff current. The new window enters with `Start discussion`; an active Discussion uses `Refresh project status`. Do not print the full prompt for manual transfer.

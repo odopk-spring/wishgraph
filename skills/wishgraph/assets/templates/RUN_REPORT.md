@@ -12,6 +12,8 @@ Create one new file from this template for each worker execution. Use `reports/r
 
 The JSON block below is the machine-readable source for lifecycle state. Keep narrative evidence in the sections that follow. Use `null` for a sequential Batch ID.
 
+`integration_recommendation` is evidence for Discussion routing, never Worker authorization. Only a reducer-issued transition grant plus a Discussion-local Integration lease can authorize integration.
+
 `change_class: micro` is compatibility-only for legacy reports; do not create new ad-hoc micro work. New corrections use a Task Revision and new feature work uses a formal Task. Competitive candidates record their objective score only when the Task defines a complete scorecard; set `selection_requires_judgment: true` for preferences or close tradeoffs.
 
 For a Task Revision, set `change_class: revision`, keep `task_id` as the parent Task, set the exact `revision_id`, and list every changed path. All explicit risk flags must remain false; otherwise stop and request a formal follow-up Task.
@@ -44,7 +46,7 @@ For a Task Revision, set `change_class: revision`, keep `task_id` as the parent 
   "change_class": "formal",
   "candidate_score": null,
   "selection_requires_judgment": false,
-  "integration_authorization": "inherited_task_approval",
+  "integration_recommendation": "safe_for_discussion_integration",
   "integration_readiness": "ready",
   "scope_check": "pass",
   "conflict_status": "none",

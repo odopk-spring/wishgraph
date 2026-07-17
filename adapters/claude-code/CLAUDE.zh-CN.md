@@ -30,7 +30,7 @@
 - 任务规格必须自包含；不要依赖聊天历史。
 - Worker session 使用独立 branch 或 worktree，创建一个不可变的 `reports/runs/<work-unit-id>.md`，填写 Integrate 或 N/A 建议，不修改共享记忆。
 - Discussion-local Integration 持有绑定 lease，使用 `--no-commit` 合并，把 `reports/PROJECT_STATUS.md` 重写为当前快照，更新受影响共享记忆，再刷新 `prompts/DISCUSSION_AI.md` 的精简动态交接。
-- 创建 Worker 必须有人类明确命令。授权后优先使用受管原生后台 Worker：`claude --bg --agent wishgraph-worker "执行 <task-id> 任务"`；forked subagent 只用于短时低风险检查。原生启动不可用或失败时只输出 `执行 <task-id> 任务` 并停止，Discussion 不得降级为实现者。
+- 创建 Worker 必须有人类明确命令。授权后优先在独立 Worktree 中使用受管原生后台 Worker。Host Adapter 会为本次启动增加 `--worktree` 和 `--settings` 机制，不改写用户设置；全局 Adapter 与 Agent 已就绪时，项目级 `.claude/settings.json` 可不存在。forked subagent 只用于短时低风险检查。原生启动不可用或失败时只输出 `执行 <task-id> 任务` 并停止，Discussion 不得降级为实现者。
 - Claude Code 不能自动把轻量 Revision 发送到已有 Worker。创建 `tasks/revisions/<task-id>-rN.md` 后，只输出 `在任务 <task-id> 的执行窗口执行修订 <revision-id>` 并停止。复用 Worker 前必须释放旧 Claim，再获取 Revision 的新 scope/validation 绑定。
 - 精确的执行、停止、重试、接管和明确 competitive 命令通过结构化 Task ID 与 Git common dir Claim 路由。只有存在唯一 `expected_transition` 时，简短上下文批准才有效。
 - 创建前把命令写入 task-state：`draft -> approved` 并设置 `worker_creation_authorized: true`。Worker 记录执行状态，Integration 记录 `integrated`，用户接受后讨论窗口记录 `reviewed`。
