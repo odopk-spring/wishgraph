@@ -66,7 +66,9 @@ python3 skills/wishgraph/scripts/install_project_hooks.py \
   --mode warn
 ```
 
-Use `--host all` only for an explicit dual-host project setup. Normal setup, Doctor recovery, and adapter repair target the current host only.
+Fresh setup defaults to `--host all`; explicit `codex` or `claude` keeps a project single-host. Doctor without `--host` checks configured `required_hosts`. Adapter repair always targets one explicitly named host and never changes that list.
+
+`current_host` identifies the Agent running setup; it never silently narrows `required_hosts`. Dual-host activation preflights all four Adapter/Agent files and restores the runtime, config, and both hosts if any write fails. Existing unrelated Hook groups remain in place. A single-host choice is valid, but ordinary sessions in the unselected host are not protected.
 
 From a Codex user-skill installation:
 
@@ -97,6 +99,8 @@ Normal users only enable WishGraph, reopen the current Agent session, and say `S
 `memory_sync.py` is a stable entrypoint over four public boundaries: `workflow_state.py` defines Session Role, Task Lifecycle, Flow Phase, Expected Transition, events, and plans; `policy.py` implements the pure `reduce(current_state, user_event, host_capability)` transition function; `host_adapter.py` maps one authorized next action to Codex, Claude Code, CLI, and Hook behavior; `git_state.py` persists Git facts, session runtime, Worker Claims, and the Discussion-local Integration lease. The lazy `codex_worker_provider.py` is a private implementation detail behind `host_adapter.py`, not a fifth public boundary. Semantic project truth remains in Markdown and Git.
 
 Start with `warn`. After one successful Task-backed Worker closeout and one Discussion-local integration, change `.wishgraph/config.json` to `enforce`.
+
+`warn` and `enforce` are enforced only through an installed and loaded host Adapter; neither is an operating-system sandbox. A missing Claude Adapter cannot block a normal Claude Code session. The optional Git hook is commit-time fallback protection, not a write-time gate.
 
 Codex project Hooks do not run before repository trust is granted; this detail is surfaced through Doctor only when normal entry fails.
 

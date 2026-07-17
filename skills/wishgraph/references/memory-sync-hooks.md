@@ -79,6 +79,8 @@ Updating the global Codex or Claude Skill refreshes the bundled runtime for futu
 
 The two host files are thin adapters over the same `.wishgraph/hooks/` runtime. Claude setup defaults an unset Worktree `baseRef` to `head` and adds `.wishgraph` to `worktree.symlinkDirectories`, preserving existing entries and an explicit existing baseRef. Native background launch is available only with `baseRef: head` and an authorized Task record already matching current `HEAD`; otherwise it uses the manual command. This lets an isolated Worker run the same local runtime while its Claim binds the actual Worker branch/worktree. A Worker Claim records both the machine hostname and `agent_platform`; an idle thread is reusable only by the same agent platform. Switching between Codex and Claude keeps repository truth, Tasks, reports, Claims, and status portable, but never sends a Codex route to a Claude thread ID or vice versa.
 
+`required_hosts` in project config is the selected protection scope; `current_host` is only the Agent invoking this Hook. Before a Formal Worker is created or acquires/rebinds a Claim, the current host must be selected, its Adapter and managed Worker definition must be present, and a recent `SessionStart` or `UserPromptSubmit` receipt must match the current runtime version and postdate Adapter installation. A Worker write/build request is denied when that check fails. Helper agents never gain authority from this check.
+
 Worker completion reminders use `.git/wishgraph/notifications/inbox.json` (or the equivalent shared Git common directory), not a project file. Claim release writes the terminal record; `Stop` and `TaskCompleted` only retry the same deterministic ID. An existing Discussion consumes its bound records on `SessionStart` or the next `UserPromptSubmit`. Explicit Discussion entry or project refresh may adopt unread project records after switching hosts. Consumption is capped per activation and marks records read atomically. Hooks never launch a daemon, poll another terminal, open a popup, or parse logs/prose as terminal evidence.
 
 A normal terminal Hook blocks while the Worker still holds an active Claim. Forced process termination can bypass every Hook; with daemon and polling explicitly excluded, the remaining recoverable signal is the stale Claim or structured host-session state discovered at the next Discussion inspection.
@@ -99,6 +101,7 @@ Use `warn` for first adoption. Use `enforce` only after a clean successful close
 Key settings include:
 
 - `mode`: `off`, `warn`, or `enforce`.
+- `required_hosts`: non-empty subset of `codex` and `claude`; use `mode: off` instead of an empty list.
 - `paths`: canonical governance, Task, Revision, report, and prompt locations.
 - `required_impact_rows`: shared-memory files that require `Integrate` or concrete `N/A` evidence.
 - `session_start_context_mode`: default `safety_only`; compatibility mode may provide a compact summary.
@@ -149,7 +152,7 @@ read gate: host capability dependent
 
 Business writes and implementation validation require a Claim bound to the current work unit, branch, absolute worktree, and session. Merge resolution, combined validation, shared-state writes, and integration commit require a bound Discussion-local Integration lease.
 
-Native write tools, recognized shell build/write commands, and MCP tools whose names expose write/edit/create/delete/update intent are gated. A shell script or opaque MCP tool can hide side effects from name-based interception, so this is a host-tool gate rather than an operating-system sandbox. Do not describe prompt instructions or opaque tools as hard enforcement. When a host cannot intercept every source-read tool, report that limitation honestly.
+Native write tools, recognized shell build/write commands, and MCP tools whose names expose write/edit/create/delete/update intent are gated. A shell script or opaque MCP tool can hide side effects from name-based interception, so this is a host-tool gate rather than an operating-system sandbox. An uninstalled Adapter cannot intercept anything in that host, even when project config says `mode: enforce`. Do not describe prompt instructions or opaque tools as hard enforcement. When a host cannot intercept every source-read tool, report that limitation honestly.
 
 Ordinary non-commit PreToolUse must remain bounded and avoid full source-tree enumeration. SessionStart performs a broader worktree check and has a separate latency budget.
 

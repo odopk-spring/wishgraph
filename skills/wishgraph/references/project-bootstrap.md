@@ -144,7 +144,7 @@ Do not make the user copy a full Discussion prompt or previous chat as a normal 
 
 Before the current Discussion ends, keep the concise dynamic block in `prompts/DISCUSSION_AI.md` and the current snapshot in `reports/PROJECT_STATUS.md` accurate. A new supported window in the same Git project says `开始讨论` / `Start discussion`; an already active Discussion says `刷新项目状态` / `Refresh project status`.
 
-When switching hosts, preserve project files, Tasks, reports, Claims, and integrated state. Install or repair only the current host's Skill and project adapter. Never route a Codex thread ID to Claude or a Claude session ID to Codex; the new host establishes its own valid Worker binding before execution.
+When switching hosts, preserve project files, Tasks, reports, Claims, and integrated state. Require the destination host to be selected in `required_hosts`; otherwise explicitly enable and install it before reopening the session. Never route a Codex thread ID to Claude or a Claude session ID to Codex; the new host establishes its own valid Worker binding before execution.
 
 ## Project Status Migration
 

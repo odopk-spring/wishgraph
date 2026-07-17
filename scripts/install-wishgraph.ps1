@@ -7,6 +7,8 @@ param(
     [switch]$Force,
     [switch]$SetupProject,
     [string]$Project = (Get-Location).Path,
+    [ValidateSet("all", "codex", "claude")]
+    [string]$ProjectHosts = "all",
     [switch]$Strict,
     [switch]$Check
 )
@@ -203,7 +205,8 @@ if ($SetupProject) {
     $installerArguments = @(
         (Join-Path $destination "scripts/install_project_hooks.py"),
         "--target", $Project,
-        "--host", $hookHost,
+        "--host", $ProjectHosts,
+        "--current-host", $hookHost,
         "--mode", $mode
     )
     if ($Strict) { $installerArguments += "--git-hook" }

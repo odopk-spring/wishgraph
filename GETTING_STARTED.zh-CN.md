@@ -50,7 +50,9 @@ Claude Code：
 & ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
 ```
 
-安装器会先检查 Git、Python、仓库根目录和当前宿主，只安装当前宿主的适配器，并保留无关的 Hooks。默认 `warn` 模式只报告流程问题，不阻止结束或提交。
+安装器会先检查 Git、Python 和仓库根目录，并把执行安装的 Agent（`current_host`）与项目要支持的宿主（`required_hosts`）分开。默认原子安装 Codex 与 Claude Code 两端适配器，同时保留无关 Hooks。默认 `warn` 模式只报告流程问题，不阻止结束或提交。
+
+明确只用单端时，可添加 `--project-hosts codex` 或 `--project-hosts claude`（PowerShell：`-ProjectHosts codex|claude`）。另一端不算缺失，但普通会话也不受保护。Agent 引导安装时会询问同样的三种选择，不会根据当前 Agent 静默决定。
 
 如果 Skill 已经安装，也可以直接告诉 Agent：
 
@@ -153,7 +155,7 @@ Discussion 一次只追问一个会改变结果的决定，并提供推荐默认
 刷新项目状态
 ```
 
-从 Codex 切换到 Claude Code，或反向切换时，只需安装或修复当前宿主的 Skill 和项目适配器，然后重新打开会话。持久项目事实可以共享，宿主自己的 thread/session ID 不跨平台复用。
+从 Codex 切换到 Claude Code，或反向切换时，先确认该宿主在 `required_hosts` 中；若不在，需要明确把项目改为双端支持，再重新打开新宿主会话。持久项目事实可以共享，宿主自己的 thread/session ID 不跨平台复用。
 
 ## Revision 和 Worker 复用
 
@@ -187,6 +189,8 @@ WishGraph 默认使用 native-lite：
 
 重新打开会话后，如果“开始讨论”没有响应，先运行 Doctor。只有 Codex 宿主调用仍未确认时才检查 `/hooks`；Claude Code CLI 用户还可以运行 `claude doctor`。
 
+Doctor 默认检查配置中的全部 `required_hosts`，并把 Adapter 静态状态与会话回执分开。“adapter current；execution unverified”表示安装成功，只是该 Agent 尚未重新打开。单端项目不会因为未选择的另一端缺失而失败。
+
 更新全局 Skill 不会静默覆盖已有项目的 `.wishgraph/hooks/`。项目 runtime 应走安全升级路径；未知或本地修改过的生成文件会停止并交给用户检查。
 
 ## 严格模式
@@ -200,6 +204,8 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 Claude Code 把 `codex` 换成 `claude-user`；PowerShell 使用 `-Strict`。
 
 严格配置会启用 `enforce` 并请求 Git pre-commit 兜底。安装器不会覆盖已有 Git hook，只会给出串联方式。
+
+`enforce` 只通过已安装且已加载的宿主 Adapter 工作，不是操作系统沙箱。没有 Claude Adapter 时，WishGraph 无法在普通 Claude Code 会话内机械检测或阻止写入；Git 兜底也只检查提交阶段。
 
 ## 首次验证清单
 

@@ -1,7 +1,11 @@
 {
-  "version": 11,
-  "runtime_version": 17,
+  "version": 12,
+  "runtime_version": 18,
   "mode": "enforce",
+  "required_hosts": [
+    "codex",
+    "claude"
+  ],
   "paths": {
     "prd": "PRD.md",
     "architecture": "ARCHITECTURE.md",

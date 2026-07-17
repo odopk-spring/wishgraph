@@ -1505,6 +1505,15 @@ class MemorySyncTests(unittest.TestCase):
                 HOOK_ASSETS / runtime_name,
                 self.root / ".wishgraph" / "hooks" / runtime_name,
             )
+        for source_name, destination in (
+            ("codex-hooks.json", ".codex/hooks.json"),
+            ("claude-settings.json", ".claude/settings.json"),
+            ("../codex-agents/wishgraph-worker.toml", ".codex/agents/wishgraph-worker.toml"),
+            ("../claude-agents/wishgraph-worker.md", ".claude/agents/wishgraph-worker.md"),
+        ):
+            target = self.root / destination
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(HOOK_ASSETS / source_name, target)
         self.write("PRD.md", "# PRD\n")
         self.write("ARCHITECTURE.md", "# Architecture\n")
         self.write("CODEMAP.md", "# Codemap\n")
@@ -1522,6 +1531,11 @@ class MemorySyncTests(unittest.TestCase):
         self.git("commit", "-qm", "baseline")
         self.config = memory_sync.load_config(self.root)
         assert self.config is not None
+        for host in ("codex", "claude"):
+            observed = memory_sync.record_host_observation(
+                self.root, host, "session-start", self.config["runtime_version"]
+            )
+            self.assertTrue(observed["ok"], observed)
 
     def tearDown(self) -> None:
         self.tempdir.cleanup()
@@ -2468,7 +2482,12 @@ class MemorySyncTests(unittest.TestCase):
 
     def test_claim_cli_runs_execution_preflight_and_blocks_duplicate_worker(self) -> None:
         task_path = "tasks/build/030-claim.md"
-        self.write(task_path, self.execution_ready_task("030-claim"))
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                "030-claim", status="approved", worker_authorized=True
+            ),
+        )
         self.git("add", task_path)
         self.git("commit", "-qm", "claim task fixture")
         command = [
@@ -2517,7 +2536,7 @@ class MemorySyncTests(unittest.TestCase):
     def test_claude_worker_capability_levels_use_only_native_host_facts(self) -> None:
         host_adapter_module = sys.modules["host_adapter"]
         agent_path = self.root / ".claude" / "agents" / "wishgraph-worker.md"
-        agent_path.parent.mkdir(parents=True)
+        agent_path.parent.mkdir(parents=True, exist_ok=True)
         agent_path.write_text(
             "---\nname: wishgraph-worker\n---\n"
             + memory_sync.CLAUDE_WORKER_AGENT_MARKER
@@ -2652,6 +2671,82 @@ class MemorySyncTests(unittest.TestCase):
         )
         self.assertFalse(denied["ok"])
         self.assertEqual(denied["error"], "worker_launch_not_authorized")
+
+        claude_discussion_id = "discussion-042-claude"
+        self.prepare_claude_worker_task("042a", claude_discussion_id, host="claude")
+        memory_sync.apply_session_runtime_patch(
+            self.root,
+            claude_discussion_id,
+            {"task": {"lifecycle": "draft", "worker_authorized": False}},
+        )
+        denied_claude = memory_sync.launch_claude_worker(
+            self.root, self.config, "042a", claude_discussion_id
+        )
+        self.assertFalse(denied_claude["ok"])
+        self.assertEqual(denied_claude["error"], "worker_launch_not_authorized")
+
+    def test_formal_execution_rejects_unselected_or_unconfirmed_current_host(self) -> None:
+        codex_only = dict(self.config)
+        codex_only["required_hosts"] = ["codex"]
+        not_selected = memory_sync.current_host_execution_guard(
+            self.root, codex_only, "claude"
+        )
+        self.assertFalse(not_selected["ok"])
+        self.assertEqual(not_selected["error"], "current_host_not_required")
+
+        common_dir = memory_sync.git_common_dir(self.root)
+        shutil.rmtree(
+            common_dir / "wishgraph" / "host-observations" / "codex",
+            ignore_errors=True,
+        )
+        missing_receipt = memory_sync.current_host_execution_guard(
+            self.root, self.config, "codex"
+        )
+        self.assertFalse(missing_receipt["ok"])
+        self.assertEqual(missing_receipt["error"], "current_host_receipt_not_recent")
+        self.assertIn("请重开当前 Agent 会话后重试", missing_receipt["message"])
+        memory_sync.write_session_runtime(
+            self.root,
+            "worker-without-receipt",
+            {
+                "session": {
+                    "session_id": "worker-without-receipt",
+                    "role": "worker",
+                    "host": "codex",
+                    "phase": "waiting_for_worker",
+                    "expected_transition": None,
+                },
+                "task": {
+                    "task_id": "042",
+                    "lifecycle": "running",
+                    "worker_authorized": True,
+                },
+            },
+        )
+        process = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "pre-tool-use",
+                "--host",
+                "codex",
+            ],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": "worker-without-receipt",
+                    "tool_name": "Write",
+                    "tool_input": {"file_path": str(self.root / "src/app.py")},
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        hook_output = json.loads(process.stdout)["hookSpecificOutput"]
+        self.assertEqual(hook_output["permissionDecision"], "deny")
 
     def test_codex_spawn_failure_cli_outputs_only_manual_command(self) -> None:
         task_id = "043"
@@ -5313,6 +5408,235 @@ class InstallerTests(unittest.TestCase):
         config["runtime_version"] = version
         config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
+    def test_fresh_activation_defaults_to_both_required_hosts(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            process = subprocess.run(
+                [sys.executable, str(INSTALLER), "--target", str(root), "--json"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(process.returncode, 0, process.stderr)
+            payload = json.loads(process.stdout)
+            config = json.loads(
+                (root / ".wishgraph/config.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(payload["required_hosts"], ["codex", "claude"])
+            self.assertEqual(config["required_hosts"], ["codex", "claude"])
+            for path in (
+                ".codex/hooks.json",
+                ".codex/agents/wishgraph-worker.toml",
+                ".claude/settings.json",
+                ".claude/agents/wishgraph-worker.md",
+            ):
+                self.assertTrue((root / path).is_file(), path)
+
+    def test_explicit_single_host_activation_persists_only_that_host(self) -> None:
+        for host, present, absent in (
+            ("codex", ".codex/hooks.json", ".claude/settings.json"),
+            ("claude", ".claude/settings.json", ".codex/hooks.json"),
+        ):
+            with self.subTest(host=host), tempfile.TemporaryDirectory() as tempdir:
+                root = Path(tempdir)
+                subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+                process = subprocess.run(
+                    [
+                        sys.executable,
+                        str(INSTALLER),
+                        "--target",
+                        str(root),
+                        "--host",
+                        host,
+                        "--json",
+                    ],
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                self.assertEqual(process.returncode, 0, process.stderr)
+                config = json.loads(
+                    (root / ".wishgraph/config.json").read_text(encoding="utf-8")
+                )
+                self.assertEqual(config["required_hosts"], [host])
+                self.assertTrue((root / present).is_file())
+                self.assertFalse((root / absent).exists())
+
+    def test_required_hosts_validation_and_legacy_scope_are_deterministic(self) -> None:
+        self.assertEqual(
+            installer_module.normalize_required_hosts(["claude", "codex", "claude"]),
+            ["codex", "claude"],
+        )
+        for invalid in ([], ["unknown"], "codex"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                installer_module.normalize_required_hosts(invalid)
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            (root / ".codex").mkdir()
+            (root / ".codex/hooks.json").write_text(
+                json.dumps(
+                    {
+                        "hooks": {
+                            "SessionStart": [
+                                {
+                                    "hooks": [
+                                        {
+                                            "type": "command",
+                                            "command": "python3 .wishgraph/hooks/memory_sync.py session-start",
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(installer_module.legacy_required_hosts(root), ["codex"])
+
+    def test_dual_host_activation_preflights_conflicts_and_rolls_back_write_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            conflict = root / ".claude/agents/wishgraph-worker.md"
+            conflict.parent.mkdir(parents=True)
+            conflict.write_text("user-owned agent\n", encoding="utf-8")
+            result = installer_module.activate_project(
+                root,
+                mode="warn",
+                required_hosts=["codex", "claude"],
+                force_assets=False,
+                install_git_fallback=False,
+            )
+            self.assertFalse(result["ok"])
+            self.assertIn("Refusing to replace", result["failed"][0])
+            self.assertFalse((root / ".codex").exists())
+            self.assertFalse((root / ".wishgraph").exists())
+            self.assertEqual(conflict.read_text(encoding="utf-8"), "user-owned agent\n")
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            original = installer_module.install_host_config
+
+            def fail_second(target: Path, host: str, python_executable: str) -> Path:
+                if host == "claude":
+                    raise OSError("simulated Claude adapter write failure")
+                return original(target, host, python_executable)
+
+            with mock.patch.object(
+                installer_module, "install_host_config", side_effect=fail_second
+            ):
+                result = installer_module.activate_project(
+                    root,
+                    mode="warn",
+                    required_hosts=["codex", "claude"],
+                    force_assets=False,
+                    install_git_fallback=False,
+                )
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["rolled_back"])
+            self.assertFalse((root / ".codex").exists())
+            self.assertFalse((root / ".wishgraph").exists())
+
+    def test_dual_host_activation_preserves_unrelated_hooks(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            for path in (root / ".codex/hooks.json", root / ".claude/settings.json"):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    json.dumps(
+                        {
+                            "hooks": {
+                                "SessionStart": [
+                                    {
+                                        "matcher": "custom",
+                                        "hooks": [
+                                            {"type": "command", "command": "echo keep-me"}
+                                        ],
+                                    }
+                                ]
+                            }
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            result = installer_module.activate_project(
+                root,
+                mode="warn",
+                required_hosts=["codex", "claude"],
+                force_assets=False,
+                install_git_fallback=False,
+            )
+            self.assertTrue(result["ok"], result)
+            for path in (root / ".codex/hooks.json", root / ".claude/settings.json"):
+                self.assertIn("echo keep-me", path.read_text(encoding="utf-8"))
+                self.assertIn("memory_sync.py", path.read_text(encoding="utf-8"))
+
+    def test_upgrade_and_host_repair_preserve_required_hosts(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            self.install_project_runtime(root)
+            config_path = root / ".wishgraph/config.json"
+            before = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(before["required_hosts"], ["codex"])
+            upgraded = subprocess.run(
+                [sys.executable, str(INSTALLER), "--target", str(root), "--upgrade"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
+            repaired = installer_module.repair_host_adapter(root, "codex")
+            self.assertTrue(repaired["ok"], repaired)
+            after = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(after["required_hosts"], ["codex"])
+            self.assertFalse((root / ".claude/settings.json").exists())
+
+    def test_doctor_defaults_to_required_hosts_and_keeps_liveness_separate(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            process = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALLER),
+                    "--target",
+                    str(root),
+                    "--host",
+                    "claude",
+                    "--mode",
+                    "enforce",
+                ],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(process.returncode, 0, process.stderr)
+            report = installer_module.doctor_report(root)
+            self.assertEqual(set(report["host_adapters"]), {"claude"})
+            self.assertTrue(report["healthy"])
+            self.assertFalse(report["host_execution_confirmed"])
+            self.assertEqual(
+                report["host_adapters"]["claude"]["execution"]["state"],
+                "unverified",
+            )
+            unselected = installer_module.doctor_report(root, "codex")
+            self.assertFalse(unselected["healthy"])
+            self.assertEqual(unselected["host_adapters"]["codex"]["state"], "missing")
+            config_path = root / ".wishgraph/config.json"
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            config["required_hosts"] = ["codex"]
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            missing_required = installer_module.doctor_report(root)
+            self.assertFalse(missing_required["healthy"])
+            self.assertEqual(
+                missing_required["host_adapters"]["codex"]["state"], "missing"
+            )
+
     def test_doctor_is_read_only_for_an_unconfigured_project(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -5365,7 +5689,7 @@ class InstallerTests(unittest.TestCase):
 
             with mock.patch.object(installer_module, "ASSET_ROOT", asset_root):
                 manifest = installer_module.bundled_runtime_manifest()
-                self.assertEqual(manifest["runtime_version"], 17)
+                self.assertEqual(manifest["runtime_version"], 18)
 
                 policy_path = asset_root / "policy.py"
                 policy_path.write_bytes(policy_path.read_bytes() + b"# changed\r\n")
@@ -5459,7 +5783,7 @@ class InstallerTests(unittest.TestCase):
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["state"], "confirmed_recently")
             self.assertEqual(execution["last_event"], "session-start")
-            self.assertEqual(execution["observed_runtime_version"], 17)
+            self.assertEqual(execution["observed_runtime_version"], 18)
             self.assertTrue(payload["host_execution_confirmed"])
             self.assertEqual(payload["next_action"], "bootstrap_project_memory")
 
@@ -5625,12 +5949,12 @@ class InstallerTests(unittest.TestCase):
             payload = json.loads(upgraded.stdout)
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["after"]["state"], "current")
-            self.assertEqual(payload["after"]["installed_runtime_version"], 17)
+            self.assertEqual(payload["after"]["installed_runtime_version"], 18)
             config = json.loads(
                 (root / ".wishgraph" / "config.json").read_text(encoding="utf-8")
             )
             self.assertEqual(config["mode"], "enforce")
-            self.assertEqual(config["runtime_version"], 17)
+            self.assertEqual(config["runtime_version"], 18)
 
     def test_safe_upgrade_replaces_only_a_bundled_known_old_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -5963,8 +6287,8 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(json.loads(status.stdout)["kind"], "integration_status")
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
-            self.assertEqual(config["version"], 11)
-            self.assertEqual(config["runtime_version"], 17)
+            self.assertEqual(config["version"], 12)
+            self.assertEqual(config["runtime_version"], 18)
             self.assertTrue(
                 (root / ".wishgraph" / "hooks" / "runtime-manifest.json").is_file()
             )
@@ -6058,7 +6382,7 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertEqual(process.returncode, 0, process.stderr)
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
-            self.assertEqual(config["version"], 11)
+            self.assertEqual(config["version"], 12)
             self.assertEqual(config["session_start_context_mode"], "safety_only")
             self.assertEqual(config["session_summary_max_chars"], 1234)
             self.assertTrue(config["scan_worker_refs_for_status"])
@@ -6072,6 +6396,16 @@ class InstallerTests(unittest.TestCase):
 
 
 class OneCommandInstallerTests(unittest.TestCase):
+    def test_top_level_installers_keep_current_host_separate_from_project_hosts(self) -> None:
+        shell = TOP_LEVEL_INSTALLER.read_text(encoding="utf-8")
+        powershell = POWERSHELL_INSTALLER.read_text(encoding="utf-8")
+        self.assertIn('project_hosts="all"', shell)
+        self.assertIn('--host "$project_hosts"', shell)
+        self.assertIn('--current-host "$hook_host"', shell)
+        self.assertIn('[string]$ProjectHosts = "all"', powershell)
+        self.assertIn('"--host", $ProjectHosts', powershell)
+        self.assertIn('"--current-host", $hookHost', powershell)
+
     def test_windows_installer_forces_utf8_for_python_children(self) -> None:
         content = POWERSHELL_INSTALLER.read_text(encoding="utf-8")
         self.assertIn('$env:PYTHONUTF8 = "1"', content)
@@ -6206,8 +6540,10 @@ class OneCommandInstallerTests(unittest.TestCase):
             self.assertIn("Next: reopen the current Agent session", process.stdout)
             self.assertTrue((codex_home / "skills" / "wishgraph" / "SKILL.md").exists())
             self.assertTrue((project / ".codex" / "hooks.json").exists())
+            self.assertTrue((project / ".claude" / "settings.json").exists())
             config = json.loads((project / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
+            self.assertEqual(config["required_hosts"], ["codex", "claude"])
 
     def test_setup_project_reuses_installed_skill_and_defaults_to_warn(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -6235,7 +6571,8 @@ class OneCommandInstallerTests(unittest.TestCase):
             config = json.loads((project / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
             self.assertTrue((project / ".codex" / "hooks.json").exists())
-            self.assertFalse((project / ".claude" / "settings.json").exists())
+            self.assertTrue((project / ".claude" / "settings.json").exists())
+            self.assertEqual(config["required_hosts"], ["codex", "claude"])
 
             strict = subprocess.run(
                 [

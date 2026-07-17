@@ -105,7 +105,7 @@ Feedback such as “I dislike this blue; make it warm gray” becomes a lightwei
 
 ## Install in 60 seconds
 
-WishGraph requires Git and Python 3.9+ and installs no Python packages. These commands install the Skill and enable safe-mode Hooks in the **current Git project**.
+WishGraph requires Git and Python 3.9+ and installs no Python packages. These commands install the Skill and enable safe-mode Hooks in the **current Git project**. Project setup installs both Codex and Claude Code adapters by default; that is the recommended default, not a requirement to use both.
 
 ### Codex · macOS / Linux
 
@@ -144,6 +144,8 @@ After installation:
 2. Say: Start discussion
 ```
 
+To protect only one host, add `--project-hosts codex` or `--project-hosts claude` (PowerShell: `-ProjectHosts codex|claude`). The choice is saved as `required_hosts`; an unselected host is not treated as an install error and is not protected.
+
 The default `warn` mode reports problems without blocking completion or commits. After one successful full run, enable strict gates with `--strict` on Bash or `-Strict` on PowerShell if you want them.
 
 For an Agent-guided setup, install this repository's `skills/wishgraph` with `$skill-installer` in Codex, or invoke `/wishgraph` after installing it in Claude Code, then say:
@@ -153,6 +155,8 @@ Use WishGraph for this project.
 ```
 
 See [Getting Started](GETTING_STARTED.md) for existing-project adoption, other install modes, and recovery.
+
+`warn` and `enforce` apply only when the current host has installed and loaded its WishGraph Adapter. They are not an operating-system sandbox. Reopen each selected Agent before its first managed Task so WishGraph can confirm a current-session Hook receipt.
 
 ## Host support
 
@@ -174,7 +178,7 @@ No. The Skill may be global, but every project must opt in explicitly. In an ina
 
 ### Do I need to copy a migration prompt when I change windows or agents?
 
-No. WishGraph handoff state lives in project files and the Git-common runtime, not in the previous conversation. Open the same project and say `Start discussion`. When switching hosts, install or repair only the current host's Skill and project adapter. Copying a full prompt is not the normal handoff and is not a Claude Code migration requirement.
+No. WishGraph handoff state lives in project files and the Git-common runtime, not in the previous conversation. Open the same project and say `Start discussion`. When switching hosts, first confirm it is selected in `required_hosts`; otherwise explicitly enable it, install its Adapter, and reopen the session. Copying a full prompt is not the normal handoff and is not a Claude Code migration requirement.
 
 ### What do the three common commands mean?
 

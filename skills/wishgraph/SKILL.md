@@ -23,10 +23,11 @@ continue without chat history.
 - WishGraph is active only when that file exists and `mode` is `warn` or `enforce`; missing config or `mode: off` means inactive.
 - In an inactive project, do not reinterpret `开始讨论`, `刷新项目状态`, or `执行 NNN 任务` as WishGraph commands. Do not read References, create project files, or install hooks.
 - Only an explicit request naming WishGraph, such as `使用 WishGraph` or `Use WishGraph`, may begin first-time project setup.
-- First-time activation completes setup but keeps the window `neutral`. Tell the user to reopen the current Agent session. Require a later explicit `开始讨论` / `Start discussion` event to enter Discussion.
+- On first activation, distinguish `current_host` from the project's `required_hosts`. Ask: “Which Agents should use WishGraph in this project?” Offer Codex + Claude Code (recommended), Codex only, or Claude Code only. Never silently turn the current host into the project scope.
+- First-time activation persists that host choice, completes setup atomically, and keeps the window `neutral`. Tell the user to reopen the current Agent session. Require a later explicit `开始讨论` / `Start discussion` event to enter Discussion.
 - Keep Doctor out of the normal first-use path. Route an explicit `检查 WishGraph 状态` / `Check WishGraph status`, or a reopened session that still does not respond, to the read-only Doctor before loading workflow context.
 - Route an explicit project update to the fingerprinted safe-upgrade path; preserve unknown or locally modified runtime files and ask before any forced replacement.
-- In an active project with a current runtime, repair only the current host's missing or outdated adapter; never install the other host as a side effect.
+- In an active project with a current runtime, repair only the explicitly requested host's missing or outdated adapter; changing `required_hosts` is a separate explicit action.
 
 ## Role Boundaries
 
@@ -56,6 +57,7 @@ continue without chat history.
 - Interpret short approvals only when one unique structured `expected_transition` exists; explicit commands take priority.
 - Require explicit human authority before creating a Formal Worker. Persist `waiting_for_worker` only after a real stable thread/session ID is saved. Host limitations never expand Discussion authority.
 - Require a live Worker Claim bound to work unit, session, branch, absolute worktree, scope, and validation before implementation.
+- Before Formal Worker creation or Claim acquisition, require the current host to be listed in `required_hosts`, its Adapter to be current, and a recent matching `SessionStart` or `UserPromptSubmit` receipt from this runtime.
 - Release or revoke the old Claim before Worker rebind. Never let one window hold two active work units or inherit stale scope.
 - Require a Discussion-local Integration lease before merge resolution, combined validation, shared-state writes, or integration commit.
 - Keep shared project memory single-writer: Workers propose updates in Run Reports; Integration applies them.

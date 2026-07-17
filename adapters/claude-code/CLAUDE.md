@@ -43,7 +43,7 @@ Use WishGraph as the project governance layer for AI-assisted development.
 ## Continuation
 
 - A new Claude Code window in the same project continues by saying `Start discussion`; an active Discussion uses `Refresh project status`. Read the persisted handoff and current state instead of printing a full prompt for manual copying.
-- A host switch preserves project files but not host-specific thread/session IDs. Repair or install only the current host adapter, then enter Discussion normally.
+- A host switch preserves project files but not host-specific thread/session IDs. The destination host must already be selected in `required_hosts`, or be explicitly enabled and installed before reopening its session.
 - When PRD and the first task are ready, set one exact `expected_transition` and ask for Worker authorization. After authorization, use the managed background Worker when available; otherwise output only `执行 <task-id> 任务`.
 
 ## Debugging

@@ -34,6 +34,7 @@ from git_state import (
     inspect_integration_lease,
     read_version,
     read_session_runtime,
+    read_host_observations,
     record_host_observation,
     rebind_worker_claim,
     resolve_project_status_path,
@@ -117,6 +118,25 @@ FORMAL_WORKER_CONTAINERS = {
 NON_WORKER_CONTAINERS = {HELPER_SUBAGENT, HIDDEN_INTERNAL_AGENT}
 CODEX_RUNNING_STATES = {"starting", "running", "working", "waiting"}
 CODEX_TERMINAL_STATES = {"completed", "failed", "stopped", "cancelled"}
+HOST_RECEIPT_RECENT_SECONDS = 120
+HOST_ADAPTER_EVENTS = {
+    "codex": {"SessionStart", "UserPromptSubmit", "PreToolUse", "Stop"},
+    "claude": {
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "Stop",
+        "TaskCompleted",
+    },
+}
+HOST_AGENT_PATHS = {
+    "codex": Path(".codex/agents/wishgraph-worker.toml"),
+    "claude": Path(".claude/agents/wishgraph-worker.md"),
+}
+HOST_AGENT_MARKERS = {
+    "codex": "# wishgraph-managed: wishgraph-worker",
+    "claude": "<!-- wishgraph-managed: wishgraph-worker -->",
+}
 
 
 @dataclass(frozen=True)
@@ -172,6 +192,125 @@ def host_capability_for(host: str) -> HostCapability:
             **common,
         )
     return HostCapability(host=host)
+
+
+def _value_contains_wishgraph_handler(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(_value_contains_wishgraph_handler(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_value_contains_wishgraph_handler(item) for item in value)
+    return isinstance(value, str) and ".wishgraph/hooks/memory_sync.py" in value.replace(
+        "\\", "/"
+    )
+
+
+def current_host_adapter_state(root: Path, host: str) -> dict[str, Any]:
+    if host not in {"codex", "claude"}:
+        return {"state": "missing", "error": "current_host_unknown"}
+    config_path = root / (
+        ".codex/hooks.json" if host == "codex" else ".claude/settings.json"
+    )
+    agent_path = root / HOST_AGENT_PATHS[host]
+    try:
+        value = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"state": "missing", "path": str(config_path)}
+    hooks = value.get("hooks") if isinstance(value, dict) else None
+    if not isinstance(hooks, dict):
+        return {"state": "outdated", "path": str(config_path)}
+    missing_events = [
+        event
+        for event in sorted(HOST_ADAPTER_EVENTS[host])
+        if not _value_contains_wishgraph_handler(hooks.get(event, []))
+    ]
+    try:
+        agent_text = agent_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        agent_text = ""
+    if HOST_AGENT_MARKERS[host] not in agent_text:
+        missing_events.append("wishgraph-worker")
+    state = "current" if not missing_events else "outdated"
+    mtimes: list[float] = []
+    for path in (config_path, agent_path):
+        try:
+            mtimes.append(path.stat().st_mtime)
+        except OSError:
+            pass
+    return {
+        "state": state,
+        "path": str(config_path),
+        "agent_path": str(agent_path),
+        "missing_or_outdated": missing_events,
+        "updated_at_epoch": max(mtimes) if mtimes else 0.0,
+    }
+
+
+def current_host_execution_guard(
+    root: Path, config: dict[str, Any], host: str
+) -> dict[str, Any]:
+    required_hosts = config.get("required_hosts", [])
+    if host not in {"codex", "claude"}:
+        return {
+            "ok": False,
+            "error": "current_host_unknown",
+            "message": "无法确认当前宿主，不能开始正式 WishGraph Task。",
+        }
+    if host not in required_hosts:
+        return {
+            "ok": False,
+            "error": "current_host_not_required",
+            "message": (
+                "当前宿主不在 required_hosts 中。请先显式为该项目启用当前宿主，"
+                "安装对应 Adapter，并重开当前 Agent 会话。"
+            ),
+        }
+    adapter = current_host_adapter_state(root, host)
+    if adapter["state"] != "current":
+        return {
+            "ok": False,
+            "error": "current_host_adapter_not_current",
+            "adapter": adapter,
+            "message": (
+                "当前宿主的 WishGraph Adapter 未安装或不是当前版本。"
+                "请先修复该宿主 Adapter，并重开当前 Agent 会话。"
+            ),
+        }
+    observations = read_host_observations(root, host)
+    valid: list[tuple[datetime, dict[str, Any]]] = []
+    for observation in observations:
+        observed_at = observation.get("observed_at")
+        if not isinstance(observed_at, str):
+            continue
+        try:
+            parsed = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        if observation.get("runtime_version") == config.get("runtime_version"):
+            valid.append((parsed, observation))
+    latest = max(valid, key=lambda item: item[0], default=None)
+    if latest is not None:
+        age = max(0.0, (datetime.now(timezone.utc) - latest[0]).total_seconds())
+        adapter_updated_at = float(adapter.get("updated_at_epoch") or 0.0)
+        observed_epoch = latest[0].timestamp()
+        if age <= HOST_RECEIPT_RECENT_SECONDS and observed_epoch + 1 >= adapter_updated_at:
+            return {
+                "ok": True,
+                "host": host,
+                "adapter": adapter,
+                "receipt": latest[1],
+                "age_seconds": int(age),
+            }
+    return {
+        "ok": False,
+        "error": "current_host_receipt_not_recent",
+        "adapter": adapter,
+        "message": (
+            "当前宿主的 WishGraph Hook 尚未在本会话中确认加载。"
+            "请重开当前 Agent 会话后重试。"
+        ),
+    }
 
 
 def map_flow_plan_to_host(
@@ -563,7 +702,12 @@ def _manual_worker_fallback(
 
 
 def _authorized_execution_thread_launch(
-    root: Path, config: dict[str, Any], discussion_session_id: str, task_id: str
+    root: Path,
+    config: dict[str, Any],
+    discussion_session_id: str,
+    task_id: str,
+    *,
+    current_host: str,
 ) -> dict[str, Any]:
     runtime = read_session_runtime(root, discussion_session_id)
     if runtime is None:
@@ -581,6 +725,9 @@ def _authorized_execution_thread_launch(
         or task_runtime.get("worker_authorized") is not True
     ):
         return {"ok": False, "error": "worker_launch_not_authorized"}
+    host_guard = current_host_execution_guard(root, config, current_host)
+    if not host_guard.get("ok"):
+        return host_guard
     preflight = execution_preflight(root, config, task_id, "execute")
     if not preflight.get("ok"):
         return {
@@ -603,6 +750,18 @@ def _authorized_execution_thread_launch(
             "task_path": task_path,
         }
     return {"ok": True, "runtime": runtime, "task": preflight["task"]}
+
+
+def _authorize_codex_execution_thread_launch(
+    root: Path, config: dict[str, Any], discussion_session_id: str, task_id: str
+) -> dict[str, Any]:
+    return _authorized_execution_thread_launch(
+        root,
+        config,
+        discussion_session_id,
+        task_id,
+        current_host="codex",
+    )
 
 
 def _codex_worker_provider():
@@ -634,7 +793,7 @@ def prepare_codex_worker(
         config,
         task_id,
         discussion_session_id,
-        authorize_launch=_authorized_execution_thread_launch,
+        authorize_launch=_authorize_codex_execution_thread_launch,
     )
 
 
@@ -664,7 +823,7 @@ def register_codex_worker(
         controllable=controllable,
         independent_context=independent_context,
         isolated_worktree=isolated_worktree,
-        authorize_launch=_authorized_execution_thread_launch,
+        authorize_launch=_authorize_codex_execution_thread_launch,
     )
 
 
@@ -698,7 +857,11 @@ def launch_claude_worker(
     if not canonical:
         return {"ok": False, "error": "invalid_task_id"}
     authorized = _authorized_execution_thread_launch(
-        root, config, discussion_session_id, canonical
+        root,
+        config,
+        discussion_session_id,
+        canonical,
+        current_host="claude",
     )
     if not authorized.get("ok"):
         return authorized
@@ -1636,7 +1799,11 @@ def classify_tool_operation(
 
 
 def orchestration_gate_plan(
-    root: Path, config: dict[str, Any], payload: dict[str, Any]
+    root: Path,
+    config: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    current_host: str = "unknown",
 ) -> Optional[FlowPlan]:
     classified = classify_tool_operation(root, config, payload)
     if classified is None or not config.get("orchestration_gate_enabled", True):
@@ -1659,6 +1826,14 @@ def orchestration_gate_plan(
     session_value = dict(session_value) if isinstance(session_value, dict) else {}
     role = str(session_value.get("role") or "neutral")
     session_host = str(session_value.get("host") or "unknown")
+    if role == "worker" and current_host in {"codex", "claude"}:
+        host_guard = current_host_execution_guard(root, config, current_host)
+        if not host_guard.get("ok"):
+            return FlowPlan(
+                accepted=False,
+                next_action="deny_current_host_execution",
+                denial_reason=str(host_guard.get("message") or host_guard.get("error")),
+            )
     task_value = runtime.get("task") if isinstance(runtime.get("task"), dict) else {}
     task_id = str(task_value.get("task_id") or "")
     runtime["worker_runtime"] = {}
@@ -1782,7 +1957,7 @@ def orchestration_gate_plan(
 
 def emit_orchestration_gate(plan: FlowPlan, mode: str) -> None:
     reason = "WishGraph orchestration gate blocked this operation. " + plan.denial_reason
-    if mode == "warn":
+    if mode == "warn" and plan.next_action != "deny_current_host_execution":
         emit(
             {
                 "hookSpecificOutput": {
@@ -2180,7 +2355,9 @@ def hook_main(event: str, host: str = "unknown") -> int:
                     }
                 )
             return 0
-        gate_plan = orchestration_gate_plan(root, config, payload)
+        gate_plan = orchestration_gate_plan(
+            root, config, payload, current_host=host
+        )
         if gate_plan is not None and not gate_plan.accepted:
             emit_orchestration_gate(gate_plan, str(config.get("mode")))
             return 0
@@ -2563,6 +2740,7 @@ def task_specs(root: Path, config: dict[str, Any]) -> list[dict[str, Any]]:
                     "execution_mode": state.execution_mode,
                     "comparison_group": state.comparison_group or None,
                     "run_report": state.run_report,
+                    "worker_creation_authorized": state.worker_creation_authorized,
                     "errors": state.errors,
                     "allowed_scope": _markdown_scope_items(change_set),
                     "validation_plan": _markdown_list_items(validation),
@@ -2901,6 +3079,8 @@ def execution_preflight(
     _, errors = evaluate_execution_preflight(
         root, config, task["task_path"], authorization_action
     )
+    if task.get("worker_creation_authorized") is not True:
+        errors.append("worker_creation_authorized_must_be_true")
     return {"ok": not errors, "task": task, "errors": errors}
 
 
@@ -3016,6 +3196,8 @@ def claim_main(args: argparse.Namespace) -> int:
         else:
             if config is None:
                 payload = {"ok": False, "error": "wishgraph_not_installed"}
+            elif not current_host_execution_guard(root, config, args.host).get("ok"):
+                payload = current_host_execution_guard(root, config, args.host)
             elif args.revision_id:
                 resolved_revision = resolve_revision(root, config, args.revision_id)
                 if not resolved_revision.get("ok"):
@@ -3070,6 +3252,10 @@ def claim_main(args: argparse.Namespace) -> int:
             if config is None:
                 payload = {"ok": False, "error": "wishgraph_not_installed"}
             else:
+                host_guard = current_host_execution_guard(root, config, args.host)
+                if not host_guard.get("ok"):
+                    print(json.dumps(host_guard, ensure_ascii=False, indent=2))
+                    return 1
                 if args.revision_id:
                     resolved_revision = resolve_revision(root, config, args.revision_id)
                     if not resolved_revision.get("ok"):
@@ -3256,7 +3442,7 @@ def codex_worker_main(args: argparse.Namespace) -> int:
         args,
         find_git_root_fn=find_git_root,
         load_config_fn=load_config,
-        authorize_launch=_authorized_execution_thread_launch,
+        authorize_launch=_authorize_codex_execution_thread_launch,
         resolve_task_record=resolve_task,
     )
 
@@ -3307,7 +3493,7 @@ def main() -> int:
             sys.argv[2:],
             find_git_root_fn=find_git_root,
             load_config_fn=load_config,
-            authorize_launch=_authorized_execution_thread_launch,
+            authorize_launch=_authorize_codex_execution_thread_launch,
             resolve_task_record=resolve_task,
         )
     parser = argparse.ArgumentParser(description=__doc__)

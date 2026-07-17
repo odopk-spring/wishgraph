@@ -74,7 +74,9 @@ python3 skills/wishgraph/scripts/install_project_hooks.py \
   --mode warn
 ```
 
-只有用户明确要求双宿主项目配置时才使用 `--host all`。正常安装、Doctor 恢复和适配器修复都只处理当前宿主。
+首次配置默认使用 `--host all`；明确选择 `codex` 或 `claude` 时保持单端。Doctor 不传 `--host` 时检查配置中的 `required_hosts`。适配器修复始终只处理明确指定的一端，也不会改变该列表。
+
+`current_host` 只表示执行安装的 Agent，不能静默缩小 `required_hosts`。双端激活会预检四个 Adapter/Agent 文件；任一写入失败都会恢复 runtime、配置和两端文件。现有无关 Hook 继续保留。单端选择完全有效，但未选择宿主中的普通会话不受保护。
 
 从 Codex 用户 skill 安装目录运行：
 
@@ -105,6 +107,8 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
 `memory_sync.py` 是稳定入口，内部保留四个公共边界：`workflow_state.py` 定义 Session Role、Task Lifecycle、Flow Phase、Expected Transition、事件和计划；`policy.py` 实现纯函数 `reduce(current_state, user_event, host_capability)`；`host_adapter.py` 把唯一下一动作映射为 Codex、Claude Code、CLI 与 Hook 行为；`git_state.py` 保存 Git 事实、session runtime、Worker Claim 和 Discussion-local Integration lease。延迟加载的 `codex_worker_provider.py` 只是 `host_adapter.py` 背后的私有实现，不是第五个公共边界。项目语义真相仍保存在 Markdown 和 Git 中。
 
 建议先用 `warn`。完成一次 Task-backed Worker 收尾和一次 Discussion-local Integration 后，再把 `.wishgraph/config.json` 改成 `enforce`。
+
+`warn` 与 `enforce` 只能通过已安装且已加载的宿主 Adapter 生效，都不是操作系统沙箱。缺少 Claude Adapter 时，普通 Claude Code 会话无法被 WishGraph 阻止。可选 Git hook 只是提交阶段兜底，不是写入时门禁。
 
 Codex 项目 Hook 需要仓库信任后才能运行；只有正常入口失败时，Doctor 才向用户显示这项排障信息。
 

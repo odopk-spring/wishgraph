@@ -15,9 +15,10 @@ from typing import Any, Optional
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "version": 11,
-    "runtime_version": 17,
+    "version": 12,
+    "runtime_version": 18,
     "mode": "enforce",
+    "required_hosts": ["codex", "claude"],
     "paths": {
         "prd": "PRD.md",
         "architecture": "ARCHITECTURE.md",
@@ -73,6 +74,7 @@ FORMAL_WORKER_CONTAINER_KINDS = {
     "codex_agent_thread",
     "claude_background_session",
 }
+KNOWN_REQUIRED_HOSTS = ("codex", "claude")
 
 
 def run_git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
@@ -1084,6 +1086,41 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
     return merged
 
 
+def normalize_required_hosts(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        raise ValueError("required_hosts must be a non-empty array")
+    if not value:
+        raise ValueError("required_hosts must not be empty; use mode off instead")
+    if not all(isinstance(item, str) for item in value):
+        raise ValueError("required_hosts entries must be strings")
+    unknown = sorted(set(value) - set(KNOWN_REQUIRED_HOSTS))
+    if unknown:
+        raise ValueError(
+            "required_hosts contains unknown hosts: " + ", ".join(unknown)
+        )
+    selected = set(value)
+    return [host for host in KNOWN_REQUIRED_HOSTS if host in selected]
+
+
+def legacy_required_hosts(root: Path) -> list[str]:
+    """Preserve an old project's effective host scope without rewriting config."""
+    candidates = {
+        "codex": root / ".codex" / "hooks.json",
+        "claude": root / ".claude" / "settings.json",
+    }
+    detected: list[str] = []
+    for host in KNOWN_REQUIRED_HOSTS:
+        try:
+            text = candidates[host].read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if ".wishgraph/hooks/memory_sync.py" in text.replace("\\", "/"):
+            detected.append(host)
+    # An active legacy config with no detectable adapter was already unprotected.
+    # Requiring both makes Doctor surface the broken state instead of guessing one host.
+    return detected or list(KNOWN_REQUIRED_HOSTS)
+
+
 def load_config(root: Path) -> Optional[dict[str, Any]]:
     path = root / ".wishgraph" / "config.json"
     if not path.exists():
@@ -1094,6 +1131,11 @@ def load_config(root: Path) -> Optional[dict[str, Any]]:
         raise ValueError(f"Cannot read {path.relative_to(root)}: {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError(".wishgraph/config.json must contain a JSON object")
+    required_hosts_source = "configured"
+    if "required_hosts" not in data:
+        data = dict(data)
+        data["required_hosts"] = legacy_required_hosts(root)
+        required_hosts_source = "legacy_installed_adapters"
     if "session_start_context_mode" not in data:
         legacy_injection = data.get("inject_project_summary_on_session_start")
         if isinstance(legacy_injection, bool):
@@ -1110,6 +1152,8 @@ def load_config(root: Path) -> Optional[dict[str, Any]]:
             data = dict(data)
             data["paths"] = configured_paths
     config = deep_merge(DEFAULT_CONFIG, data)
+    config["required_hosts"] = normalize_required_hosts(config.get("required_hosts"))
+    config["required_hosts_source"] = required_hosts_source
     context_mode = config.get("session_start_context_mode")
     if context_mode not in {"safety_only", "discussion_summary", "off"}:
         raise ValueError(

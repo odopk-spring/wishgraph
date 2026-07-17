@@ -52,7 +52,9 @@ Claude Code:
 & ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
 ```
 
-The installer checks Git, Python, the repository root, and the selected host before writing. It installs only the current host adapter and preserves unrelated Hook groups. The default `warn` mode reports workflow problems without blocking completion or commits.
+The installer checks Git, Python, and the repository root before writing. It keeps the Agent running setup (`current_host`) separate from the project scope (`required_hosts`). By default it atomically installs both Codex and Claude Code adapters, while preserving unrelated Hook groups. The default `warn` mode reports workflow problems without blocking completion or commits.
+
+For a deliberate single-host project, add `--project-hosts codex` or `--project-hosts claude` (PowerShell: `-ProjectHosts codex|claude`). The other Adapter is not required, and ordinary sessions in that host are not protected. Agent-guided setup asks the same three-way question instead of inferring the answer from the current Agent.
 
 For Agent-guided setup, install the Skill first and say:
 
@@ -155,7 +157,7 @@ In an already active Discussion:
 Refresh project status
 ```
 
-When changing from Codex to Claude Code or back, install or repair the current host's Skill and project adapter, reopen the session, and use the same command. Durable project state is shared; host-specific thread/session IDs are not.
+When changing from Codex to Claude Code or back, first confirm that host is in `required_hosts`. If it is not, explicitly reactivate with both hosts; then reopen the newly enabled Agent and use the same command. Durable project state is shared; host-specific thread/session IDs are not.
 
 ## Revisions and Worker reuse
 
@@ -189,6 +191,8 @@ Normal users can use these natural-language requests:
 
 If `Start discussion` does not respond after reopening the session, run Doctor first. Check `/hooks` in Codex only when host invocation remains unverified; Claude Code CLI users may additionally run `claude doctor`.
 
+Doctor checks configured `required_hosts` by default. It reports Adapter static state separately from execution receipts, so “adapter current; execution unverified” means installation succeeded but that Agent has not yet been reopened. A single-host project does not fail because the unselected Adapter is absent.
+
 Updating a global Skill does not silently rewrite project-local `.wishgraph/hooks/`. Use the safe project update path for an existing runtime. Locally modified or unknown generated files stop for review instead of being overwritten.
 
 ## Strict mode
@@ -202,6 +206,8 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 Use `claude-user` for Claude Code. On PowerShell, add `-Strict`.
 
 Strict setup enables `enforce` and requests a Git pre-commit fallback. The installer never overwrites an existing Git hook; it reports how to chain it instead.
+
+`enforce` works only through an installed, loaded host Adapter; it is not an OS sandbox. Without a Claude Adapter, WishGraph cannot mechanically detect or block a normal Claude Code session. The Git fallback checks commits, not every write.
 
 ## First-run success checklist
 

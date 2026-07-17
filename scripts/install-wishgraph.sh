@@ -6,9 +6,9 @@ usage() {
 Install the WishGraph skill without cloning the whole repository by hand.
 
 Usage:
-  install-wishgraph.sh codex [--force] [--setup-project] [--project PATH] [--strict] [--check]
-  install-wishgraph.sh claude-user [--force] [--setup-project] [--project PATH] [--strict] [--check]
-  install-wishgraph.sh claude-project [--force] [--setup-project] [--project PATH] [--strict] [--check]
+  install-wishgraph.sh codex [--force] [--setup-project] [--project PATH] [--project-hosts HOSTS] [--strict] [--check]
+  install-wishgraph.sh claude-user [--force] [--setup-project] [--project PATH] [--project-hosts HOSTS] [--strict] [--check]
+  install-wishgraph.sh claude-project [--force] [--setup-project] [--project PATH] [--project-hosts HOSTS] [--strict] [--check]
 
 Targets:
   codex          Install to ${CODEX_HOME:-$HOME/.codex}/skills/wishgraph
@@ -18,12 +18,14 @@ Targets:
 Project setup:
   --setup-project  Also install memory-sync hooks into the current project
   --project PATH   Install memory-sync hooks into PATH instead of the current project
+  --project-hosts  Project-managed hosts: all (recommended default), codex, or claude
   --strict         Use enforce mode plus a Git pre-commit fallback; requires project setup
   --check          Check prerequisites and estimated cost without installing
 
 Examples:
   install-wishgraph.sh codex
   install-wishgraph.sh codex --setup-project
+  install-wishgraph.sh codex --setup-project --project-hosts codex
   install-wishgraph.sh claude-user --project /path/to/project
   install-wishgraph.sh codex --setup-project --strict
 
@@ -92,6 +94,7 @@ setup_project=0
 strict=0
 check_only=0
 project_dir="$(pwd)"
+project_hosts="all"
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --force)
@@ -107,6 +110,20 @@ while [[ "$#" -gt 0 ]]; do
       fi
       project_dir="$2"
       setup_project=1
+      shift
+      ;;
+    --project-hosts)
+      if [[ "$#" -lt 2 ]]; then
+        echo "--project-hosts requires all, codex, or claude." >&2
+        exit 2
+      fi
+      case "$2" in
+        all|codex|claude) project_hosts="$2" ;;
+        *)
+          echo "Unknown project host selection: $2" >&2
+          exit 2
+          ;;
+      esac
       shift
       ;;
     --strict)
@@ -268,7 +285,8 @@ if [[ "$setup_project" -eq 1 ]]; then
   set -- \
     "$python_bin" "$dest/scripts/install_project_hooks.py" \
     --target "$project_dir" \
-    --host "$hook_host" \
+    --host "$project_hosts" \
+    --current-host "$hook_host" \
     --mode "$hook_mode"
   if [[ "$force" -eq 1 ]]; then
     set -- "$@" --force-assets

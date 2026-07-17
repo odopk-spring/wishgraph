@@ -115,6 +115,15 @@ def setup_fixture(base: Path) -> tuple[Path, Path]:
     shutil.copy2(HOOK_ASSETS / "config.json", root / ".wishgraph" / "config.json")
     for filename in RUNTIME_FILES:
         shutil.copy2(HOOK_ASSETS / filename, hook_dir / filename)
+    adapter_path = root / ".codex" / "hooks.json"
+    adapter_path.parent.mkdir(parents=True)
+    shutil.copy2(HOOK_ASSETS / "codex-hooks.json", adapter_path)
+    agent_path = root / ".codex" / "agents" / "wishgraph-worker.toml"
+    agent_path.parent.mkdir(parents=True)
+    shutil.copy2(
+        HOOK_ASSETS.parent / "codex-agents" / "wishgraph-worker.toml",
+        agent_path,
+    )
 
     task_path = root / "tasks" / "build" / "012-hook-benchmark.md"
     task_path.parent.mkdir(parents=True)
@@ -168,7 +177,7 @@ def invoke(
 ) -> tuple[float, dict[str, Any]]:
     started = time.perf_counter()
     process = run(
-        [sys.executable, str(runtime), event],
+        [sys.executable, str(runtime), event, "--host", "codex"],
         cwd=root,
         input_text=json.dumps(payload),
         check=False,

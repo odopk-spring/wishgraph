@@ -42,6 +42,7 @@ RUNTIME_FILES = (
 RUNTIME_MANIFEST_NAME = "runtime-manifest.json"
 HOST_OBSERVATION_EVENTS = ("session-start", "user-prompt-submit")
 RECENT_HOST_OBSERVATION_SECONDS = 120
+KNOWN_HOSTS = ("codex", "claude")
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -305,6 +306,40 @@ def contains_wishgraph_handler(value: Any) -> bool:
     )
 
 
+def normalize_required_hosts(value: Any) -> list[str]:
+    if not isinstance(value, list) or not value:
+        raise ValueError(
+            "required_hosts must be a non-empty array; use mode off instead"
+        )
+    if not all(isinstance(item, str) for item in value):
+        raise ValueError("required_hosts entries must be strings")
+    unknown = sorted(set(value) - set(KNOWN_HOSTS))
+    if unknown:
+        raise ValueError(
+            "required_hosts contains unknown hosts: " + ", ".join(unknown)
+        )
+    selected = set(value)
+    return [host for host in KNOWN_HOSTS if host in selected]
+
+
+def hosts_for_selection(selection: str) -> list[str]:
+    return list(KNOWN_HOSTS) if selection == "all" else [selection]
+
+
+def legacy_required_hosts(target: Path) -> list[str]:
+    """Infer only the Adapter scope an old project already had."""
+    detected: list[str] = []
+    for host in KNOWN_HOSTS:
+        path = host_config_path(target, host)
+        try:
+            value = read_json(path)
+        except ValueError:
+            continue
+        if contains_wishgraph_handler(value):
+            detected.append(host)
+    return detected or list(KNOWN_HOSTS)
+
+
 def host_config_path(target: Path, host: str) -> Path:
     if host == "codex":
         return target / ".codex" / "hooks.json"
@@ -439,10 +474,13 @@ def host_adapter_diagnosis(
             ("ClaudeAgent:" if host == "claude" else "CodexAgent:")
             + "wishgraph-worker"
         )
+    adapter_state = "current" if not outdated_events and agent_current else "outdated"
+    if worker_agent is not None and worker_agent.get("state") == "conflict":
+        adapter_state = "conflict"
     result = {
         "host": host,
         "path": str(path),
-        "state": "current" if not outdated_events and agent_current else "outdated",
+        "state": adapter_state,
         "missing_or_outdated_events": outdated_events,
     }
     if worker_agent is not None:
@@ -557,7 +595,7 @@ def host_execution_diagnosis(
     return diagnosis
 
 
-def doctor_report(target: Path, selected_host: str) -> dict[str, Any]:
+def doctor_report(target: Path, selected_host: Optional[str] = None) -> dict[str, Any]:
     config_path = target / ".wishgraph" / "config.json"
     config: dict[str, Any] = {}
     config_state = "missing"
@@ -565,17 +603,36 @@ def doctor_report(target: Path, selected_host: str) -> dict[str, Any]:
     if config_path.is_file():
         try:
             config = read_json(config_path)
+            if "required_hosts" in config:
+                required_hosts = normalize_required_hosts(config["required_hosts"])
+                required_hosts_source = "configured"
+            else:
+                required_hosts = legacy_required_hosts(target)
+                required_hosts_source = "legacy_installed_adapters"
             config_state = "active" if config.get("mode") in {"warn", "enforce"} else "off"
         except ValueError as exc:
             config_state = "invalid"
             config_error = str(exc)
+            required_hosts = list(KNOWN_HOSTS)
+            required_hosts_source = "invalid"
+    else:
+        required_hosts = list(KNOWN_HOSTS)
+        required_hosts_source = "default_for_unconfigured_project"
 
     runtime = runtime_diagnosis(target)
     python_info = configured_python_diagnosis(config)
     python_executable = (
         python_info["path"] if python_info["state"] == "available" else sys.executable
     )
-    hosts = ("codex", "claude") if selected_host == "all" else (selected_host,)
+    if selected_host in KNOWN_HOSTS:
+        hosts = (selected_host,)
+        host_selection_source = "explicit"
+    elif selected_host == "all":
+        hosts = KNOWN_HOSTS
+        host_selection_source = "explicit_all"
+    else:
+        hosts = tuple(required_hosts)
+        host_selection_source = "required_hosts"
     host_adapters = {
         host: host_adapter_diagnosis(target, host, python_executable) for host in hosts
     }
@@ -610,12 +667,20 @@ def doctor_report(target: Path, selected_host: str) -> dict[str, Any]:
     elif runtime["state"] != "current":
         next_action = "review_runtime_changes"
     elif any(item["state"] != "current" for item in host_adapters.values()):
-        next_action = "repair_current_host_adapter"
+        next_action = (
+            "repair_current_host_adapter"
+            if host_selection_source == "explicit" and len(hosts) == 1
+            else "repair_required_host_adapters"
+        )
     elif any(
         item["execution"]["state"] != "confirmed_recently"
         for item in host_adapters.values()
     ):
-        next_action = "restart_agent_session"
+        next_action = (
+            "restart_agent_session"
+            if host_selection_source == "explicit" and len(hosts) == 1
+            else "verify_required_host_sessions"
+        )
     elif not governance_ready:
         next_action = "bootstrap_project_memory"
     else:
@@ -644,10 +709,13 @@ def doctor_report(target: Path, selected_host: str) -> dict[str, Any]:
             "configured_runtime_version": config.get("runtime_version"),
             "path": str(config_path),
             "error": config_error,
+            "required_hosts": required_hosts,
+            "required_hosts_source": required_hosts_source,
         },
         "runtime": runtime,
         "python": python_info,
         "host_adapters": host_adapters,
+        "host_selection_source": host_selection_source,
         "governance_ready": governance_ready,
         "next_action": next_action,
     }
@@ -658,9 +726,6 @@ def print_doctor_report(report: dict[str, Any], json_output: bool) -> None:
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return
     activation = report["activation"]
-    host_summary = ", ".join(
-        f"{host}={value['state']}" for host, value in report["host_adapters"].items()
-    )
     execution_labels = {
         "confirmed_recently": "confirmed recently",
         "observed": "confirmed previously; recheck this session",
@@ -668,13 +733,14 @@ def print_doctor_report(report: dict[str, Any], json_output: bool) -> None:
         "unverified": "not yet confirmed",
         "unavailable": "unavailable",
     }
-    execution_summary = ", ".join(
-        f"{host}={execution_labels.get(value['execution']['state'], value['execution']['state'])}"
-        for host, value in report["host_adapters"].items()
-    )
     print("WishGraph doctor")
     print(f"- Project: {report['project_root']}")
     print(f"- Activation: {activation['state']} ({activation['mode'] or 'N/A'})")
+    print(
+        "- Required hosts: "
+        + ", ".join(activation.get("required_hosts", []))
+        + f" ({activation.get('required_hosts_source', 'unknown')})"
+    )
     runtime = report["runtime"]
     installed_version = runtime.get("installed_runtime_version") or "unknown"
     bundled_version = runtime.get("bundled_runtime_version") or "unknown"
@@ -683,10 +749,29 @@ def print_doctor_report(report: dict[str, Any], json_output: bool) -> None:
         f"(installed={installed_version}, bundled={bundled_version})"
     )
     print(f"- Python: {report['python']['state']}")
-    print(f"- Host adapters: {host_summary or 'not checked'}")
-    print(f"- Host execution: {execution_summary or 'not observed'}")
-    if report["next_action"] == "restart_agent_session":
+    if report["host_adapters"]:
+        print("- Hosts:")
+        for host, value in report["host_adapters"].items():
+            execution_state = value["execution"]["state"]
+            print(
+                f"  - {host}: adapter={value['state']}; execution="
+                f"{execution_labels.get(execution_state, execution_state)}"
+            )
+    else:
+        print("- Hosts: not checked")
+    if report["next_action"] in {"restart_agent_session", "verify_required_host_sessions"}:
         print("- Next: reopen the current Agent session, then say `Start discussion`.")
+        if report["next_action"] == "verify_required_host_sessions":
+            pending = [
+                host
+                for host, value in report["host_adapters"].items()
+                if value["execution"]["state"] != "confirmed_recently"
+            ]
+            if pending:
+                print(
+                    "- Pending host verification: " + ", ".join(pending)
+                    + ". Verify each only before its first managed Task."
+                )
         troubleshooting = sorted(
             {
                 value["execution"].get("troubleshooting", "")
@@ -707,6 +792,8 @@ def print_doctor_report(report: dict[str, Any], json_output: bool) -> None:
             "update_global_wishgraph_skill": "update the global WishGraph Skill",
             "review_runtime_changes": "review local WishGraph runtime changes",
             "repair_current_host_adapter": "repair WishGraph Hooks for this host",
+            "repair_required_host_adapters": "repair the required host adapters",
+            "verify_required_host_sessions": "reopen each required host before its first managed Task",
             "bootstrap_project_memory": "say `Start discussion`",
             "start_discussion": "say `Start discussion`",
         }
@@ -760,7 +847,11 @@ def merge_hook_config(existing: dict[str, Any], incoming: dict[str, Any]) -> dic
 
 
 def migrate_project_config(
-    default_config: dict[str, Any], existing_config: dict[str, Any]
+    default_config: dict[str, Any],
+    existing_config: dict[str, Any],
+    *,
+    required_hosts: Optional[list[str]] = None,
+    legacy_hosts: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     if "session_start_context_mode" not in existing_config:
         legacy_injection = existing_config.get("inject_project_summary_on_session_start")
@@ -786,6 +877,20 @@ def migrate_project_config(
             + list(existing_config.get("required_impact_rows", []))
         )
     )
+    if required_hosts is not None:
+        config["required_hosts"] = normalize_required_hosts(required_hosts)
+    elif "required_hosts" in existing_config:
+        config["required_hosts"] = normalize_required_hosts(
+            existing_config["required_hosts"]
+        )
+    elif existing_config:
+        config["required_hosts"] = normalize_required_hosts(
+            legacy_hosts or list(KNOWN_HOSTS)
+        )
+    else:
+        config["required_hosts"] = normalize_required_hosts(
+            default_config.get("required_hosts", list(KNOWN_HOSTS))
+        )
     return config
 
 
@@ -829,12 +934,27 @@ def cleanup_empty_runtime_directories(target: Path) -> None:
             pass
 
 
+def cleanup_empty_activation_directories(target: Path) -> None:
+    cleanup_empty_runtime_directories(target)
+    for path in (
+        target / ".codex" / "agents",
+        target / ".codex",
+        target / ".claude" / "agents",
+        target / ".claude",
+    ):
+        try:
+            path.rmdir()
+        except OSError:
+            pass
+
+
 def install_runtime(
     target: Path,
     mode: str,
     force_assets: bool,
     *,
     upgrade: bool = False,
+    required_hosts: Optional[list[str]] = None,
 ) -> list[Path]:
     diagnosis = runtime_diagnosis(target)
     state = diagnosis["state"]
@@ -872,7 +992,12 @@ def install_runtime(
 
         default_config = read_json(ASSET_ROOT / "config.json")
         existing_config = read_json(config_target) if config_target.exists() else {}
-        config = migrate_project_config(default_config, existing_config)
+        config = migrate_project_config(
+            default_config,
+            existing_config,
+            required_hosts=required_hosts,
+            legacy_hosts=legacy_required_hosts(target),
+        )
         if upgrade and existing_config.get("mode") in {"off", "warn", "enforce"}:
             config["mode"] = existing_config["mode"]
         else:
@@ -883,7 +1008,7 @@ def install_runtime(
     except Exception as exc:
         try:
             restore_snapshot(snapshot)
-            cleanup_empty_runtime_directories(target)
+            cleanup_empty_activation_directories(target)
         except Exception as rollback_exc:
             raise OSError(
                 f"WishGraph runtime update failed ({exc}) and rollback failed: {rollback_exc}"
@@ -926,9 +1051,9 @@ def _materialize_python_commands(
     return command.replace("py -3 ", f"& '{powershell_python}' ", 1)
 
 
-def install_host_config(
+def merged_host_config(
     target: Path, host: str, python_executable: str = sys.executable
-) -> Path:
+) -> tuple[Path, dict[str, Any]]:
     python_executable = str(Path(python_executable).resolve())
     if host == "codex":
         destination = target / ".codex" / "hooks.json"
@@ -954,6 +1079,13 @@ def install_host_config(
             raise ValueError("Existing worktree.symlinkDirectories must be a string array")
         if ".wishgraph" not in symlinks:
             symlinks.append(".wishgraph")
+    return destination, merged
+
+
+def install_host_config(
+    target: Path, host: str, python_executable: str = sys.executable
+) -> Path:
+    destination, merged = merged_host_config(target, host, python_executable)
     write_json_atomic(destination, merged)
     return destination
 
@@ -980,6 +1112,189 @@ def install_codex_worker_agent(target: Path) -> Path:
             )
     write_bytes_atomic(destination, CODEX_AGENT_ASSET.read_bytes())
     return destination
+
+
+def host_worker_agent_path(target: Path, host: str) -> Path:
+    return target / (
+        CODEX_AGENT_RELATIVE_PATH if host == "codex" else CLAUDE_AGENT_RELATIVE_PATH
+    )
+
+
+def _nearest_existing_parent(path: Path) -> Path:
+    candidate = path if path.exists() else path.parent
+    while not candidate.exists() and candidate != candidate.parent:
+        candidate = candidate.parent
+    return candidate
+
+
+def ensure_target_writable(path: Path) -> None:
+    candidate = path if path.exists() else _nearest_existing_parent(path)
+    if not os.access(candidate, os.W_OK):
+        raise PermissionError(f"Install target is not writable: {candidate}")
+
+
+def preflight_host_install(
+    target: Path, hosts: list[str], python_executable: str
+) -> dict[str, list[str]]:
+    checked: list[str] = []
+    preserved: list[str] = []
+    for host in hosts:
+        destination, _ = merged_host_config(target, host, python_executable)
+        agent_path = host_worker_agent_path(target, host)
+        ensure_target_writable(destination)
+        ensure_target_writable(agent_path)
+        diagnosis = (
+            codex_worker_agent_diagnosis(target)
+            if host == "codex"
+            else claude_worker_agent_diagnosis(target)
+        )
+        if diagnosis["state"] == "conflict":
+            raise FileExistsError(
+                f"Refusing to replace non-WishGraph {host} Agent: {agent_path}"
+            )
+        checked.extend([str(destination), str(agent_path)])
+        if destination.exists():
+            preserved.append(str(destination))
+        if agent_path.exists() and diagnosis["state"] == "current":
+            preserved.append(str(agent_path))
+    return {"checked": checked, "preserved": preserved}
+
+
+def activation_target_paths(
+    target: Path, hosts: list[str], *, include_git_hook: bool
+) -> list[Path]:
+    paths = list(runtime_target_paths(target))
+    for host in hosts:
+        paths.extend([host_config_path(target, host), host_worker_agent_path(target, host)])
+    if include_git_hook:
+        root = git_root(target)
+        if root is not None:
+            git_dir = run_git_path(root, "rev-parse", "--git-dir")
+            paths.append(git_dir / "hooks" / "pre-commit")
+    return list(dict.fromkeys(paths))
+
+
+def run_git_path(target: Path, *args: str) -> Path:
+    result = subprocess.run(
+        ["git", "-C", str(target), *args],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=True,
+    )
+    path = Path(result.stdout.strip())
+    return (path if path.is_absolute() else target / path).resolve()
+
+
+def display_path(path: Path, target: Path) -> str:
+    try:
+        return str(path.relative_to(target))
+    except ValueError:
+        return str(path)
+
+
+def changed_snapshot_paths(
+    snapshot: dict[Path, tuple[bool, bytes, int]], target: Path
+) -> list[str]:
+    changed: list[str] = []
+    for path, (existed, data, _) in snapshot.items():
+        now_exists = path.is_file()
+        if now_exists != existed or (now_exists and path.read_bytes() != data):
+            changed.append(display_path(path, target))
+    return changed
+
+
+def activate_project(
+    target: Path,
+    *,
+    mode: str,
+    required_hosts: list[str],
+    force_assets: bool,
+    install_git_fallback: bool,
+) -> dict[str, Any]:
+    required_hosts = normalize_required_hosts(required_hosts)
+    paths = activation_target_paths(
+        target, required_hosts, include_git_hook=install_git_fallback
+    )
+    snapshot = snapshot_files(paths)
+    preflight: dict[str, list[str]] = {"checked": [], "preserved": []}
+    installed: list[Path] = []
+    warning: Optional[str] = None
+    try:
+        preflight = preflight_host_install(target, required_hosts, sys.executable)
+        for path in runtime_target_paths(target):
+            ensure_target_writable(path)
+        installed.extend(
+            install_runtime(
+                target,
+                mode,
+                force_assets,
+                required_hosts=required_hosts,
+            )
+        )
+        for host in required_hosts:
+            installed.append(install_host_config(target, host, sys.executable))
+            installed.append(
+                install_codex_worker_agent(target)
+                if host == "codex"
+                else install_claude_worker_agent(target)
+            )
+        if install_git_fallback:
+            hook_path, warning = install_git_hook(target)
+            if hook_path:
+                installed.append(hook_path)
+    except Exception as exc:
+        rolled_back = changed_snapshot_paths(snapshot, target)
+        try:
+            restore_snapshot(snapshot)
+            cleanup_empty_activation_directories(target)
+        except Exception as rollback_exc:
+            raise OSError(
+                f"WishGraph activation failed ({exc}) and rollback failed: {rollback_exc}"
+            ) from rollback_exc
+        return {
+            "ok": False,
+            "kind": "wishgraph_project_activation",
+            "project_root": str(target),
+            "required_hosts": required_hosts,
+            "mode": mode,
+            "installed": [],
+            "preserved": [display_path(Path(path), target) for path in preflight["preserved"]],
+            "failed": [str(exc)],
+            "rolled_back": rolled_back,
+        }
+
+    installed_unique = list(dict.fromkeys(installed))
+    changed = set(changed_snapshot_paths(snapshot, target))
+    installed_paths = [
+        display_path(path, target)
+        for path in installed_unique
+        if display_path(path, target) in changed
+    ]
+    preserved_paths = sorted(
+        {
+            display_path(Path(path), target)
+            for path in preflight["preserved"]
+            if display_path(Path(path), target) not in changed
+        }
+        | {
+            display_path(path, target)
+            for path in installed_unique
+            if display_path(path, target) not in changed
+        }
+    )
+    return {
+        "ok": True,
+        "kind": "wishgraph_project_activation",
+        "project_root": str(target),
+        "required_hosts": required_hosts,
+        "mode": mode,
+        "installed": installed_paths,
+        "preserved": preserved_paths,
+        "failed": [],
+        "rolled_back": [],
+        "warning": warning or "",
+    }
 
 
 def repair_host_adapter(target: Path, host: str) -> dict[str, Any]:
@@ -1092,8 +1407,14 @@ def main() -> int:
     parser.add_argument(
         "--host",
         choices=("codex", "claude", "all"),
-        default="all",
-        help="Project-level agent configuration to merge",
+        default=None,
+        help="Required project hosts; first activation defaults to all",
+    )
+    parser.add_argument(
+        "--current-host",
+        choices=("codex", "claude", "unknown"),
+        default="unknown",
+        help="Host running this command; does not select required_hosts",
     )
     parser.add_argument(
         "--mode",
@@ -1227,7 +1548,7 @@ def main() -> int:
         return 0 if result["ok"] else 1
 
     if args.repair_host_adapter:
-        if args.host == "all":
+        if args.host not in {"codex", "claude"}:
             message = "Choose the current host with --host codex or --host claude"
             if args.json_output:
                 print(
@@ -1273,38 +1594,93 @@ def main() -> int:
                 print(f"- {path}")
         return 0 if result["ok"] else 1
 
+    config_path = target / ".wishgraph" / "config.json"
+    existing_config: dict[str, Any] = {}
+    if config_path.is_file():
+        try:
+            existing_config = read_json(config_path)
+        except ValueError as exc:
+            print(f"WishGraph hook installation failed: {exc}", file=sys.stderr)
+            return 1
     try:
-        installed = install_runtime(target, args.mode, args.force_assets)
-        hosts = ("codex", "claude") if args.host == "all" else (args.host,)
-        for host in hosts:
-            installed.append(install_host_config(target, host, sys.executable))
-            if host == "claude":
-                installed.append(install_claude_worker_agent(target))
-            else:
-                installed.append(install_codex_worker_agent(target))
-        warning = None
-        if args.git_hook:
-            hook_path, warning = install_git_hook(target)
-            if hook_path:
-                installed.append(hook_path)
+        if args.host is not None:
+            required_hosts = hosts_for_selection(args.host)
+        elif "required_hosts" in existing_config:
+            required_hosts = normalize_required_hosts(existing_config["required_hosts"])
+        elif existing_config:
+            required_hosts = legacy_required_hosts(target)
+        else:
+            required_hosts = list(KNOWN_HOSTS)
+        result = activate_project(
+            target,
+            mode=args.mode,
+            required_hosts=required_hosts,
+            force_assets=args.force_assets,
+            install_git_fallback=args.git_hook,
+        )
     except (OSError, ValueError, FileExistsError) as exc:
-        print(f"WishGraph hook installation failed: {exc}", file=sys.stderr)
+        result = {
+            "ok": False,
+            "kind": "wishgraph_project_activation",
+            "project_root": str(target),
+            "required_hosts": [],
+            "mode": args.mode,
+            "installed": [],
+            "preserved": [],
+            "failed": [str(exc)],
+            "rolled_back": [],
+        }
+
+    if args.json_output:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["ok"] else 1
+    if not result["ok"]:
+        print("WishGraph project activation failed.", file=sys.stderr)
+        for detail in result["failed"]:
+            print(f"- Failed: {detail}", file=sys.stderr)
+        for path in result["rolled_back"]:
+            print(f"- Rolled back: {path}", file=sys.stderr)
         return 1
 
-    print("WishGraph hook runtime installed or merged:")
-    for path in installed:
-        try:
-            display = path.relative_to(target)
-        except ValueError:
-            display = path
-        print(f"- {display}")
-    if warning:
-        print(warning, file=sys.stderr)
-    print(f"Mode: {args.mode}")
-    print(
-        "Next: reopen the current Agent session, then say `开始讨论` "
-        "(or `Start discussion`)."
-    )
+    labels = {"codex": "Codex", "claude": "Claude Code"}
+    print("WishGraph project activation complete.")
+    print("\nRequired hosts:")
+    python_executable = str(Path(sys.executable).resolve())
+    for host in result["required_hosts"]:
+        state = host_adapter_diagnosis(target, host, python_executable)["state"]
+        print(f"- {labels[host]}: adapter {state}")
+    print("\nCurrent host:")
+    if args.current_host in KNOWN_HOSTS:
+        execution = host_execution_diagnosis(
+            target,
+            args.current_host,
+            read_json(config_path).get("runtime_version"),
+        )
+        print(
+            f"- {labels[args.current_host]}: Hook execution "
+            f"{execution['state']}"
+        )
+    else:
+        print("- Not supplied; required host selection was not inferred from it")
+    print("\nPending:")
+    for host in result["required_hosts"]:
+        execution = host_execution_diagnosis(
+            target, host, read_json(config_path).get("runtime_version")
+        )
+        if execution["state"] != "confirmed_recently":
+            print(
+                f"- Reopen {labels[host]} before its first managed Task so "
+                "SessionStart can be confirmed."
+            )
+    print(f"\nMode:\n- {result['mode']}")
+    print("\nFiles:")
+    for path in result["installed"]:
+        print(f"- Installed: {path}")
+    for path in result["preserved"]:
+        print(f"- Preserved: {path}")
+    if result.get("warning"):
+        print(result["warning"], file=sys.stderr)
+    print("\nNext: reopen the current Agent session, then say `开始讨论` (or `Start discussion`).")
     return 0
 
 

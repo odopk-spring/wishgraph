@@ -29,6 +29,7 @@ The installer:
 
 - Installs the Skill at `~/.claude/skills/wishgraph/`, making `/wishgraph` available.
 - Installs the `.wishgraph/` runtime in the current project.
+- Defaults the project to `required_hosts: [codex, claude]` and atomically installs both project adapters. Add `--project-hosts claude` only for a deliberate Claude-only project.
 - Safely merges WishGraph Hooks into `.claude/settings.json` while preserving unrelated configuration.
 - Installs the managed `.claude/agents/wishgraph-worker.md` definition.
 - Preserves existing Worktree configuration, defaults an unset `baseRef` to `head`, and makes the `.wishgraph` runtime available inside isolated worktrees.
@@ -47,7 +48,7 @@ Refresh project status
 - A Worker reads the exact Task or Revision, `prompts/EXECUTION_AI.md`, necessary state, and source inside scope.
 - Integration reads this run's reports and only the shared files they actually affect.
 
-Continuing in another Claude Code window does not require printing or copying `prompts/DISCUSSION_AI.md`. Open the same project and say `Start discussion`. When arriving from Codex, install the Claude Skill and current-project adapter, then use the same entry.
+Continuing in another Claude Code window does not require printing or copying `prompts/DISCUSSION_AI.md`. Open the same project and say `Start discussion`. When arriving from Codex, confirm Claude is selected in `required_hosts`, install or repair its Adapter if needed, reopen the session, then use the same entry.
 
 ## How Worker launch works
 
@@ -121,6 +122,7 @@ Updating the global Skill never silently overwrites an existing project's `.wish
 - Hooks never launch Agents. The Host Adapter acts only after exact Task authority already exists.
 - Explore, Plan, `/fork`, and hidden subagents are Helpers by default and cannot receive a Worker Claim.
 - Write/build gates cover Claude tools exposed to Hooks; they are not an operating-system sandbox.
+- A Claude Code session is mechanically protected only when the Claude Adapter is installed and loaded; `mode: enforce` alone cannot intercept it.
 - One Worker can bind only one Task or Revision at a time and must release the old Claim before reuse.
 - Claims coordinate worktrees sharing one local Git common directory; they are not distributed locks across machines.
 
