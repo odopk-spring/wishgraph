@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -120,6 +121,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
             settings_path.write_text(
                 json.dumps(
                     {
+                        "env": {"WISHGRAPH_TEST_KEEP": "unchanged"},
                         "permissions": {"allow": ["Read"]},
                         "hooks": {
                             "SessionStart": [
@@ -150,6 +152,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
             )
             self.assertEqual(installed.returncode, 0, installed.stderr)
             settings = json.loads(settings_path.read_text(encoding="utf-8"))
+            self.assertEqual(settings["env"], {"WISHGRAPH_TEST_KEEP": "unchanged"})
             self.assertEqual(settings["permissions"]["allow"], ["Read"])
             self.assertIn("global_host_hook.py", json.dumps(settings["hooks"]))
             self.assertIn("echo keep-global-hook", json.dumps(settings["hooks"]))
@@ -171,6 +174,70 @@ class RuntimeBoundaryTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(json.loads(result.stdout), {})
+
+    def test_global_host_adapter_maps_hook_keys_to_cli_event_arguments(self) -> None:
+        expected_events = {
+            "SessionStart": "session-start",
+            "UserPromptSubmit": "user-prompt-submit",
+            "PreToolUse": "pre-tool-use",
+            "Stop": "stop",
+            "TaskCompleted": "task-completed",
+        }
+        installer = ROOT / "skills" / "wishgraph" / "scripts" / "install_global_adapter.py"
+        for host, filename in (("codex", "hooks.json"), ("claude", "settings.json")):
+            with self.subTest(host=host), tempfile.TemporaryDirectory() as tempdir:
+                home = Path(tempdir) / f".{host}"
+                installed = subprocess.run(
+                    [
+                        sys.executable,
+                        str(installer),
+                        "--host",
+                        host,
+                        "--config-home",
+                        str(home),
+                    ],
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                self.assertEqual(installed.returncode, 0, installed.stderr)
+                config = json.loads((home / filename).read_text(encoding="utf-8"))
+                for hook_key, groups in config["hooks"].items():
+                    self.assertIn(hook_key, expected_events)
+                    event_argument = expected_events[hook_key]
+                    for group in groups:
+                        for hook in group.get("hooks", []):
+                            command = shlex.split(hook["command"])
+                            self.assertEqual(command[2], event_argument)
+                            self.assertIn(
+                                f" {event_argument} --host {host}",
+                                hook["commandWindows"],
+                            )
+
+    def test_global_host_bridge_accepts_every_mapped_event_argument(self) -> None:
+        bridge = ROOT / "skills" / "wishgraph" / "scripts" / "global_host_hook.py"
+        with tempfile.TemporaryDirectory() as tempdir:
+            project = Path(tempdir) / "plain-project"
+            project.mkdir()
+            subprocess.run(["git", "-C", str(project), "init", "-q"], check=True)
+            for event in (
+                "session-start",
+                "user-prompt-submit",
+                "pre-tool-use",
+                "stop",
+                "task-completed",
+            ):
+                with self.subTest(event=event):
+                    result = subprocess.run(
+                        [sys.executable, str(bridge), event, "--host", "claude"],
+                        cwd=project,
+                        input=json.dumps({"cwd": str(project)}),
+                        text=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertNotIn("usage:", result.stderr.lower())
 
     def test_codex_worker_agent_uses_current_project_custom_agent_format(self) -> None:
         content = (

@@ -16,6 +16,13 @@ from typing import Any
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 BRIDGE = SKILL_ROOT / "scripts" / "global_host_hook.py"
 ASSET_ROOT = SKILL_ROOT / "assets" / "hooks"
+EVENT_ARGUMENTS = {
+    "SessionStart": "session-start",
+    "UserPromptSubmit": "user-prompt-submit",
+    "PreToolUse": "pre-tool-use",
+    "Stop": "stop",
+    "TaskCompleted": "task-completed",
+}
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -76,16 +83,17 @@ def without_wishgraph_hooks(groups: Any) -> list[dict[str, Any]]:
 
 def bridge_group(group: dict[str, Any], event: str, host: str) -> dict[str, Any]:
     converted = json.loads(json.dumps(group))
+    event_argument = EVENT_ARGUMENTS[event]
     unix_command = " ".join(
         shlex.quote(value)
-        for value in (sys.executable, str(BRIDGE), event, "--host", host)
+        for value in (sys.executable, str(BRIDGE), event_argument, "--host", host)
     )
     windows_command = (
         "powershell -NoProfile -Command \"& '"
         + str(Path(sys.executable)).replace("'", "''")
         + "' '"
         + str(BRIDGE).replace("'", "''")
-        + f"' {event} --host {host}\""
+        + f"' {event_argument} --host {host}\""
     )
     for hook in converted.get("hooks", []):
         if not isinstance(hook, dict):
