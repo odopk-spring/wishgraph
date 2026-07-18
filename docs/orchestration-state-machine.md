@@ -52,7 +52,7 @@ discussion
 worker
 ```
 
-新会话默认 `neutral`。启用项目后仍需明确“开始讨论”才能进入 `discussion`；精确执行命令通过 preflight 和 Claim 后才能进入 `worker`。
+新会话默认 `neutral`。“开始讨论”用于主动进入规划讨论；普通 neutral 窗口收到精确“执行 NNN 任务”后会自动成为 Discussion 派发端，持久化完整 Task 身份并创建独立 Worker，不要求先手动进入 Discussion。只有已注册或明确重新绑定的 Formal Worker 容器才能在取得 Claim 后进入 `worker`。
 
 ### Task Lifecycle
 

@@ -80,9 +80,11 @@ Refresh with `claude agents --json --all --cwd <project>`. Use only structured s
 
 Require a new user-opened inspectable window. Output the same bounded cross-host startup handoff and stop. Do not print the full Task Spec and do not offer direct implementation.
 
-### Neutral Entry
+### Neutral Dispatch Entry
 
-A neutral window receiving the exact command reads `CONVENTIONS.md`, `prompts/EXECUTION_AI.md`, and the exact Task, then performs preflight and Claim acquisition before becoming `worker`.
+An ordinary neutral window receiving an exact `执行 <task-id> 任务` command becomes the Discussion dispatcher. It resolves only the exact Task, checks its dependencies and execution sections, atomically replaces the session runtime's complete Task identity, persists authorization, and routes a separate Formal Worker. The user does not need to enter Discussion first, and the dispatching window never acquires the Worker Claim or implements business code.
+
+A Worker container enters `worker` only after native registration or an explicit manual/rebind route identifies that container as the Formal Worker. It then reads `CONVENTIONS.md`, `prompts/EXECUTION_AI.md`, and the exact Task, performs preflight, and acquires the exact Claim before the Task becomes `running`. An ordinary neutral session with no Worker binding cannot use an approved Task as permission to implement it locally.
 
 ## Entry Preflight
 

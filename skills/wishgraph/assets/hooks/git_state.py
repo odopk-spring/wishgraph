@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": 12,
-    "runtime_version": 21,
+    "runtime_version": 22,
     "mode": "enforce",
     "required_hosts": ["codex", "claude"],
     "paths": {
@@ -707,11 +707,17 @@ def read_session_runtime(root: Path, session_id: str) -> Optional[dict[str, Any]
 
 
 def apply_session_runtime_patch(
-    root: Path, session_id: str, patch: dict[str, Any]
+    root: Path,
+    session_id: str,
+    patch: dict[str, Any],
+    *,
+    replace_keys: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    """Deep-merge one reducer state patch into the current session runtime."""
+    """Atomically merge a patch, optionally replacing complete identity objects."""
     if not isinstance(patch, dict):
         return {"ok": False, "error": "session_runtime_patch_must_be_object"}
+    if any(not isinstance(key, str) or not key for key in replace_keys):
+        return {"ok": False, "error": "session_runtime_replace_keys_must_be_strings"}
     try:
         runtime_path = _session_runtime_path(root, session_id)
         mutex = _claim_mutex(runtime_path.parent)
@@ -719,7 +725,11 @@ def apply_session_runtime_patch(
         return {"ok": False, "error": str(exc)}
     try:
         current = read_session_runtime(root, session_id) or {}
-        return write_session_runtime(root, session_id, deep_merge(current, patch))
+        merged = deep_merge(current, patch)
+        for key in replace_keys:
+            if key in patch:
+                merged[key] = patch[key]
+        return write_session_runtime(root, session_id, merged)
     finally:
         try:
             mutex.unlink()

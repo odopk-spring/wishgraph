@@ -23,6 +23,7 @@ active   = mode: warn or mode: enforce
 
 - `use_wishgraph` must come from a user request that explicitly names WishGraph. It may start safe project setup, but successful setup leaves the session `neutral`.
 - `start_discussion` is accepted only for an active project and changes `neutral -> discussion`.
+- An exact `执行 NNN 任务` in an ordinary neutral session changes that session to the Discussion dispatcher, persists the complete authorized Task identity, and requests a separate Formal Worker. It never turns the same ordinary window into the business-code Worker.
 - In an inactive project, generic `开始讨论`, `刷新项目状态`, and `执行 NNN 任务` text must not become WishGraph events.
 - Global Skill availability, a governance-looking repository, or pre-existing project documents do not imply activation.
 - This gate reads only the exact config path. It never scans the repository to guess whether WishGraph should be active.
@@ -144,6 +145,7 @@ Events must come from structured user commands, persisted runtime facts, validat
 
 ## Core Transitions
 
+- `neutral + exact Task authority -> discussion/routing_worker + approved`; no prior `start_discussion` command is required.
 - `draft + explicit Worker authority -> approved + routing_worker`.
 - `approved + real user-visible and inspectable Worker thread/window + acquired Claim -> running + waiting_for_worker`.
 - `running + valid terminal report + released Claim -> completed|blocked|incomplete`.

@@ -1,6 +1,6 @@
 # Worker 启动提示词
 
-在 neutral 窗口或已注册的 Formal Worker Agent thread 收到一行命令 `执行 <task-id> 任务` 后使用本文件；已有 Worker 收到路由来的 Revision 时也使用本文件。精确解析 Task 或 Revision ID，并读取对应的持久记录。
+仅在已注册或明确重新绑定的 Formal Worker 容器收到准确 Task/Revision 路由后使用本文件。普通 neutral 窗口收到 `执行 <task-id> 任务` 时是 Discussion 派发端，不是 Worker。精确解析 Task 或 Revision ID，并读取对应的持久记录。
 
 这个提示词是稳定的。不要把具体任务要求写在这里；任务要求应写在任务文件里。
 
@@ -35,7 +35,7 @@
 
 ## Worker 规则
 
-- 首次绑定前确认当前容器为 `neutral`，执行准确 preflight，原子获取 Worker Claim，持久化 Session Role `worker`，再把 Task 改为 `running`；Codex/Claude 原生 Worker 必须使用已注册的正式容器类型和准确 thread/session ID。路由提供 `discussion_session_id` 时必须保留。重新绑定时，先确认旧工作已进入终态且旧 Claim 已释放，再获取新 Claim。两种情况都要核对 Task/Revision ID、attempt、branch、绝对 worktree、session/Worker identity、scope、验证计划和 Claim 绑定。已有其他 exclusive Claim 时禁止执行。
+- 首次绑定前确认当前容器已有原生注册或明确的人工 Worker 路由，执行准确 preflight，原子获取 Worker Claim，持久化 Session Role `worker`，取得 Claim 后才把 Task 改为 `running`；Codex/Claude 原生 Worker 必须使用已注册的正式容器类型和准确 thread/session ID。路由提供 `discussion_session_id` 时必须保留。重新绑定时，先确认旧工作已进入终态且旧 Claim 已释放，再获取新 Claim。两种情况都要核对 Task/Revision ID、attempt、branch、绝对 worktree、session/Worker identity、scope、验证计划和 Claim 绑定。已有其他 exclusive Claim 时禁止执行。
 - Explorer、Reviewer、Plan、Helper 和隐藏/内部 Agent 只能检查或汇报，不得取得 Worker Claim 或写业务代码。
 - 长任务要持续 heartbeat。只在规定的收尾 / 集成边界释放 Claim；接管必须先显式 revoke，再使用新 attempt 和新报告，不能覆盖其他 Worker 报告。
 - 当前工作进入终态后可以复用本窗口。新 Task 或 Revision 开始前，必须释放旧 Claim、清除旧 scope 与验证计划、读取新记录、获取新 Claim 并持久化新绑定。同一时刻不得保留两个 active 工作单元，也不能只改聊天中的编号。

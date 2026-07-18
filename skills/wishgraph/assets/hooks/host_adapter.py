@@ -1062,6 +1062,22 @@ def _authorized_execution_thread_launch(
             "error": "execution_preflight_failed",
             "detail": preflight,
         }
+    durable_task = preflight["task"]
+    expected_identity = {
+        "task_id": task_id,
+        "lifecycle": "approved",
+        "attempt": int(durable_task.get("attempt") or 1),
+        "worker_authorized": True,
+        "run_report": str(durable_task.get("run_report") or ""),
+    }
+    if any(
+        task_runtime.get(key) != value for key, value in expected_identity.items()
+    ):
+        return {
+            "ok": False,
+            "error": "authorized_task_identity_incomplete_or_stale",
+            "required_fields": list(expected_identity),
+        }
     task_path = str(preflight["task"].get("task_path") or "")
     current_task = read_version(root, task_path, "worktree") if task_path else None
     committed = run_git(root, "show", f"HEAD:{task_path}", check=False)
@@ -2571,22 +2587,116 @@ def governance_ready(root: Path, config: dict[str, Any]) -> bool:
     return (root / status_path).is_file() and (root / paths["discussion_prompt"]).is_file()
 
 
+def _complete_task_runtime_patch(
+    task_record: dict[str, Any], semantic_patch: Any
+) -> dict[str, Any]:
+    """Serialize one complete Task identity plus the reducer's accepted lifecycle."""
+    semantic = semantic_patch if isinstance(semantic_patch, dict) else {}
+    profiles = semantic.get(
+        "worker_execution_profiles",
+        task_record.get("worker_execution_profiles") or {},
+    )
+    return {
+        "task_id": str(task_record.get("task_id") or ""),
+        "lifecycle": str(
+            semantic.get("lifecycle") or task_record.get("status") or "draft"
+        ),
+        "attempt": int(task_record.get("attempt") or 1),
+        "worker_authorized": (
+            semantic.get("worker_authorized") is True
+            if "worker_authorized" in semantic
+            else task_record.get("worker_creation_authorized") is True
+        ),
+        "run_report": str(task_record.get("run_report") or ""),
+        "worker_execution_profiles": dict(profiles or {}),
+    }
+
+
+def _persist_runtime_with_complete_task(
+    root: Path,
+    session_id: str,
+    task_record: dict[str, Any],
+    state_patch: dict[str, Any],
+) -> dict[str, Any]:
+    """Atomically replace and verify Task identity while applying a runtime patch."""
+    patch = dict(state_patch)
+    expected_task = _complete_task_runtime_patch(task_record, patch.get("task"))
+    patch["task"] = expected_task
+    persisted = apply_session_runtime_patch(
+        root,
+        session_id,
+        patch,
+        replace_keys=("task",),
+    )
+    if not persisted.get("ok"):
+        return persisted
+    runtime = persisted.get("runtime")
+    actual_task = runtime.get("task") if isinstance(runtime, dict) else None
+    required_keys = (
+        "task_id",
+        "lifecycle",
+        "attempt",
+        "worker_authorized",
+        "run_report",
+    )
+    if not isinstance(actual_task, dict) or any(
+        actual_task.get(key) != expected_task.get(key) for key in required_keys
+    ):
+        return {
+            "ok": False,
+            "error": "task_runtime_identity_persistence_failed",
+        }
+    return persisted
+
+
+def _persist_execution_route_runtime(
+    root: Path,
+    session_id: str,
+    host: str,
+    previous_runtime: Optional[dict[str, Any]],
+    task_record: dict[str, Any],
+    state_patch: dict[str, Any],
+) -> dict[str, Any]:
+    """Persist an accepted dispatch plan with verified Discussion provenance."""
+    patch = dict(state_patch)
+    previous_role = str(
+        (((previous_runtime or {}).get("session") or {}).get("role") or "neutral")
+    )
+    if previous_role == "neutral":
+        patch["session_provenance"] = _discussion_provenance_patch(host)
+    return _persist_runtime_with_complete_task(
+        root,
+        session_id,
+        task_record,
+        patch,
+    )
+
+
 def formal_worker_launch_context(
     host_action: str,
     task_id: str,
     discussion_session_id: str,
     host_adapter_command: str,
     task_path: str = "",
+    authorization_patch_required: bool = False,
 ) -> str:
     """Give the current Discussion one unambiguous, non-delegable launch action."""
-    if host_action != "launch_claude_background_worker":
+    if host_action not in {
+        "launch_codex_agent_worker",
+        "launch_claude_background_worker",
+    }:
         return ""
     record = task_path or "the exact resolved Task record"
+    authorization_step = (
+        f"Persist approved + worker_creation_authorized=true for {task_id} in "
+        f"{record}, then create one bounded authorization commit."
+        if authorization_patch_required
+        else f"Verify the already-authorized record {record} for {task_id}."
+    )
     return (
         "WishGraph Formal Worker launch contract (mandatory):\n"
-        f"1. Persist the authorization for {task_id} in {record}, then create the "
-        "bounded authorization commit. The working-tree Task record must exactly "
-        "match HEAD before launch.\n"
+        f"1. {authorization_step} The working-tree Task record must exactly match "
+        "HEAD before launch.\n"
         "2. In this current Discussion session, directly run this exact Host Adapter "
         f"command: {host_adapter_command}\n"
         "3. Do not use Task, Agent, /fork, a helper, or any ordinary background "
@@ -2627,8 +2737,46 @@ def user_prompt_submit_main(
             capability,
         )
         action = map_flow_plan_to_host(plan, capability)
+        accepted = plan.accepted
+        denial_reason = plan.denial_reason
+        contextual_task: dict[str, Any] = {}
+        authorization_patch_required = False
         if plan.accepted and session_id and action.state_patch:
-            apply_session_runtime_patch(root, session_id, action.state_patch)
+            resolved_contextual = resolve_task(root, config, plan.task_id)
+            if not resolved_contextual.get("ok"):
+                accepted = False
+                denial_reason = str(
+                    resolved_contextual.get("error") or "exact_task_not_loaded"
+                )
+            else:
+                contextual_task = resolved_contextual["task"]
+                _, preflight_errors = evaluate_execution_preflight(
+                    root,
+                    config,
+                    str(contextual_task.get("task_path") or ""),
+                    "execute",
+                )
+                if preflight_errors:
+                    accepted = False
+                    denial_reason = "execution_preflight_failed"
+                else:
+                    persisted = _persist_execution_route_runtime(
+                        root,
+                        session_id,
+                        host,
+                        runtime,
+                        contextual_task,
+                        action.state_patch,
+                    )
+                    if not persisted.get("ok"):
+                        accepted = False
+                        denial_reason = "authorization_runtime_persistence_failed"
+                authorization_patch_required = bool(
+                    contextual_task.get("status") != "approved"
+                    or contextual_task.get("worker_creation_authorized") is not True
+                )
+        if not accepted:
+            action = HostAction(action="no_action", stop_after_action=True)
         requested_profile = action.work_payload.get("execution_profile")
         profile_resolution = (
             _resolve_execution_profile(config, host, requested_profile)
@@ -2675,11 +2823,13 @@ def user_prompt_submit_main(
                             plan.task_id,
                             session_id,
                             host_adapter_command,
+                            str(contextual_task.get("task_path") or ""),
+                            authorization_patch_required,
                         ),
                         "WishGraph contextual route:\n"
                         + json.dumps(
                             {
-                                "accepted": plan.accepted,
+                                "accepted": accepted,
                                 "next_action": action.action,
                                 "task_id": plan.task_id,
                                 "discussion_session_id": session_id,
@@ -2687,14 +2837,28 @@ def user_prompt_submit_main(
                                 "execution_profile": profile_resolution,
                                 "manual_launch_instructions": manual_launch_instructions,
                                 "launch_must_run_in_current_discussion": (
-                                    action.action == "launch_claude_background_worker"
+                                    action.action
+                                    in {
+                                        "launch_codex_agent_worker",
+                                        "launch_claude_background_worker",
+                                    }
                                 ),
                                 "delegation_forbidden": (
-                                    action.action == "launch_claude_background_worker"
+                                    action.action
+                                    in {
+                                        "launch_codex_agent_worker",
+                                        "launch_claude_background_worker",
+                                    }
+                                ),
+                                "authorization_patch_required": (
+                                    authorization_patch_required
+                                ),
+                                "authorization_commit_required": (
+                                    authorization_patch_required
                                 ),
                                 "user_message": action.user_message,
                                 "stop_after_action": action.stop_after_action,
-                                "denial_reason": plan.denial_reason,
+                                "denial_reason": denial_reason,
                             },
                             ensure_ascii=False,
                             separators=(",", ":"),
@@ -2840,69 +3004,66 @@ def user_prompt_submit_main(
             plan_payload: dict[str, Any] = {}
         else:
             task_record = resolved["task"]
-            transition_runtime = dict(runtime or {})
-            transition_runtime["session"] = {
-                **(
-                    transition_runtime.get("session")
-                    if isinstance(transition_runtime.get("session"), dict)
-                    else {}
-                ),
-                "session_id": session_id,
-                "role": role,
-                "host": host,
-                "phase": str(
-                    ((runtime or {}).get("session") or {}).get("phase") or "planning"
-                ),
-            }
-            transition_runtime["task"] = {
-                "task_id": task_id,
-                "lifecycle": str(task_record.get("status") or "draft"),
-                "attempt": int(task_record.get("attempt") or 1),
-                "worker_authorized": task_record.get("worker_creation_authorized") is True,
-                "run_report": str(task_record.get("run_report") or ""),
-                "worker_execution_profiles": dict(
-                    task_record.get("worker_execution_profiles") or {}
-                ),
-            }
-            plan = reduce_orchestration(
-                orchestration_state_from_dict(transition_runtime),
-                UserEvent(kind="user_message", data={"text": text}),
-                capability,
+            _, preflight_errors = evaluate_execution_preflight(
+                root,
+                config,
+                str(task_record.get("task_path") or ""),
+                action,
             )
-            mapped = map_flow_plan_to_host(plan, capability)
-            accepted = plan.accepted
-            host_action = (
-                "enter_current_window_as_worker"
-                if mapped.action == "enter_worker"
-                else mapped.action
-            )
-            plan_payload = flow_plan_to_dict(plan)
-            if accepted and session_id and mapped.state_patch:
-                if runtime is None:
-                    transition_runtime["session_provenance"] = {
-                        "initial_role": "neutral",
-                        "host": host,
-                        "discussion_authorized": False,
-                        "created_at": _utc_now(),
-                    }
-                    created = write_session_runtime(
-                        root, session_id, transition_runtime
+            if action == "execute" and preflight_errors:
+                accepted = False
+                host_action = "no_action"
+                plan_payload = {
+                    "accepted": False,
+                    "next_action": "deny_execution_preflight",
+                    "task_id": task_id,
+                    "denial_reason": "execution_preflight_failed",
+                    "preflight_errors": preflight_errors,
+                }
+            else:
+                transition_runtime = dict(runtime or {})
+                transition_runtime["session"] = {
+                    **(
+                        transition_runtime.get("session")
+                        if isinstance(transition_runtime.get("session"), dict)
+                        else {}
+                    ),
+                    "session_id": session_id,
+                    "role": role,
+                    "host": host,
+                    "phase": str(
+                        ((runtime or {}).get("session") or {}).get("phase")
+                        or "planning"
+                    ),
+                }
+                transition_runtime["task"] = _complete_task_runtime_patch(
+                    task_record, {}
+                )
+                plan = reduce_orchestration(
+                    orchestration_state_from_dict(transition_runtime),
+                    UserEvent(kind="user_message", data={"text": text}),
+                    capability,
+                )
+                mapped = map_flow_plan_to_host(plan, capability)
+                accepted = plan.accepted
+                host_action = mapped.action
+                plan_payload = flow_plan_to_dict(plan)
+                if accepted and session_id and mapped.state_patch:
+                    persisted = _persist_execution_route_runtime(
+                        root,
+                        session_id,
+                        host,
+                        runtime,
+                        task_record,
+                        mapped.state_patch,
                     )
-                    persisted = (
-                        apply_session_runtime_patch(
-                            root, session_id, mapped.state_patch
+                    if not persisted.get("ok"):
+                        accepted = False
+                        host_action = "no_action"
+                        plan_payload["denial_reason"] = (
+                            "authorization_runtime_persistence_failed"
                         )
-                        if created.get("ok")
-                        else created
-                    )
-                else:
-                    persisted = apply_session_runtime_patch(
-                        root, session_id, mapped.state_patch
-                    )
-                if not persisted.get("ok"):
-                    accepted = False
-                    host_action = "no_action"
-                    plan_payload["denial_reason"] = "authorization_runtime_persistence_failed"
+                        plan_payload["persistence_error"] = persisted.get("error")
         requested_profile = (
             plan_payload.get("work_payload", {}).get("execution_profile", {})
             if isinstance(plan_payload.get("work_payload"), dict)
@@ -2932,6 +3093,20 @@ def user_prompt_submit_main(
                 else ""
             )
         )
+        dispatch_session = bool(
+            accepted and plan_payload.get("next_action") == "launch_worker"
+        )
+        authorization_patch_required = bool(
+            dispatch_session
+            and (
+                resolved["task"].get("status") != "approved"
+                or resolved["task"].get("worker_creation_authorized") is not True
+            )
+        )
+        native_launch = host_action in {
+            "launch_codex_agent_worker",
+            "launch_claude_background_worker",
+        }
         route = {
             "ok": accepted,
             "command": command,
@@ -2939,7 +3114,7 @@ def user_prompt_submit_main(
             "plan": plan_payload,
             "host_action": host_action,
             "worker_session_id": session_id,
-            "discussion_session_id": session_id if role == "discussion" else "",
+            "discussion_session_id": session_id if dispatch_session else "",
             "host_adapter_command": host_adapter_command,
             "execution_profile": profile_resolution,
             "manual_command": (
@@ -2957,20 +3132,11 @@ def user_prompt_submit_main(
                 if host_action == "show_manual_worker_command"
                 else ""
             ),
-            "stop_after_action": role == "discussion",
-            "authorization_patch_required": role == "discussion",
-            "authorization_commit_required": bool(
-                role == "discussion"
-                and host_action == "launch_claude_background_worker"
-            ),
-            "launch_must_run_in_current_discussion": bool(
-                role == "discussion"
-                and host_action == "launch_claude_background_worker"
-            ),
-            "delegation_forbidden": bool(
-                role == "discussion"
-                and host_action == "launch_claude_background_worker"
-            ),
+            "stop_after_action": dispatch_session,
+            "authorization_patch_required": authorization_patch_required,
+            "authorization_commit_required": authorization_patch_required,
+            "launch_must_run_in_current_discussion": native_launch,
+            "delegation_forbidden": native_launch,
             "required_before_business_work": "execution_preflight_and_worker_claim",
             "read_boundary": "exact_task_scope_and_explicit_context_only",
         }
@@ -2986,6 +3152,7 @@ def user_prompt_submit_main(
                         session_id,
                         host_adapter_command,
                         str(resolved["task"].get("task_path") or ""),
+                        authorization_patch_required,
                     ),
                     "WishGraph explicit route:\n"
                     + json.dumps(route, ensure_ascii=False, separators=(",", ":")),
@@ -4541,9 +4708,10 @@ def claim_main(args: argparse.Namespace) -> int:
                     if payload.get("ok"):
                         payload["task"] = task
                         if args.session_id:
-                            runtime_payload = apply_session_runtime_patch(
+                            runtime_payload = _persist_runtime_with_complete_task(
                                 root,
                                 args.session_id,
+                                task,
                                 {
                                     "session": {
                                         "session_id": args.session_id,
@@ -4556,10 +4724,8 @@ def claim_main(args: argparse.Namespace) -> int:
                                         },
                                     },
                                     "task": {
-                                        "task_id": task["task_id"],
                                         "lifecycle": "running",
                                         "worker_authorized": True,
-                                        "run_report": task["run_report"],
                                     },
                                     "worker_runtime": {
                                         "claim_id": payload["claim"]["claim_id"],

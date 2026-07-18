@@ -185,7 +185,7 @@ No. WishGraph handoff state lives in project files and the Git-common runtime, n
 ### What do the three common commands mean?
 
 - `Start discussion` moves the current neutral window into Discussion and loads compact current state.
-- `Execute task 012` authorizes and routes exactly Task `012`; it never prefix-matches `012b` or `012ba`.
+- `Execute task 012` authorizes and routes exactly Task `012` from an ordinary window without requiring `Start discussion` first. The current window remains the Discussion dispatcher and never prefix-matches `012b` or `012ba`.
 - `Refresh project status` refreshes active state and relevant terminal evidence without scanning the whole source tree or report history by default.
 
 ### Is the Codex experience identical to Claude Code?

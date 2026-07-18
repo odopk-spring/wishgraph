@@ -31,7 +31,7 @@ continue without chat history.
 
 ## Role Boundaries
 
-- Treat every new host window as `neutral` until the user explicitly enters Discussion or runs an exact Task command.
+- Treat every new host window as `neutral`. `开始讨论` enters Discussion for planning; an exact Task command promotes an ordinary neutral window to the Discussion dispatcher and routes a separate Formal Worker. Only a registered or explicitly rebound Worker container may enter `worker`.
 - Use `discussion` for planning, Task creation, Worker routing, integration, and result presentation.
 - Use `worker` only in a separate user-visible and inspectable Agent thread or window bound to one Task or Revision.
 - Treat Integration as an automatically triggered, Discussion-local Flow Phase, never a role or separate window.

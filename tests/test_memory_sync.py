@@ -789,7 +789,7 @@ class OrchestrationStateMachineTests(unittest.TestCase):
         )
         self.assertEqual(plan.work_payload["execution_profile"], {})
 
-    def test_osm_02_neutral_explicit_execute_enters_worker_with_claim_requirement(self) -> None:
+    def test_osm_02_neutral_explicit_execute_promotes_discussion_dispatcher(self) -> None:
         plan = memory_sync.reduce_orchestration(
             self.state(
                 role="neutral",
@@ -801,12 +801,15 @@ class OrchestrationStateMachineTests(unittest.TestCase):
             self.event("user_message", text="执行 002 任务"),
             self.capability(),
         )
-        self.assertEqual(plan.next_action, "enter_worker")
-        self.assertTrue(plan.required_claim)
-        self.assertEqual(plan.state_patch["session"]["role"], "worker")
-        self.assertEqual(plan.state_patch["task"]["lifecycle"], "running")
+        self.assertTrue(plan.accepted)
+        self.assertEqual(plan.next_action, "launch_worker")
+        self.assertFalse(plan.required_claim)
+        self.assertEqual(plan.state_patch["session"]["role"], "discussion")
+        self.assertEqual(plan.state_patch["session"]["phase"], "routing_worker")
+        self.assertEqual(plan.state_patch["task"]["lifecycle"], "approved")
+        self.assertTrue(plan.state_patch["task"]["worker_authorized"])
 
-    def test_neutral_window_cannot_execute_a_draft_task(self) -> None:
+    def test_neutral_exact_execute_authorizes_draft_for_independent_worker(self) -> None:
         plan = memory_sync.reduce_orchestration(
             self.state(
                 role="neutral",
@@ -818,11 +821,11 @@ class OrchestrationStateMachineTests(unittest.TestCase):
             self.event("user_message", text="执行 002 任务"),
             self.capability(host="claude", create_worker=True),
         )
-        self.assertFalse(plan.accepted)
-        self.assertEqual(plan.next_action, "deny_execution_preflight")
-        self.assertEqual(
-            plan.denial_reason, "Task must be approved and Worker-authorized."
-        )
+        self.assertTrue(plan.accepted)
+        self.assertEqual(plan.next_action, "launch_worker")
+        self.assertEqual(plan.state_patch["session"]["role"], "discussion")
+        self.assertEqual(plan.state_patch["task"]["lifecycle"], "approved")
+        self.assertTrue(plan.state_patch["task"]["worker_authorized"])
 
     def test_osm_03_claude_launch_routes_to_host_adapter_and_stops_discussion(self) -> None:
         plan = memory_sync.reduce_orchestration(
@@ -2075,6 +2078,7 @@ class MemorySyncTests(unittest.TestCase):
                 "task": {
                     "task_id": task_id,
                     "lifecycle": "approved",
+                    "attempt": 1,
                     "worker_authorized": True,
                     "run_report": f"reports/runs/{task_id}-attempt-1.md",
                 },
@@ -3290,6 +3294,30 @@ class MemorySyncTests(unittest.TestCase):
         )
         self.assertFalse(denied_claude["ok"])
         self.assertEqual(denied_claude["error"], "worker_launch_not_authorized")
+
+    def test_worker_prepare_rejects_wrong_or_stale_complete_task_identity(self) -> None:
+        task_id = "046"
+        discussion_id = "discussion-046"
+        self.prepare_claude_worker_task(task_id, discussion_id, host="codex")
+        wrong_task = memory_sync.prepare_codex_worker(
+            self.root, self.config, "046a", discussion_id
+        )
+        self.assertFalse(wrong_task["ok"])
+        self.assertEqual(wrong_task["error"], "authorized_task_mismatch")
+
+        memory_sync.apply_session_runtime_patch(
+            self.root,
+            discussion_id,
+            {"task": {"attempt": 2}},
+        )
+        stale_identity = memory_sync.prepare_codex_worker(
+            self.root, self.config, task_id, discussion_id
+        )
+        self.assertFalse(stale_identity["ok"])
+        self.assertEqual(
+            stale_identity["error"],
+            "authorized_task_identity_incomplete_or_stale",
+        )
 
     def test_formal_execution_rejects_unselected_or_unconfirmed_current_host(self) -> None:
         codex_only = dict(self.config)
@@ -6614,8 +6642,20 @@ class MemorySyncTests(unittest.TestCase):
             check=True,
         )
         context = json.loads(route.stdout)["hookSpecificOutput"]["additionalContext"]
-        self.assertIn('"host_action":"enter_current_window_as_worker"', context)
+        self.assertIn('"host_action":"launch_codex_agent_worker"', context)
         self.assertIn('"task_id":"012"', context)
+        self.assertIn('"discussion_session_id":"neutral-route"', context)
+        self.assertIn('"authorization_patch_required":false', context)
+        self.assertIn('"authorization_commit_required":false', context)
+        neutral_runtime = memory_sync.read_session_runtime(self.root, "neutral-route")
+        assert neutral_runtime is not None
+        self.assertEqual(neutral_runtime["session"]["role"], "discussion")
+        self.assertEqual(neutral_runtime["session"]["phase"], "routing_worker")
+        self.assertEqual(neutral_runtime["task"]["task_id"], "012")
+        self.assertEqual(neutral_runtime["task"]["attempt"], 1)
+        self.assertEqual(
+            neutral_runtime["task"]["run_report"], "reports/runs/012-route.md"
+        )
 
         memory_sync.apply_session_runtime_patch(
             self.root,
@@ -6653,6 +6693,426 @@ class MemorySyncTests(unittest.TestCase):
         self.assertEqual(
             refreshed["session"]["expected_transition"]["kind"],
             "approve_worker_launch",
+        )
+
+    def test_exact_execute_repairs_complete_task_identity_before_codex_prepare(self) -> None:
+        task_id = "008"
+        session_id = "discussion-existing-without-task-id"
+        task_path = f"tasks/build/{task_id}-runtime-identity.md"
+        report_path = f"reports/runs/{task_id}-attempt-2.md"
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="draft",
+                attempt=2,
+                run_report=report_path,
+            ),
+        )
+        self.git("add", task_path)
+        self.git("commit", "-qm", "prepare draft 008")
+        memory_sync.write_session_runtime(
+            self.root,
+            session_id,
+            {
+                "session": {
+                    "session_id": session_id,
+                    "role": "discussion",
+                    "host": "codex",
+                    "phase": "planning",
+                    "expected_transition": None,
+                },
+                "session_provenance": {
+                    "initial_role": "neutral",
+                    "host": "codex",
+                    "discussion_authorized": True,
+                },
+                "task": {
+                    "lifecycle": "draft",
+                    "attempt": 99,
+                    "worker_authorized": False,
+                    "run_report": "reports/runs/stale.md",
+                    "stale_identity_field": "must-not-survive",
+                },
+            },
+        )
+        routed = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "user-prompt-submit",
+                "--host",
+                "codex",
+            ],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": session_id,
+                    "prompt": f"执行 {task_id} 任务",
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        context = json.loads(routed.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn('"host_action":"launch_codex_agent_worker"', context)
+        self.assertIn('"authorization_patch_required":true', context)
+        runtime = memory_sync.read_session_runtime(self.root, session_id)
+        assert runtime is not None
+        self.assertEqual(
+            runtime["task"],
+            {
+                "task_id": task_id,
+                "lifecycle": "approved",
+                "attempt": 2,
+                "worker_authorized": True,
+                "run_report": report_path,
+                "worker_execution_profiles": {},
+            },
+        )
+
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="approved",
+                worker_authorized=True,
+                attempt=2,
+                run_report=report_path,
+            ),
+        )
+        self.git("add", task_path)
+        self.git("commit", "-qm", "authorize 008")
+        prepared = memory_sync.prepare_codex_worker(
+            self.root, self.config, task_id, session_id
+        )
+        self.assertTrue(prepared["ok"], prepared)
+        self.assertNotEqual(prepared.get("error"), "authorized_task_mismatch")
+        thread_id = "codex-thread-direct-008"
+        registered = memory_sync.register_codex_worker(
+            self.root,
+            self.config,
+            task_id,
+            session_id,
+            thread_id,
+            inspectable=True,
+            controllable=True,
+            independent_context=True,
+        )
+        self.assertTrue(registered["ok"], registered)
+        claimed = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "acquire",
+                task_id,
+                "--attempt",
+                "2",
+                "--worker-id",
+                thread_id,
+                "--session-id",
+                thread_id,
+                "--host-thread-ref",
+                thread_id,
+                "--discussion-session-id",
+                session_id,
+                "--host",
+                "codex",
+                "--container-kind",
+                "codex_agent_thread",
+                "--agent-kind",
+                "formal_worker",
+            ],
+            cwd=self.root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(claimed.returncode, 0, claimed.stderr)
+        claim_payload = json.loads(claimed.stdout)
+        self.assertTrue(claim_payload["ok"], claim_payload)
+        worker_runtime = memory_sync.read_session_runtime(self.root, thread_id)
+        assert worker_runtime is not None
+        self.assertEqual(
+            worker_runtime["task"],
+            {
+                "task_id": task_id,
+                "lifecycle": "running",
+                "attempt": 2,
+                "worker_authorized": True,
+                "run_report": report_path,
+                "worker_execution_profiles": {},
+            },
+        )
+        self.assertEqual(
+            claim_payload["claim"]["discussion_session_id"], session_id
+        )
+        self.assertEqual(claim_payload["claim"]["host_thread_ref"], thread_id)
+
+    def test_contextual_approval_also_persists_complete_task_identity(self) -> None:
+        task_id = "010"
+        session_id = "discussion-contextual-complete-task"
+        task_path = f"tasks/build/{task_id}-contextual.md"
+        report_path = f"reports/runs/{task_id}-attempt-3.md"
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="draft",
+                attempt=3,
+                run_report=report_path,
+            ),
+        )
+        self.git("add", task_path)
+        self.git("commit", "-qm", "prepare contextual task")
+        memory_sync.write_session_runtime(
+            self.root,
+            session_id,
+            {
+                "session": {
+                    "session_id": session_id,
+                    "role": "discussion",
+                    "host": "codex",
+                    "phase": "awaiting_worker_authorization",
+                    "expected_transition": {
+                        "kind": "approve_worker_launch",
+                        "task_id": task_id,
+                    },
+                },
+                "session_provenance": {
+                    "initial_role": "neutral",
+                    "host": "codex",
+                    "discussion_authorized": True,
+                },
+                "task": {
+                    "task_id": task_id,
+                    "lifecycle": "draft",
+                    "worker_authorized": False,
+                },
+            },
+        )
+        routed = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "user-prompt-submit",
+                "--host",
+                "codex",
+            ],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": session_id,
+                    "prompt": "批准",
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        context = json.loads(routed.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn('"accepted":true', context)
+        self.assertIn('"authorization_patch_required":true', context)
+        runtime = memory_sync.read_session_runtime(self.root, session_id)
+        assert runtime is not None
+        self.assertEqual(
+            runtime["task"],
+            {
+                "task_id": task_id,
+                "lifecycle": "approved",
+                "attempt": 3,
+                "worker_authorized": True,
+                "run_report": report_path,
+                "worker_execution_profiles": {},
+            },
+        )
+
+    def test_neutral_execute_works_with_or_without_sessionstart_and_replaces_old_task(self) -> None:
+        for task_id, attempt in (("008", 1), ("009", 3)):
+            path = f"tasks/build/{task_id}-direct-route.md"
+            self.write(
+                path,
+                self.execution_ready_task(
+                    task_id,
+                    status="draft",
+                    attempt=attempt,
+                    run_report=f"reports/runs/{task_id}-attempt-{attempt}.md",
+                ),
+            )
+        self.git("add", "tasks/build")
+        self.git("commit", "-qm", "prepare direct routes")
+
+        session_id = "neutral-existing-runtime"
+        subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "session-start",
+                "--host",
+                "codex",
+            ],
+            cwd=self.root,
+            input=json.dumps({"cwd": str(self.root), "session_id": session_id}),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        for task_id, expected_attempt in (("008", 1), ("009", 3)):
+            routed = subprocess.run(
+                [
+                    sys.executable,
+                    str(HOOK_ASSETS / "memory_sync.py"),
+                    "user-prompt-submit",
+                    "--host",
+                    "codex",
+                ],
+                cwd=self.root,
+                input=json.dumps(
+                    {
+                        "cwd": str(self.root),
+                        "session_id": session_id,
+                        "prompt": f"执行 {task_id} 任务",
+                    }
+                ),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+            context = json.loads(routed.stdout)["hookSpecificOutput"]["additionalContext"]
+            self.assertIn('"ok":true', context)
+            runtime = memory_sync.read_session_runtime(self.root, session_id)
+            assert runtime is not None
+            self.assertEqual(runtime["session"]["role"], "discussion")
+            self.assertEqual(runtime["task"]["task_id"], task_id)
+            self.assertEqual(runtime["task"]["attempt"], expected_attempt)
+            self.assertEqual(
+                runtime["task"]["run_report"],
+                f"reports/runs/{task_id}-attempt-{expected_attempt}.md",
+            )
+
+        fresh_session = "neutral-no-runtime"
+        fresh_routed = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "user-prompt-submit",
+                "--host",
+                "claude",
+            ],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": fresh_session,
+                    "prompt": "执行 008 任务",
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        fresh_context = json.loads(fresh_routed.stdout)["hookSpecificOutput"][
+            "additionalContext"
+        ]
+        self.assertIn('"host_action":"launch_claude_background_worker"', fresh_context)
+        self.assertIn('"discussion_session_id":"neutral-no-runtime"', fresh_context)
+        fresh_runtime = memory_sync.read_session_runtime(self.root, fresh_session)
+        assert fresh_runtime is not None
+        self.assertEqual(fresh_runtime["session"]["role"], "discussion")
+        self.assertEqual(fresh_runtime["task"]["task_id"], "008")
+
+    def test_direct_execute_rejects_unsatisfied_dependencies_before_runtime_write(self) -> None:
+        self.write(
+            "tasks/build/001-dependency.md",
+            self.execution_ready_task("001", status="draft"),
+        )
+        self.write(
+            "tasks/build/008-dependent.md",
+            self.execution_ready_task(
+                "008",
+                status="draft",
+                dependencies=["001"],
+            ),
+        )
+        self.git("add", "tasks/build")
+        self.git("commit", "-qm", "prepare dependent task")
+        session_id = "neutral-unsatisfied-dependency"
+        routed = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "user-prompt-submit",
+                "--host",
+                "codex",
+            ],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": session_id,
+                    "prompt": "执行 008 任务",
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        context = json.loads(routed.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn('"ok":false', context)
+        self.assertIn('"denial_reason":"execution_preflight_failed"', context)
+        self.assertIn("unsatisfied_dependencies:001", context)
+        self.assertIsNone(memory_sync.read_session_runtime(self.root, session_id))
+
+    def test_direct_execute_fails_closed_when_complete_runtime_cannot_persist(self) -> None:
+        task_path = "tasks/build/008-persistence-failure.md"
+        self.write(task_path, self.execution_ready_task("008", status="draft"))
+        self.git("add", task_path)
+        self.git("commit", "-qm", "prepare persistence failure")
+        host_adapter_module = sys.modules["host_adapter"]
+        emitted: list[dict[str, object]] = []
+        with (
+            mock.patch.object(
+                host_adapter_module,
+                "_persist_execution_route_runtime",
+                return_value={
+                    "ok": False,
+                    "error": "session_runtime_write_failed",
+                },
+            ),
+            mock.patch.object(
+                host_adapter_module,
+                "emit",
+                side_effect=lambda value: emitted.append(value),
+            ),
+        ):
+            exit_code = host_adapter_module.user_prompt_submit_main(
+                self.root,
+                self.config,
+                {
+                    "cwd": str(self.root),
+                    "session_id": "neutral-persist-failure",
+                    "prompt": "执行 008 任务",
+                },
+                "codex",
+            )
+        self.assertEqual(exit_code, 0)
+        context = emitted[-1]["hookSpecificOutput"]["additionalContext"]
+        self.assertIn('"ok":false', context)
+        self.assertIn('"host_action":"no_action"', context)
+        self.assertIn("authorization_runtime_persistence_failed", context)
+        self.assertNotIn("codex-worker prepare", context)
+        self.assertIsNone(
+            memory_sync.read_session_runtime(self.root, "neutral-persist-failure")
         )
 
     def test_active_status_is_compact_and_full_status_keeps_history(self) -> None:
@@ -7126,7 +7586,7 @@ class InstallerTests(unittest.TestCase):
 
             with mock.patch.object(installer_module, "ASSET_ROOT", asset_root):
                 manifest = installer_module.bundled_runtime_manifest()
-                self.assertEqual(manifest["runtime_version"], 21)
+                self.assertEqual(manifest["runtime_version"], 22)
 
                 policy_path = asset_root / "policy.py"
                 policy_path.write_bytes(policy_path.read_bytes() + b"# changed\r\n")
@@ -7220,7 +7680,7 @@ class InstallerTests(unittest.TestCase):
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["state"], "confirmed_recently")
             self.assertEqual(execution["last_event"], "session-start")
-            self.assertEqual(execution["observed_runtime_version"], 21)
+            self.assertEqual(execution["observed_runtime_version"], 22)
             self.assertTrue(payload["host_execution_confirmed"])
             self.assertEqual(payload["next_action"], "bootstrap_project_memory")
 
@@ -7386,12 +7846,12 @@ class InstallerTests(unittest.TestCase):
             payload = json.loads(upgraded.stdout)
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["after"]["state"], "current")
-            self.assertEqual(payload["after"]["installed_runtime_version"], 21)
+            self.assertEqual(payload["after"]["installed_runtime_version"], 22)
             config = json.loads(
                 (root / ".wishgraph" / "config.json").read_text(encoding="utf-8")
             )
             self.assertEqual(config["mode"], "enforce")
-            self.assertEqual(config["runtime_version"], 21)
+            self.assertEqual(config["runtime_version"], 22)
 
     def test_safe_upgrade_replaces_only_a_bundled_known_old_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -7725,7 +8185,7 @@ class InstallerTests(unittest.TestCase):
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["version"], 12)
-            self.assertEqual(config["runtime_version"], 21)
+            self.assertEqual(config["runtime_version"], 22)
             self.assertTrue(
                 (root / ".wishgraph" / "hooks" / "runtime-manifest.json").is_file()
             )

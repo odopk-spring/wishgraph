@@ -964,29 +964,24 @@ def reduce_orchestration(
         recommended = dict(recommended) if isinstance(recommended, dict) else {}
         execution_profile = {**recommended, **execution_profile}
         if session.role == "neutral":
-            if task.lifecycle != "approved" or not task.worker_authorized:
-                return FlowPlan(
-                    accepted=False,
-                    next_action="deny_execution_preflight",
-                    task_id=task_id,
-                    denial_reason="Task must be approved and Worker-authorized.",
-                )
             return FlowPlan(
                 accepted=True,
-                next_action="enter_worker",
+                next_action="launch_worker",
                 task_id=task_id,
-                required_claim=True,
-                host_route="current_neutral_window",
+                host_route=(
+                    "automatic_thread"
+                    if host_capability.supports_formal_worker_thread
+                    else "manual_window"
+                ),
                 state_patch={
                     "session": {
-                        "role": "worker",
-                        "phase": "waiting_for_worker",
-                        "expected_transition": _expected_patch(
-                            "wait_for_worker", task_id
-                        ),
+                        "role": "discussion",
+                        "phase": "routing_worker",
+                        "expected_transition": None,
                     },
                     "task": {
-                        "lifecycle": "running",
+                        "lifecycle": "approved",
+                        "worker_authorized": True,
                         "worker_execution_profiles": task.worker_execution_profiles,
                     },
                 },

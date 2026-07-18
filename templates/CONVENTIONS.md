@@ -10,7 +10,7 @@ The planning agent turns human intent into durable task specs.
 
 Responsibilities:
 
-- Enter this role only after the project is enabled and the user separately says "Start discussion"; first-time activation leaves the window neutral.
+- Enter this role after the project is enabled and the user says "Start discussion", or automatically when an ordinary neutral window receives one exact Task execution command and becomes its dispatcher; first-time activation alone still leaves the window neutral.
 - Start from `prompts/DISCUSSION_AI.md` when opening a fresh planning window.
 - Read project docs before asking questions.
 - Establish or update `PRD.md` before authorizing a Worker to restructure architecture or implement feature work.
@@ -114,7 +114,7 @@ Workers propose shared-memory impact in their immutable Run Reports. The origina
 - Worker run reports use `Integrate` or `N/A`. Project Status snapshots use `Updated` or `N/A`.
 - Runtime session state, Worker Claims, and Integration leases live under the Git common directory rather than in business files.
 - Global Skill installation does not activate this project. `.wishgraph/config.json` with `mode: warn` or `mode: enforce` records explicit project opt-in; missing config or `mode: off` leaves generic entry phrases inactive.
-- New windows in an enabled project are neutral. By default SessionStart performs safety checks only; enter Discussion only after the user explicitly says "Start discussion" or equivalent. First-time activation never enters Discussion in the same step. Refresh is explicit in an already-running window.
+- New windows in an enabled project are neutral. By default SessionStart performs safety checks only. "Start discussion" enters planning; an exact Task execution command instead promotes the neutral window to the Discussion dispatcher and routes a separate Worker. First-time activation never enters Discussion in the same step. Refresh is explicit in an already-running window.
 - Hooks may expose pending integration, integration kind, ready, waiting, and blocked reports, confirmation requirement, and a reason. They do not choose parallelism, start agents, merge code, write semantic memory, or replace human review.
 
 ## Validation
