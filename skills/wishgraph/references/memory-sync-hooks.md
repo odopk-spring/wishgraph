@@ -33,6 +33,8 @@ Only after `.wishgraph/config.json` enables the project, route explicit entry co
 
 When the Hook cannot resolve the whole prompt to one allowed command, it emits no route and does not mutate session state. The original prompt continues to the Agent. The Agent may ask whether the user wants Discussion or refresh, but an ambiguous execution request must be answered with a request for the exact command, such as `执行 012 任务`; Agent interpretation cannot manufacture authorization.
 
+The default Discussion entry reads only the current Project Status sections, the concise Discussion handoff, session runtime, and pending notifications. It does not build the active integration index. Exact Task execution narrows candidates by canonical filename before reading bodies, then reads only the exact Task and its declared dependencies. Exact Revision routing reads only that parent's Revision family. Full active/history scans remain explicit status or recovery operations.
+
 ### SessionStart
 
 Create or load a neutral session and run the worktree external-memory safety check. Default `safety_only` mode reports pending or invalid state without activating Discussion or injecting its full prompt.
@@ -172,7 +174,7 @@ non-commit PreToolUse bulk delta <= 25 ms
 Run cold Python subprocesses and nearest-rank p95 with the bundled script:
 
 ```bash
-python3 scripts/benchmark_hooks.py \
+python3 skills/wishgraph/scripts/benchmark_hooks.py \
   --warmup 10 \
   --iterations 100 \
   --rounds 3 \

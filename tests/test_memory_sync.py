@@ -2444,6 +2444,71 @@ class MemorySyncTests(unittest.TestCase):
         self.assertEqual(payload["error"], "duplicate_task_id")
         self.assertEqual(len(payload["matches"]), 2)
 
+    def test_exact_task_resolution_does_not_read_unrelated_task_bodies(self) -> None:
+        self.write("tasks/build/008-target.md", self.structured_task("008-target"))
+        self.write("tasks/build/099-unrelated.md", self.structured_task("099-unrelated"))
+        with mock.patch("host_adapter.read_version", wraps=memory_sync.read_version) as read:
+            payload = memory_sync.resolve_task(self.root, self.config, "008")
+        self.assertTrue(payload["ok"], payload)
+        read_paths = {str(call.args[1]) for call in read.call_args_list}
+        self.assertIn("tasks/build/008-target.md", read_paths)
+        self.assertNotIn("tasks/build/099-unrelated.md", read_paths)
+
+    def test_execution_preflight_reads_only_exact_task_and_dependencies(self) -> None:
+        self.write(
+            "tasks/build/001-dependency.md",
+            self.structured_task(
+                "001-dependency", status="integrated", worker_authorized=True
+            ),
+        )
+        self.write(
+            "tasks/build/008-target.md",
+            self.execution_ready_task("008-target", dependencies=["001"]),
+        )
+        self.write("tasks/build/099-unrelated.md", self.structured_task("099-unrelated"))
+        with mock.patch("policy.read_version", wraps=memory_sync.read_version) as read:
+            _, errors = memory_sync.evaluate_execution_preflight(
+                self.root, self.config, "tasks/build/008-target.md", "execute"
+            )
+        self.assertEqual(errors, [])
+        read_paths = {str(call.args[1]) for call in read.call_args_list}
+        self.assertIn("tasks/build/008-target.md", read_paths)
+        self.assertIn("tasks/build/001-dependency.md", read_paths)
+        self.assertNotIn("tasks/build/099-unrelated.md", read_paths)
+
+    def test_discussion_fast_context_does_not_scan_active_tasks_or_reports(self) -> None:
+        config = json.loads(json.dumps(self.config))
+        config["session_start_context_mode"] = "discussion_summary"
+        with mock.patch(
+            "host_adapter.integration_state",
+            side_effect=AssertionError("default Discussion context must stay bounded"),
+        ):
+            context = memory_sync.project_session_context(self.root, config)
+        self.assertIsNotNone(context)
+        self.assertIn("Current integrated project status", context)
+
+    def test_exact_revision_resolution_reads_only_its_parent_revision_family(self) -> None:
+        self.write("tasks/build/012-parent.md", self.structured_task("012-parent"))
+        template = (HOOK_ASSETS.parent / "templates" / "TASK_REVISION.md").read_text(
+            encoding="utf-8"
+        )
+        self.write(
+            "tasks/revisions/012-r1.md",
+            template,
+        )
+        self.write(
+            "tasks/revisions/099-r1.md",
+            template.replace("012-r1", "099-r1").replace(
+                '"parent_task_id": "012"', '"parent_task_id": "099"'
+            ),
+        )
+        with mock.patch("host_adapter.read_version", wraps=memory_sync.read_version) as read:
+            payload = memory_sync.resolve_revision(self.root, self.config, "012-r1")
+        self.assertTrue(payload["ok"], payload)
+        read_paths = {str(call.args[1]) for call in read.call_args_list}
+        self.assertIn("tasks/revisions/012-r1.md", read_paths)
+        self.assertNotIn("tasks/revisions/099-r1.md", read_paths)
+
     def test_task_parent_dependencies_and_attempt_are_parsed(self) -> None:
         state = memory_sync.parse_task_state(
             "tasks/build/012a-follow-up.md",
@@ -6659,6 +6724,8 @@ class MemorySyncTests(unittest.TestCase):
         self.assertIn('"discussion_session_id":"neutral-route"', context)
         self.assertIn('"authorization_patch_required":false', context)
         self.assertIn('"authorization_commit_required":false', context)
+        self.assertIn("012 已交给独立 Worker 执行。", context)
+        self.assertIn('"hide_on_normal_path"', context)
         neutral_runtime = memory_sync.read_session_runtime(self.root, "neutral-route")
         assert neutral_runtime is not None
         self.assertEqual(neutral_runtime["session"]["role"], "discussion")
@@ -7598,7 +7665,7 @@ class InstallerTests(unittest.TestCase):
 
             with mock.patch.object(installer_module, "ASSET_ROOT", asset_root):
                 manifest = installer_module.bundled_runtime_manifest()
-                self.assertEqual(manifest["runtime_version"], 22)
+                self.assertEqual(manifest["runtime_version"], 23)
 
                 policy_path = asset_root / "policy.py"
                 policy_path.write_bytes(policy_path.read_bytes() + b"# changed\r\n")
@@ -7692,7 +7759,7 @@ class InstallerTests(unittest.TestCase):
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["state"], "confirmed_recently")
             self.assertEqual(execution["last_event"], "session-start")
-            self.assertEqual(execution["observed_runtime_version"], 22)
+            self.assertEqual(execution["observed_runtime_version"], 23)
             self.assertTrue(payload["host_execution_confirmed"])
             self.assertEqual(payload["next_action"], "bootstrap_project_memory")
 
@@ -7858,12 +7925,12 @@ class InstallerTests(unittest.TestCase):
             payload = json.loads(upgraded.stdout)
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["after"]["state"], "current")
-            self.assertEqual(payload["after"]["installed_runtime_version"], 22)
+            self.assertEqual(payload["after"]["installed_runtime_version"], 23)
             config = json.loads(
                 (root / ".wishgraph" / "config.json").read_text(encoding="utf-8")
             )
             self.assertEqual(config["mode"], "enforce")
-            self.assertEqual(config["runtime_version"], 22)
+            self.assertEqual(config["runtime_version"], 23)
 
     def test_safe_upgrade_replaces_only_a_bundled_known_old_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -8197,7 +8264,7 @@ class InstallerTests(unittest.TestCase):
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["version"], 12)
-            self.assertEqual(config["runtime_version"], 22)
+            self.assertEqual(config["runtime_version"], 23)
             self.assertTrue(
                 (root / ".wishgraph" / "hooks" / "runtime-manifest.json").is_file()
             )
@@ -8595,23 +8662,18 @@ class OneCommandInstallerTests(unittest.TestCase):
             encoding="utf-8"
         )
         for expected in (
-            "## Work Classification",
-            "discussion",
-            "sequential",
-            "parallel_batch",
-            "high_risk",
-            "expected_transition",
-            "awaiting_worker_authorization",
-            "routing_worker",
-            "执行 <task-id> 任务",
-            "Discussion-local Integration",
-            "<task-id> · <short title> · WG Worker",
-            "Never implement Worker work",
-            "worker_creation_authorized",
-            "integrated` to `reviewed",
+            "## Fast Path",
+            "independent Worker",
+            "approve_worker_launch",
+            "Do not expose Claim IDs",
+            "Do not preload exception References",
+            "Revision Fast Path",
+            "Discussion-local phase",
+            "Rewrite `reports/PROJECT_STATUS.md` as the current snapshot",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, prompt)
+        self.assertNotIn("## Work Classification", prompt)
 
     def test_worker_launch_protocol_requires_visible_human_authorized_tasks(self) -> None:
         reference = (
@@ -8635,12 +8697,12 @@ class OneCommandInstallerTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, reference)
         for expected in (
-            "expected_transition",
-            "awaiting_worker_authorization",
-            "routing_worker",
-            "执行 <task-id> 任务",
-            "Discussion-local Integration",
-            "不得在 Discussion 中实现 Worker 工作",
+            "默认 Fast Path",
+            "approve_worker_launch",
+            "不要默认运行完整 status 扫描",
+            "普通路径不展示 Claim ID",
+            "不要“以防万一”预读异常 Reference",
+            "安全 Revision 自动集成",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, chinese_prompt)
@@ -8652,9 +8714,8 @@ class OneCommandInstallerTests(unittest.TestCase):
         integration = (
             ROOT / "templates" / "prompts" / "INTEGRATION_AI.md"
         ).read_text(encoding="utf-8")
-        self.assertIn("Discussion-local Integration", discussion)
-        self.assertIn("integration_pending", discussion)
-        self.assertIn("decision_required", discussion)
+        self.assertIn("Integration is an automatic Discussion-local phase", discussion)
+        self.assertIn("Ask the user only about a concrete unresolved", discussion)
         self.assertIn("Integration lease", integration)
         self.assertIn("Do not create a new Integration window", integration)
         self.assertIn("task-state", integration)

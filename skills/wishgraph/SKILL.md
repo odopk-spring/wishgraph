@@ -42,6 +42,10 @@ continue without chat history.
 
 ## Core Workflow
 
+For the default single-Task path, keep the user-visible loop to `discuss -> approve ->
+independent Worker -> validated result`. Hide Claim, lease, runtime, session, capability, and
+authorization-commit mechanics unless failure, recovery, or an explicit user request requires them.
+
 1. Inspect the repository and reuse compatible project truth instead of creating parallel memory.
 2. Compile intent into observable behavior, acceptance criteria, non-goals, and material decisions.
 3. Create only the minimum durable project-state graph and bounded executable work units.
@@ -75,7 +79,7 @@ Read only the references required for the current request:
 - Project concepts, naming, or public explanation: `references/core-concepts.md`.
 - New or existing project adoption, governance layout, templates, or bilingual memory: `references/project-bootstrap.md`.
 - Roles, phases, Task lifecycle, exact commands, approvals, and pure transitions: `references/orchestration-state-machine.md`.
-- Visible Worker routing, host fallback, Claims, closeout, recovery, or rebind: `references/worker-execution.md`.
+- Ordinary Task execution: read only the fast-path and closeout sections of `references/worker-execution.md`; use its recovery sections only after a Claim, session, takeover, or rebind failure.
 - Formal Task structure, quality criteria, and worked example: `references/task-spec.md`.
 - Clear low-risk correction: read only `references/task-revisions.md`; expand only through its exception table.
 - Multiple candidates for the same goal, scorecards, winner selection, and loser closeout: `references/competitive-execution.md`.

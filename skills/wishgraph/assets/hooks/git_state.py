@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": 12,
-    "runtime_version": 22,
+    "runtime_version": 23,
     "mode": "enforce",
     "required_hosts": ["codex", "claude"],
     "paths": {
@@ -1392,6 +1392,34 @@ def configured_task_globs(config: dict[str, Any]) -> list[str]:
 def configured_revision_glob(config: dict[str, Any]) -> str:
     value = config.get("paths", {}).get("revision_glob")
     return value if isinstance(value, str) and value else "tasks/revisions/*.md"
+
+
+def task_paths_for_id(
+    root: Path, config: dict[str, Any], task_id: str
+) -> list[Path]:
+    """List filename-bounded candidates without reading unrelated Task bodies."""
+    matches: list[Path] = []
+    seen: set[Path] = set()
+    for task_glob in configured_task_globs(config):
+        for path in root.glob(task_glob):
+            if path in seen or path.name.startswith(("EXAMPLE-", "NNN-")):
+                continue
+            seen.add(path)
+            if path.stem == task_id or path.stem.startswith(f"{task_id}-"):
+                matches.append(path)
+    return sorted(matches)
+
+
+def revision_paths_for_parent(
+    root: Path, config: dict[str, Any], parent_task_id: str
+) -> list[Path]:
+    """List only one parent's Revision candidates from their canonical filenames."""
+    prefix = f"{parent_task_id}-r"
+    return sorted(
+        path
+        for path in root.glob(configured_revision_glob(config))
+        if path.stem.startswith(prefix)
+    )
 
 
 def nul_paths(data: bytes) -> set[str]:

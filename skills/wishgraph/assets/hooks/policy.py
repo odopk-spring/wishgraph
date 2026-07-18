@@ -25,6 +25,7 @@ from git_state import (
     report_paths_in_ref,
     resolve_project_status_path,
     standard_project_status_conflict,
+    task_paths_for_id,
 )
 from workflow_state import (
     SCHEMA_VERSION as WORKFLOW_STATE_SCHEMA_VERSION,
@@ -1328,6 +1329,22 @@ def all_task_states(
     return tasks
 
 
+def task_states_for_id(
+    root: Path,
+    config: dict[str, Any],
+    task_id: str,
+    scope: str = "worktree",
+) -> list[TaskState]:
+    """Read only filename-bounded candidates for one exact Task identity."""
+    states: list[TaskState] = []
+    for path in task_paths_for_id(root, config, task_id):
+        relative = path.relative_to(root).as_posix()
+        content = read_version(root, relative, scope)
+        if content is not None:
+            states.append(task_state(relative, content))
+    return states
+
+
 def task_report_states(
     root: Path, config: dict[str, Any], scope: str = "worktree"
 ) -> dict[str, TaskState]:
@@ -1375,13 +1392,18 @@ def execution_preflight(
     if state.status not in allowed_by_action.get(authorization_action, set()):
         errors.append(f"status_{state.status}_does_not_allow_{authorization_action}")
 
-    by_id = {item.task_id: item for item in all_task_states(root, config) if item.task_id}
-    unsatisfied = [
-        dependency
-        for dependency in state.dependencies
-        if dependency not in by_id
-        or by_id[dependency].status not in {"integrated", "reviewed"}
-    ]
+    unsatisfied: list[str] = []
+    for dependency in state.dependencies:
+        candidates = [
+            item
+            for item in task_states_for_id(root, config, dependency)
+            if item.task_id == dependency
+        ]
+        if len(candidates) != 1 or candidates[0].status not in {
+            "integrated",
+            "reviewed",
+        }:
+            unsatisfied.append(dependency)
     if unsatisfied:
         errors.append("unsatisfied_dependencies:" + ",".join(unsatisfied))
     return state, errors

@@ -4,6 +4,7 @@ Use this reference for Formal Worker launch, host fallback, preflight, Claim/wor
 
 ## Contents
 
+- Fast path
 - Authority and visible routing
 - Host fallback
 - Entry preflight
@@ -13,6 +14,18 @@ Use this reference for Formal Worker launch, host fallback, preflight, Claim/wor
 - Stop and recovery
 - Worker rebind
 - Locality boundary
+
+## Fast Path
+
+For one authorized, low-risk Task, read this section, `Authority And Visible Routing`, `Entry
+Preflight`, `Execution Gates`, and `Closeout`. Do not read Host Fallback, Stop/Retry/Takeover,
+Worker Rebind, or Locality Boundary unless that event actually occurs.
+
+The normal Worker reads only its exact Task, declared dependencies needed for preflight, the
+stable execution prompt, and files explicitly named by its scope. A successful launch is reported
+to the user as `<task-id> 已交给独立 Worker 执行。`; internal IDs and capability details stay in
+runtime evidence. A safe closeout returns the compact changed/validation/risk result through
+Discussion after automatic integration.
 
 ## Authority And Visible Routing
 

@@ -44,6 +44,8 @@ from git_state import (
     resolve_project_status_path,
     run_git,
     standard_project_status_conflict,
+    task_paths_for_id,
+    revision_paths_for_parent,
     update_claim,
     update_integration_lease,
     write_session_runtime,
@@ -1743,7 +1745,12 @@ def refresh_claude_worker(
     }
 
 
-def project_session_context(root: Path, config: dict[str, Any]) -> Optional[str]:
+def project_session_context(
+    root: Path,
+    config: dict[str, Any],
+    *,
+    include_active_status: bool = False,
+) -> Optional[str]:
     if config.get("session_start_context_mode", "safety_only") != "discussion_summary":
         return None
     paths = config["paths"]
@@ -1761,7 +1768,11 @@ def project_session_context(root: Path, config: dict[str, Any]) -> Optional[str]
     )
     state = dynamic_state_block(discussion)
     sections: list[str] = []
-    integration = integration_state(root, config, view="active").as_dict()
+    integration = (
+        integration_state(root, config, view="active").as_dict()
+        if include_active_status
+        else None
+    )
     if status_path == LEGACY_PROJECT_STATUS_PATH:
         sections.append(
             "Migration reminder: reports/DEV_REPORT.md uses the retired status-file name. "
@@ -1774,7 +1785,7 @@ def project_session_context(root: Path, config: dict[str, Any]) -> Optional[str]
             "reports/DEV_REPORT.md exist. Confirm the authoritative current facts and keep "
             "only reports/PROJECT_STATUS.md before integration."
         )
-    if (
+    if integration and (
         integration["pending_integration"]
         or integration["waiting_reports"]
         or integration["blocked_reports"]
@@ -2702,7 +2713,10 @@ def formal_worker_launch_context(
         "3. Do not use Task, Agent, /fork, a helper, or any ordinary background "
         "subagent to run or replace that command. Only the Host Adapter may create "
         "the managed wishgraph-worker.\n"
-        "4. Stop after the Host Adapter result. Never implement business code in "
+        "4. After a real Worker is created, tell the user only that the Task was sent "
+        "to an independent Worker. Keep Claim, runtime, session, capability, and "
+        "authorization-commit details hidden unless launch fails or the user asks.\n"
+        "5. Stop after the Host Adapter result. Never implement business code in "
         f"Discussion. The originating Discussion session ID is {discussion_session_id}."
     )
 
@@ -3139,6 +3153,20 @@ def user_prompt_submit_main(
             "delegation_forbidden": native_launch,
             "required_before_business_work": "execution_preflight_and_worker_claim",
             "read_boundary": "exact_task_scope_and_explicit_context_only",
+            "user_output_contract": {
+                "after_real_worker_created": f"{task_id} 已交给独立 Worker 执行。",
+                "on_manual_fallback": (
+                    "Worker 没有成功启动，当前窗口没有接管代码修改。"
+                ),
+                "hide_on_normal_path": [
+                    "claim_id",
+                    "lease_id",
+                    "runtime_path",
+                    "session_json",
+                    "capabilities",
+                    "authorization_commit",
+                ],
+            },
         }
     emit(
         {
@@ -3337,7 +3365,7 @@ def hook_main(event: str, host: str = "unknown") -> int:
     session_context = (
         join_context(
             session_notification_context,
-            project_session_context(root, config),
+            project_session_context(root, config, include_active_status=True),
         )
         if event == "session-start"
         else None
@@ -3990,6 +4018,36 @@ def integration_lease_main(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
+def _task_spec_from_path(root: Path, path: Path) -> Optional[dict[str, Any]]:
+    relative = path.relative_to(root).as_posix()
+    content = read_version(root, relative, "worktree")
+    if content is None:
+        return None
+    state = parse_task_state(relative, content)
+    change_set = markdown_section(content, "Change Set") or markdown_section(
+        content, "变更范围"
+    )
+    validation = markdown_section(content, "Validation") or markdown_section(
+        content, "验证"
+    )
+    return {
+        "task_id": state.task_id,
+        "task_path": relative,
+        "status": state.status,
+        "parent_task_id": state.parent_task_id or None,
+        "dependencies": state.dependencies,
+        "attempt": state.attempt,
+        "execution_mode": state.execution_mode,
+        "comparison_group": state.comparison_group or None,
+        "run_report": state.run_report,
+        "worker_creation_authorized": state.worker_creation_authorized,
+        "worker_execution_profiles": state.worker_execution_profiles,
+        "errors": state.errors,
+        "allowed_scope": _markdown_scope_items(change_set),
+        "validation_plan": _markdown_list_items(validation),
+    }
+
+
 def task_specs(root: Path, config: dict[str, Any]) -> list[dict[str, Any]]:
     specs: list[dict[str, Any]] = []
     seen: set[Path] = set()
@@ -3998,36 +4056,21 @@ def task_specs(root: Path, config: dict[str, Any]) -> list[dict[str, Any]]:
             if path in seen or path.name.startswith(("EXAMPLE-", "NNN-")):
                 continue
             seen.add(path)
-            relative = path.relative_to(root).as_posix()
-            content = read_version(root, relative, "worktree")
-            if content is None:
-                continue
-            state = parse_task_state(relative, content)
-            change_set = markdown_section(content, "Change Set") or markdown_section(
-                content, "变更范围"
-            )
-            validation = markdown_section(content, "Validation") or markdown_section(
-                content, "验证"
-            )
-            specs.append(
-                {
-                    "task_id": state.task_id,
-                    "task_path": relative,
-                    "status": state.status,
-                    "parent_task_id": state.parent_task_id or None,
-                    "dependencies": state.dependencies,
-                    "attempt": state.attempt,
-                    "execution_mode": state.execution_mode,
-                    "comparison_group": state.comparison_group or None,
-                    "run_report": state.run_report,
-                    "worker_creation_authorized": state.worker_creation_authorized,
-                    "worker_execution_profiles": state.worker_execution_profiles,
-                    "errors": state.errors,
-                    "allowed_scope": _markdown_scope_items(change_set),
-                    "validation_plan": _markdown_list_items(validation),
-                }
-            )
+            spec = _task_spec_from_path(root, path)
+            if spec is not None:
+                specs.append(spec)
     return specs
+
+
+def task_specs_for_id(
+    root: Path, config: dict[str, Any], task_id: str
+) -> list[dict[str, Any]]:
+    """Resolve one exact Task without parsing unrelated Task files."""
+    return [
+        spec
+        for path in task_paths_for_id(root, config, task_id)
+        if (spec := _task_spec_from_path(root, path)) is not None
+    ]
 
 
 def _markdown_list_items(section: Optional[str]) -> list[str]:
@@ -4067,28 +4110,42 @@ def _markdown_scope_items(section: Optional[str]) -> list[str]:
     return items
 
 
+def _revision_spec_from_path(root: Path, path: Path) -> Optional[dict[str, Any]]:
+    relative = path.relative_to(root).as_posix()
+    content = read_version(root, relative, "worktree")
+    if content is None:
+        return None
+    state = parse_revision_state(relative, content)
+    return {
+        "revision_id": state.revision_id,
+        "parent_task_id": state.parent_task_id,
+        "revision_path": relative,
+        "status": state.status,
+        "user_request": state.user_request,
+        "allowed_scope": state.allowed_scope,
+        "validation_plan": state.validation_plan,
+        "run_report": state.run_report,
+        "errors": state.errors,
+    }
+
+
 def revision_specs(root: Path, config: dict[str, Any]) -> list[dict[str, Any]]:
-    specs: list[dict[str, Any]] = []
-    for path in sorted(root.glob(configured_revision_glob(config))):
-        relative = path.relative_to(root).as_posix()
-        content = read_version(root, relative, "worktree")
-        if content is None:
-            continue
-        state = parse_revision_state(relative, content)
-        specs.append(
-            {
-                "revision_id": state.revision_id,
-                "parent_task_id": state.parent_task_id,
-                "revision_path": relative,
-                "status": state.status,
-                "user_request": state.user_request,
-                "allowed_scope": state.allowed_scope,
-                "validation_plan": state.validation_plan,
-                "run_report": state.run_report,
-                "errors": state.errors,
-            }
-        )
-    return specs
+    return [
+        spec
+        for path in sorted(root.glob(configured_revision_glob(config)))
+        if (spec := _revision_spec_from_path(root, path)) is not None
+    ]
+
+
+def revision_specs_for_parent(
+    root: Path, config: dict[str, Any], parent_task_id: str
+) -> list[dict[str, Any]]:
+    """Read only the lightweight Revision records owned by one parent Task."""
+    return [
+        spec
+        for path in revision_paths_for_parent(root, config, parent_task_id)
+        if (spec := _revision_spec_from_path(root, path)) is not None
+    ]
 
 
 def resolve_revision(
@@ -4097,8 +4154,11 @@ def resolve_revision(
     requested = canonical_revision_id(revision_id)
     if not requested:
         return {"ok": False, "error": "invalid_revision_id", "requested": revision_id}
+    parent_task_id = requested.split("-r", 1)[0]
     matches = [
-        item for item in revision_specs(root, config) if item["revision_id"] == requested
+        item
+        for item in revision_specs_for_parent(root, config, parent_task_id)
+        if item["revision_id"] == requested
     ]
     if len(matches) > 1:
         return {"ok": False, "error": "duplicate_revision_id", "matches": matches}
@@ -4125,7 +4185,7 @@ def next_revision_id(
         return {"ok": False, "error": "task_not_found", "task_id": parent}
     existing = [
         item
-        for item in revision_specs(root, config)
+        for item in revision_specs_for_parent(root, config, parent)
         if item["revision_id"] and item["parent_task_id"] == parent
     ]
     open_revisions = [
@@ -4163,7 +4223,7 @@ def resolve_task(root: Path, config: dict[str, Any], task_id: str) -> dict[str, 
     requested = canonical_task_id(task_id)
     if not requested:
         return {"ok": False, "error": "invalid_task_id", "requested": task_id}
-    specs = task_specs(root, config)
+    specs = task_specs_for_id(root, config, requested)
     matches = [item for item in specs if item["task_id"] == requested]
     if len(matches) > 1:
         return {
@@ -4173,12 +4233,19 @@ def resolve_task(root: Path, config: dict[str, Any], task_id: str) -> dict[str, 
             "matches": [item["task_path"] for item in matches],
         }
     if not matches:
-        valid_ids = sorted({item["task_id"] for item in specs if item["task_id"]})
+        filename_ids: set[str] = set()
+        for pattern in configured_task_globs(config):
+            for path in root.glob(pattern):
+                match = re.match(r"^(\d{3,}[a-z]*)(?:-|$)", path.stem)
+                if match:
+                    filename_ids.add(match.group(1))
         return {
             "ok": False,
             "error": "task_not_found",
             "task_id": requested,
-            "nearest_task_ids": difflib.get_close_matches(requested, valid_ids, n=5),
+            "nearest_task_ids": difflib.get_close_matches(
+                requested, sorted(filename_ids), n=5
+            ),
         }
     return {"ok": True, "task": matches[0]}
 
