@@ -106,15 +106,19 @@ Discussion 一次只追问一个会改变结果的决定，并提供推荐默认
 执行 012 任务
 ```
 
+在 Discussion 中，这条命令派发独立 Worker。如果你在同一已启用项目的普通 neutral 新窗口中直接输入它，当前可检查窗口会在取得 Claim 后直接成为 Worker，不再额外创建第二个 Worker。
+
 授权并不会让 Discussion 自己实现 Task。它会请求当前宿主提供最合适的合法 Worker 路径。
 
 | 宿主路径 | 实际行为 |
 | --- | --- |
 | 支持可检查 Agent thread 的 Codex 界面 | 宿主创建项目 `wishgraph-worker`；只有返回真实稳定 thread ID 后才记录成功。 |
-| 支持兼容后台 Agent 的 Claude Code CLI | Host Adapter 在独立 Worktree 中启动受管后台 Agent，只临时注入本次 Worktree 设置，并保存稳定 session ID。 |
+| 能力检查通过的 Claude Code CLI | Host Adapter 在独立 Worktree 中启动受管后台 Agent，只临时注入本次 Worktree 设置，并保存稳定 session ID。 |
 | 原生创建不可用或失败 | Discussion 给出项目目录、Codex/Claude 启动命令、各自配置和 `执行 012`；任选一套复制即可。 |
 
 请求创建进程或 thread 不代表 Task 已经 `running`。Worker 必须通过准确 Task preflight，并取得绑定 session、branch、绝对 worktree、scope 和 validation plan 的 Claim。
+
+派发性能目标只覆盖“命令解析 → 规范 Run 授权 → 宿主路由就绪”，目标 p95 小于 3 秒。宿主创建原生 thread/session 和模型启动不在这个时间内；真实 ID 和 Claim 就绪前，用户看到的应是 `starting` 或 `awaiting_claim`。
 
 全局 Claude Adapter 和 Worker Agent 可以服务所有已明确启用的项目。项目级 `.claude/settings.json` 不是必需条件；每次启动注入的设置不会覆盖全局或项目配置。
 
@@ -178,6 +182,8 @@ WishGraph 默认使用 native-lite：
 - 当前状态保持为重写后的快照，历史留在不可变报告和 Git 中。
 
 标准文件名是默认方案，不是要求已有项目复制一套文档。
+
+预发布时期的 `.tasks/build/`、`reports/DEV_REPORT.md`、旧字段别名和缺失 `required_hosts` 的配置不再自动迁移。Doctor 发现这些格式时，明确重新启用项目或重新生成结构化记录即可。
 
 ## 维护与排障
 

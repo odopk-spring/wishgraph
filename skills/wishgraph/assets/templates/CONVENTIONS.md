@@ -16,7 +16,7 @@ Responsibilities:
 - Establish or update `PRD.md` before authorizing a Worker to restructure architecture or implement feature work.
 - For a new or vague project, start with one question about the user's idea and grill one decision at a time before writing implementation tasks.
 - Ask only for decisions that materially change scope.
-- Write self-contained task specs in the visible `tasks/build/` directory. Preserve `.tasks/build/` only for an existing project that already uses it.
+- Write self-contained task specs in the visible `tasks/build/` directory. Do not infer hidden or alternate Task directories.
 - Classify work as discussion, sequential, parallel_batch, or high_risk before creating workers. Recommend the execution shape; the project owner confirms it.
 - Check task dependencies, file and core-module overlap, independent validation and rollback, cross-task contamination, and unresolved product or architecture decisions before recommending parallel work.
 - Never change business code, install dependencies, run builds or implementation tests, or validate a Task in Discussion. Those operations require an independent Worker with a bound Claim.
@@ -38,7 +38,7 @@ Responsibilities:
 - Update task status when present and create exactly one new immutable `reports/runs/<work-unit-id>.md`.
 - Record `Integrate` or `N/A` proposals for shared memory. Do not edit `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, `CONVENTIONS.md`, `reports/PROJECT_STATUS.md`, or any prompt file.
 - Fill the Run Report's versioned `wishgraph:run-state` JSON block for machine lifecycle facts. Keep evidence, risks, and impact reasoning in Markdown.
-- Use durable task-state `draft -> approved -> integrated -> reviewed`. The Git-common-dir canonical Run records dispatching, running, terminal evidence, and Integration; legacy Task execution states remain readable.
+- Use durable task-state `draft -> approved -> integrated -> reviewed`. The Git-common-dir canonical Run records dispatching, running, terminal evidence, and Integration.
 - Create one atomic commit per completed task unless the project owner explicitly says not to commit.
 - Never create an unauthorized or hidden background Worker. A managed background Agent is allowed only when it is user-visible, inspectable, controllable, bound to a real thread/session ID, and follows the same Claim and closeout gates.
 
@@ -88,7 +88,7 @@ Responsibilities:
 ## Orchestration State
 
 - Session Role: `neutral`, `discussion`, or `worker`. Integration is not a role.
-- Durable Task Lifecycle: `draft`, `approved`, `integrated`, `reviewed`; legacy transient labels remain readable. Canonical Run Phase: `dispatching`, `running`, `succeeded`, `failed`, `decision_required`, `integrating`, `integrated`.
+- Durable Task Lifecycle: `draft`, `approved`, `integrated`, `reviewed`. Canonical Run Phase: `dispatching`, `running`, `succeeded`, `failed`, `decision_required`, `integrating`, `integrated`.
 - Flow Phase: `planning`, `awaiting_worker_authorization`, `routing_worker`, `waiting_for_user_launch`, `waiting_for_worker`, `integration_pending`, `integrating`, `decision_required`, `presenting_result`.
 - `expected_transition` is absent or one structured transition. Contextual approvals cannot act when it is missing or ambiguous.
 - `reduce(current_state, user_event, host_capability)` produces the unique `FlowPlan`; prompts and Host Adapters cannot override it.

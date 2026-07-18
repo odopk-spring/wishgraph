@@ -25,6 +25,8 @@ RUNTIME_FILES = (
     "policy.py",
     "host_adapter.py",
     "codex_worker_provider.py",
+    "claude_worker_provider.py",
+    "tool_gate_provider.py",
 )
 PRETOOL_LIMIT_MS = 200.0
 SESSION_LIMIT_MS = 500.0
@@ -76,7 +78,7 @@ def task_spec() -> str:
   "comparison_group": null,
   "run_report": "reports/runs/012-attempt-1.md",
   "worker_creation_authorized": true,
-  "integration_policy": "inherited_task_approval"
+  "integration_route": "auto_in_discussion"
 }
 ```
 <!-- wishgraph:task-state:end -->

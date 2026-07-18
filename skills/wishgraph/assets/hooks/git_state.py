@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": 12,
-    "runtime_version": 24,
+    "runtime_version": 25,
     "mode": "enforce",
     "required_hosts": ["codex", "claude"],
     "paths": {
@@ -31,7 +31,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "project_status": "reports/PROJECT_STATUS.md",
         "run_report_glob": "reports/runs/*.md",
         "task_glob": "tasks/build/*.md",
-        "task_globs": ["tasks/build/*.md", ".tasks/build/*.md"],
+        "task_globs": ["tasks/build/*.md"],
         "revision_glob": "tasks/revisions/*.md",
     },
     "required_impact_rows": [
@@ -68,7 +68,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "read_gate_mode": "host_dependent",
 }
 
-LEGACY_PROJECT_STATUS_PATH = "reports/DEV_REPORT.md"
 DEFAULT_PROJECT_STATUS_PATH = "reports/PROJECT_STATUS.md"
 FORMAL_WORKER_CONTAINER_KINDS = {
     "manual_worker_window",
@@ -1510,25 +1509,6 @@ def normalize_required_hosts(value: Any) -> list[str]:
     return [host for host in KNOWN_REQUIRED_HOSTS if host in selected]
 
 
-def legacy_required_hosts(root: Path) -> list[str]:
-    """Preserve an old project's effective host scope without rewriting config."""
-    candidates = {
-        "codex": root / ".codex" / "hooks.json",
-        "claude": root / ".claude" / "settings.json",
-    }
-    detected: list[str] = []
-    for host in KNOWN_REQUIRED_HOSTS:
-        try:
-            text = candidates[host].read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        if ".wishgraph/hooks/memory_sync.py" in text.replace("\\", "/"):
-            detected.append(host)
-    # An active legacy config with no detectable adapter was already unprotected.
-    # Requiring both makes Doctor surface the broken state instead of guessing one host.
-    return detected or list(KNOWN_REQUIRED_HOSTS)
-
-
 def load_config(root: Path) -> Optional[dict[str, Any]]:
     path = root / ".wishgraph" / "config.json"
     if not path.exists():
@@ -1539,29 +1519,11 @@ def load_config(root: Path) -> Optional[dict[str, Any]]:
         raise ValueError(f"Cannot read {path.relative_to(root)}: {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError(".wishgraph/config.json must contain a JSON object")
-    required_hosts_source = "configured"
     if "required_hosts" not in data:
-        data = dict(data)
-        data["required_hosts"] = legacy_required_hosts(root)
-        required_hosts_source = "legacy_installed_adapters"
-    if "session_start_context_mode" not in data:
-        legacy_injection = data.get("inject_project_summary_on_session_start")
-        if isinstance(legacy_injection, bool):
-            data = dict(data)
-            data["session_start_context_mode"] = (
-                "discussion_summary" if legacy_injection else "safety_only"
-            )
-    configured_paths = data.get("paths")
-    if isinstance(configured_paths, dict):
-        legacy_path = configured_paths.get("dev_report")
-        if legacy_path and not configured_paths.get("project_status"):
-            configured_paths = dict(configured_paths)
-            configured_paths["project_status"] = legacy_path
-            data = dict(data)
-            data["paths"] = configured_paths
+        raise ValueError("required_hosts is required; reactivate this project")
     config = deep_merge(DEFAULT_CONFIG, data)
     config["required_hosts"] = normalize_required_hosts(config.get("required_hosts"))
-    config["required_hosts_source"] = required_hosts_source
+    config["required_hosts_source"] = "configured"
     context_mode = config.get("session_start_context_mode")
     if context_mode not in {"safety_only", "discussion_summary", "off"}:
         raise ValueError(
@@ -1571,7 +1533,7 @@ def load_config(root: Path) -> Optional[dict[str, Any]]:
 
 
 def configured_task_globs(config: dict[str, Any]) -> list[str]:
-    """Return the visible task path first while retaining legacy compatibility."""
+    """Return the configured visible Task paths without hidden legacy fallbacks."""
     paths = config["paths"]
     configured = paths.get("task_globs", [])
     if isinstance(configured, str):
@@ -1687,11 +1649,7 @@ def read_version(root: Path, path: str, scope: str) -> Optional[str]:
 
 def project_status_candidates(config: dict[str, Any]) -> list[str]:
     configured = config["paths"].get("project_status", DEFAULT_PROJECT_STATUS_PATH)
-    return list(
-        dict.fromkeys(
-            [configured, DEFAULT_PROJECT_STATUS_PATH, LEGACY_PROJECT_STATUS_PATH]
-        )
-    )
+    return list(dict.fromkeys([configured, DEFAULT_PROJECT_STATUS_PATH]))
 
 
 def resolve_project_status_path(
@@ -1701,13 +1659,6 @@ def resolve_project_status_path(
         if read_version(root, path, scope) is not None:
             return path
     return config["paths"].get("project_status", DEFAULT_PROJECT_STATUS_PATH)
-
-
-def standard_project_status_conflict(root: Path, scope: str) -> bool:
-    return (
-        read_version(root, DEFAULT_PROJECT_STATUS_PATH, scope) is not None
-        and read_version(root, LEGACY_PROJECT_STATUS_PATH, scope) is not None
-    )
 
 
 def read_head_version(root: Path, path: str) -> Optional[str]:

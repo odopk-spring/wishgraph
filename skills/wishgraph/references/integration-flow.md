@@ -60,7 +60,7 @@ Require all applicable evidence:
 
 Task approval carries the user's approval forward so the original Discussion can perform a later safe sequential Integration without asking twice. It grants the Worker no Integration authority. Parallel, competitive, high-risk, or ambiguous results follow their explicit route.
 
-Task `integration_route` describes future routing only: `auto_in_discussion` or `decision_required`. Run Report `integration_recommendation` records `safe_for_discussion_integration`, `decision_required`, or `blocked`; it never grants the Worker Integration authority. Continue parsing legacy `integration_policy` and `integration_authorization`, but never let a Run Report enlarge the approved Task route. The Task route is immutable after approval.
+Task `integration_route` describes future routing only: `auto_in_discussion` or `decision_required`. Run Report `integration_recommendation` records `safe_for_discussion_integration`, `decision_required`, or `blocked`; it never grants the Worker Integration authority. Both fields are required in their structured records, and the Task route is immutable after approval.
 
 ## Integration Lease
 
@@ -127,7 +127,7 @@ After Project Status is complete, update only the concise dynamic state block in
 
 Fill the `wishgraph:integration-state` block with the integration ID, status, kind, authority, and exactly the absorbed reports. Create the integration commit while the lease is active.
 
-- Move absorbed formal Tasks from `draft` or `approved` directly to `integrated` when canonical Run evidence proves the execution path; accept legacy `completed` Tasks during migration.
+- Move absorbed formal Tasks from `draft` or `approved` directly to `integrated` when canonical Run evidence proves the execution path.
 - Move absorbed Revisions from `completed` to `integrated` without regressing their parent lifecycle.
 - Release the Integration lease.
 - Enter `presenting_result` and show the compressed result and evidence.

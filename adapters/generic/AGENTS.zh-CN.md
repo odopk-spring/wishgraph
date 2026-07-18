@@ -52,7 +52,7 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - `prompts/DISCUSSION_AI.md`：当前规划提示词和交接状态。
 - `prompts/EXECUTION_AI.md`：稳定执行提示词。
 - `prompts/INTEGRATION_AI.md`：稳定集成提示词和共享状态单写者规则。
-- `tasks/build/*.md`：可见的自包含执行任务规格；旧项目已经使用 `.tasks/build/*.md` 时保持兼容。
+- `tasks/build/*.md`：可见的自包含执行 Task 规格；不猜测隐藏或其他 Task 目录。
 - `reports/RUN_REPORT.md`：Worker 报告模板。
 - `reports/runs/*.md`：不可变 Worker 执行证据。
 - `reports/PROJECT_STATUS.md`：当前已集成的项目状态概览和下一步建议。
@@ -63,10 +63,10 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - 实现前更新 PRD 和架构。
 - 编写自包含任务规格。
 - 把工作判断为 discussion、sequential、parallel_batch 或 high_risk，解释串行或并行建议，由用户确认。
-- 请求用户明确授权启动已经就绪的指定 Worker。只有收到该命令后，才使用宿主真实提供的能力，为每个已授权 Task Spec 创建一个可检查、可控制的 Worker，并命名为 `<task-id> · <short title> · WG Worker`。只有稳定 thread/session ID 已持久化后才记录为运行。不得静默创建 Worker 或使用隐藏 subagent；宿主不支持等价原生创建或创建失败时，只输出 `执行 <task-id> 任务` 并停止。
+- 请求用户明确授权启动已就绪的 Worker。Discussion 中使用宿主真实能力创建可检查、可控制的独立 Worker；普通 neutral 窗口则在取得 Claim 后绑定当前可检查会话，不再创建第二个 Worker。只有稳定 thread/session ID 和 Claim 已持久化后才记录为运行。宿主创建失败时，输出项目目录、可复制启动命令及最后的 `执行 <task-id> 任务`。
 - 把明确、低风险的小范围反馈路由给已绑定 Worker。Task 完成后使用轻量 `tasks/revisions/<task-id>-rN.md`；只有旧 Claim 已释放且重新获取新 scope/validation 绑定时才能复用原 Worker。不支持自动路由时只输出 `在任务 <task-id> 的执行窗口执行修订 <revision-id>`。
 - “执行012号任务”、停止、重试、接管和明确竞争比较都通过精确结构化 Task ID 与仓库级 Claim 路由。只有存在唯一 `expected_transition` 时，简短上下文批准才有效。
-- 创建前，在每个已授权任务的 task-state 中记录 `draft -> approved` 和 `worker_creation_authorized: true`。
+- 路由前，在 task-state 中记录 `draft -> approved` 和 `worker_creation_authorized: true`，再原子创建规范 Run。Run 负责临时执行状态和终态证据。
 - 不改业务代码，也不运行实现构建或测试。所有实现都必须是持有绑定 Claim 的 Task-backed Worker 工作。
 - 同一项目的新窗口通过“开始讨论”继续；已经处于 Discussion 时使用“刷新项目状态”。读取持久状态，不输出完整提示词让用户手工搬运。
 
@@ -76,7 +76,7 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - 只实现已批准任务。
 - 保持 patch 最小、可回滚。
 - 运行任务列出的验证。
-- 核对授权，把 task-state 经 `running` 推进到 `completed|blocked|incomplete`，并新增一个不可变的 `reports/runs/<work-unit-id>.md`。
+- 核对授权，把规范 Run 推进到真实终态，并新增一个不可变的 `reports/runs/<work-unit-id>.md`。不在 task-state 中镜像临时执行状态。
 - 填写 Integrate 或 N/A 建议，不直接修改共享项目记忆。
 - 存在 `.wishgraph/hooks/memory_sync.py` 时，完成前运行 worktree 检查。
 - 除非用户明确说不提交，否则创建一个原子 commit。

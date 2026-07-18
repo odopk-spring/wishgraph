@@ -52,7 +52,7 @@ Create or update:
 - `prompts/DISCUSSION_AI.md`: current planning prompt and handoff state.
 - `prompts/EXECUTION_AI.md`: stable execution prompt.
 - `prompts/INTEGRATION_AI.md`: stable integration prompt and shared-state single-writer rules.
-- `tasks/build/*.md`: visible, self-contained execution task specs; accept `.tasks/build/*.md` in an existing legacy project.
+- `tasks/build/*.md`: visible, self-contained execution Task specs; do not infer hidden or alternate Task directories.
 - `reports/RUN_REPORT.md`: worker-report template.
 - `reports/runs/*.md`: immutable worker execution evidence.
 - `reports/PROJECT_STATUS.md`: current integrated Project Status and next recommendation.
@@ -63,10 +63,10 @@ Create or update:
 - Update PRD and architecture before implementation.
 - Write self-contained task specs.
 - Classify work as discussion, sequential, parallel_batch, or high_risk. Explain the sequential or parallel recommendation; the user confirms it.
-- Ask for explicit authorization to launch the named ready Worker or Workers. Only after that command, use a real host capability to create one inspectable and controllable Worker per authorized Task Spec and name it `<task-id> · <short title> · WG Worker`. Record it as running only after a stable thread/session ID is persisted. Never create Workers silently or use hidden subagents. If equivalent native creation is unsupported or fails, output only `执行 <task-id> 任务` and stop.
+- Ask for explicit authorization to launch the named ready Worker or Workers. In Discussion, use a real host capability to create one inspectable and controllable Worker per authorized Task Spec. In an ordinary neutral window, bind that current inspectable session after Claim acquisition instead of creating another Worker. Record it as running only after a stable thread/session ID and Claim are persisted. If equivalent native creation is unsupported or fails, print the project directory, copy-ready host startup commands, and the final `执行 <task-id> 任务` line, then stop.
 - Route clear, low-risk feedback to the bound Worker. After a Task completes, use a lightweight `tasks/revisions/<task-id>-rN.md` record and reuse the previous Worker only after its old Claim is released and a new scope/validation binding is acquired. Unsupported routing outputs only `在任务 <task-id> 的执行窗口执行修订 <revision-id>`.
 - Route exact natural commands such as `执行012号任务`, stop, retry, takeover, and explicit competitive comparison through structured Task IDs and repository-wide Claims. Resolve contextual approvals only when there is one unique `expected_transition`.
-- Before creation, record `draft -> approved` and `worker_creation_authorized: true` in each authorized task-state block.
+- Before routing, record `draft -> approved` and `worker_creation_authorized: true`, then atomically create the canonical Run. The Run owns transient execution and terminal evidence.
 - Do not change business code or run implementation builds/tests. All implementation is Task-backed Worker work with a bound Claim.
 - A new window in the same project continues with `Start discussion`; an active Discussion uses `Refresh project status`. Read persisted state instead of printing a full prompt for manual transfer.
 
@@ -76,7 +76,7 @@ Create or update:
 - Implement only the approved task.
 - Keep the patch minimal and reversible.
 - Run validation listed in the task.
-- Verify authorization, move task-state through `running` to `completed|blocked|incomplete`, and create one new immutable `reports/runs/<work-unit-id>.md`.
+- Verify authorization, advance the canonical Run through execution and terminal closeout, and create one new immutable `reports/runs/<work-unit-id>.md`. Do not mirror transient execution into task-state.
 - Record Integrate or N/A proposals; do not edit shared project memory.
 - If `.wishgraph/hooks/memory_sync.py` exists, run its worktree check before completion.
 - Create one atomic commit unless the user explicitly says not to.

@@ -1,22 +1,36 @@
 {
   "schema_version": 1,
-  "runtime_version": 24,
+  "runtime_version": 25,
   "files": {
-    "memory_sync.py": "95996c0995b6357d67d5ca8ad8d489e746d1e8fc35985b4f33f5d1385e6aeac0",
-    "git_state.py": "74895c769e2773ad9d1f762546e9afc518dba5dd2fd14eb0ccd935caa4551598",
-    "workflow_state.py": "c65d69e2e5a0115a071d48e060dc612e3f29bcda0be53e6197b2a5a178b69a12",
-    "policy.py": "bec75b810b7ed193022ef77ba7dff6e724f71e7096009a880c9efb5ed6ed7476",
-    "host_adapter.py": "769d4f8fe4bab0e0f9058f6ae065f5f17e10b025e5b371c568c6895b558a0531",
-    "codex_worker_provider.py": "1619068922e4b4e27377a41b9b1ed12084b990692dc1d2b46bb45fc127db95dc"
+    "memory_sync.py": "1b23d23318a014aea4f92b881b768f0dc174745c8bfd562e465a3e9ebcd1d3d6",
+    "git_state.py": "36c7f44437ca62c071a6b2169630e50f4b2473d1e71e74d21edb7a99580a0bfe",
+    "workflow_state.py": "90fe718006d0cc150e48c48d230474b14de2cd2d14a2fba1cef7797f339c12f6",
+    "policy.py": "fd4e37129d38e95370594cced56771261c95d134705eb05f366fba66bbf6b92a",
+    "host_adapter.py": "19bf081b7d070d5680692555152f0100356776943d5f278f212831cf1ff56f11",
+    "codex_worker_provider.py": "1619068922e4b4e27377a41b9b1ed12084b990692dc1d2b46bb45fc127db95dc",
+    "claude_worker_provider.py": "5db74c48607b033f0633ac41fc19ec17dc25b5d876f44303c1dac4a704c2ed3b",
+    "tool_gate_provider.py": "2ef386a18d0acdbc481a9ea8b588aab63d10c502a4d5733fdee91c5a6a14c72f"
   },
   "known_versions": {
+    "24": {
+      "memory_sync.py": "95996c0995b6357d67d5ca8ad8d489e746d1e8fc35985b4f33f5d1385e6aeac0",
+      "git_state.py": "74895c769e2773ad9d1f762546e9afc518dba5dd2fd14eb0ccd935caa4551598",
+      "workflow_state.py": "c65d69e2e5a0115a071d48e060dc612e3f29bcda0be53e6197b2a5a178b69a12",
+      "policy.py": "bec75b810b7ed193022ef77ba7dff6e724f71e7096009a880c9efb5ed6ed7476",
+      "host_adapter.py": "769d4f8fe4bab0e0f9058f6ae065f5f17e10b025e5b371c568c6895b558a0531",
+      "codex_worker_provider.py": "1619068922e4b4e27377a41b9b1ed12084b990692dc1d2b46bb45fc127db95dc",
+      "claude_worker_provider.py": "",
+      "tool_gate_provider.py": ""
+    },
     "23": {
       "memory_sync.py": "b53288bb2ecbe4f6fe3e9ff644d7ab70af1ea1142b829d7a1ece9461b961e6fd",
       "git_state.py": "383156fa733de5e3d28cf292c7b10e34625d73853a397f37944139004a0ae490",
       "workflow_state.py": "c65d69e2e5a0115a071d48e060dc612e3f29bcda0be53e6197b2a5a178b69a12",
       "policy.py": "27e2c71905e9a5ffa5b9d6000a67bddbb605b72be607804b5e77e653c9941117",
       "host_adapter.py": "3d38d9a4c37bc29f5ab641b192534cc815ee7795e4063b310359b357e2e9906c",
-      "codex_worker_provider.py": "cdc63eea14949470f24764bce9fb181bfe928ec80a37bc4b3c32eb4059474fc9"
+      "codex_worker_provider.py": "cdc63eea14949470f24764bce9fb181bfe928ec80a37bc4b3c32eb4059474fc9",
+      "claude_worker_provider.py": "",
+      "tool_gate_provider.py": ""
     },
     "22": {
       "memory_sync.py": "b53288bb2ecbe4f6fe3e9ff644d7ab70af1ea1142b829d7a1ece9461b961e6fd",
@@ -24,7 +38,9 @@
       "workflow_state.py": "c65d69e2e5a0115a071d48e060dc612e3f29bcda0be53e6197b2a5a178b69a12",
       "policy.py": "dd98e3251d5fa5241eef2ba6a7ae5ac20254b20eaf7eb92facf8d62f47c7080d",
       "host_adapter.py": "34b4b87aa7cbaecab95e336bf60a97962ffa88b81fb9d0c339bcf0a830a50b50",
-      "codex_worker_provider.py": "cdc63eea14949470f24764bce9fb181bfe928ec80a37bc4b3c32eb4059474fc9"
+      "codex_worker_provider.py": "cdc63eea14949470f24764bce9fb181bfe928ec80a37bc4b3c32eb4059474fc9",
+      "claude_worker_provider.py": "",
+      "tool_gate_provider.py": ""
     },
     "21": {
       "memory_sync.py": "b53288bb2ecbe4f6fe3e9ff644d7ab70af1ea1142b829d7a1ece9461b961e6fd",
@@ -32,7 +48,9 @@
       "workflow_state.py": "c65d69e2e5a0115a071d48e060dc612e3f29bcda0be53e6197b2a5a178b69a12",
       "policy.py": "c1047c064062bea19c0a53311103f7b762d91ae54d6ccafe286ced124d216e56",
       "host_adapter.py": "49a2563d9f3ad443652a9ebef0107bb1296309e46f829ddcc0e440c560099918",
-      "codex_worker_provider.py": "cdc63eea14949470f24764bce9fb181bfe928ec80a37bc4b3c32eb4059474fc9"
+      "codex_worker_provider.py": "cdc63eea14949470f24764bce9fb181bfe928ec80a37bc4b3c32eb4059474fc9",
+      "claude_worker_provider.py": "",
+      "tool_gate_provider.py": ""
     },
     "20": {
       "memory_sync.py": "b53288bb2ecbe4f6fe3e9ff644d7ab70af1ea1142b829d7a1ece9461b961e6fd",
@@ -40,7 +58,9 @@
       "workflow_state.py": "830d3bdd8353d08bca81caff60ecf674c41fceb965e4035f1ec4af98d54ef05a",
       "policy.py": "1268864839cef37604e52ad8f0a647ff47748933ddd68262b6ac543d666de791",
       "host_adapter.py": "28cb98e5cb20e92608979c9642f0bccd04323bd9b77056d6bc93a67f20ccd71f",
-      "codex_worker_provider.py": "b9191a83530b5105dfe9db6d96b305f268497a26e64592cb6acb61a21f0f1dfc"
+      "codex_worker_provider.py": "b9191a83530b5105dfe9db6d96b305f268497a26e64592cb6acb61a21f0f1dfc",
+      "claude_worker_provider.py": "",
+      "tool_gate_provider.py": ""
     },
     "19": {
       "memory_sync.py": "b53288bb2ecbe4f6fe3e9ff644d7ab70af1ea1142b829d7a1ece9461b961e6fd",
@@ -48,71 +68,9 @@
       "workflow_state.py": "830d3bdd8353d08bca81caff60ecf674c41fceb965e4035f1ec4af98d54ef05a",
       "policy.py": "1268864839cef37604e52ad8f0a647ff47748933ddd68262b6ac543d666de791",
       "host_adapter.py": "b96653f938d78bcd116522b78e4dd06b4c28dca599dca946fa2455be10379405",
-      "codex_worker_provider.py": "b9191a83530b5105dfe9db6d96b305f268497a26e64592cb6acb61a21f0f1dfc"
-    },
-    "18": {
-      "memory_sync.py": "b53288bb2ecbe4f6fe3e9ff644d7ab70af1ea1142b829d7a1ece9461b961e6fd",
-      "git_state.py": "eae90246e55bbf02e45ad095471a2be21bbb0f4cb649de7a32a8f7bad7978f9b",
-      "workflow_state.py": "5f7d4a9e87a3f88cb7ece107f51d2809c879b576278cd09aec9c976c39b135bd",
-      "policy.py": "0f2902d1e084ce4761a74205b5c6cec7a158e57f42ab3008d927c8bcd76ef25c",
-      "host_adapter.py": "e62469106324a281aa3d9851346dcf60478d8c67894b98d2026042619defd03c",
-      "codex_worker_provider.py": "b9191a83530b5105dfe9db6d96b305f268497a26e64592cb6acb61a21f0f1dfc"
-    },
-    "17": {
-      "memory_sync.py": "b53288bb2ecbe4f6fe3e9ff644d7ab70af1ea1142b829d7a1ece9461b961e6fd",
-      "git_state.py": "d7a60e956f3607e88587dde1250b60755e7b03456e62b14dfc2bf851cf7bbb06",
-      "workflow_state.py": "5f7d4a9e87a3f88cb7ece107f51d2809c879b576278cd09aec9c976c39b135bd",
-      "policy.py": "0f2902d1e084ce4761a74205b5c6cec7a158e57f42ab3008d927c8bcd76ef25c",
-      "host_adapter.py": "d3883f54e13e9204f92695f46007eb2de749baa0d9f772824e565131500127ab",
-      "codex_worker_provider.py": "b9191a83530b5105dfe9db6d96b305f268497a26e64592cb6acb61a21f0f1dfc"
-    },
-    "16": {
-      "memory_sync.py": "6818f109ce4b10296338a12f052d4b7e63c113066b8692cf655c86d2581462bc",
-      "git_state.py": "991997c6374e07e1207066d8830fd3ab451726a89cb353a3ce5b5be686ddde7b",
-      "workflow_state.py": "5f7d4a9e87a3f88cb7ece107f51d2809c879b576278cd09aec9c976c39b135bd",
-      "policy.py": "0f2902d1e084ce4761a74205b5c6cec7a158e57f42ab3008d927c8bcd76ef25c",
-      "host_adapter.py": "d3883f54e13e9204f92695f46007eb2de749baa0d9f772824e565131500127ab",
-      "codex_worker_provider.py": "b9191a83530b5105dfe9db6d96b305f268497a26e64592cb6acb61a21f0f1dfc"
-    },
-    "15": {
-      "memory_sync.py": "6818f109ce4b10296338a12f052d4b7e63c113066b8692cf655c86d2581462bc",
-      "git_state.py": "c0827d05b5a6df7b54f56e8f3df0bd0990a498c75c017c626a192951da05c4ae",
-      "workflow_state.py": "07cda94e7cc8dcbf361e241a2fbdc4002fdff3a1977556b1833bd41b7ae77750",
-      "policy.py": "3c405f32a2bc7f30dba7dbec14f938b13eede29d071cede54cb396e1bd7d740c",
-      "host_adapter.py": "def4537043821b5c00d92d2f7e4236c5567ffb4feeb4bb4899fc7e50169985e6",
-      "codex_worker_provider.py": ""
-    },
-    "14": {
-      "memory_sync.py": "6818f109ce4b10296338a12f052d4b7e63c113066b8692cf655c86d2581462bc",
-      "git_state.py": "c7f86af59b799f6df9dca242ee8e48faace4d26ab68b59242cd76d4d8027ef92",
-      "workflow_state.py": "07cda94e7cc8dcbf361e241a2fbdc4002fdff3a1977556b1833bd41b7ae77750",
-      "policy.py": "3c405f32a2bc7f30dba7dbec14f938b13eede29d071cede54cb396e1bd7d740c",
-      "host_adapter.py": "0ff8746d756e83ece72e30421984d50e79046a8cba183e298d98b01feb33d9e0",
-      "codex_worker_provider.py": ""
-    },
-    "13": {
-      "memory_sync.py": "6818f109ce4b10296338a12f052d4b7e63c113066b8692cf655c86d2581462bc",
-      "git_state.py": "8306f0543f6dd977c2b323574c869343cd3811b9a6036bf74aceb9b41c71cba9",
-      "workflow_state.py": "07cda94e7cc8dcbf361e241a2fbdc4002fdff3a1977556b1833bd41b7ae77750",
-      "policy.py": "3c405f32a2bc7f30dba7dbec14f938b13eede29d071cede54cb396e1bd7d740c",
-      "host_adapter.py": "ced5226dfdb44fa53f7d084e9a274989fdab5ff6ddcce67edb178a1e36c5ccee",
-      "codex_worker_provider.py": ""
-    },
-    "12": {
-      "memory_sync.py": "6818f109ce4b10296338a12f052d4b7e63c113066b8692cf655c86d2581462bc",
-      "git_state.py": "b13a91e62cc5f5c95141de12e8139802b741a650ac4a0b604ee68a8e87761800",
-      "workflow_state.py": "9987c5cb65f6340a410cfc23bcfd3565f5896c27d4bf9d48da54298360e8aefd",
-      "policy.py": "3c405f32a2bc7f30dba7dbec14f938b13eede29d071cede54cb396e1bd7d740c",
-      "host_adapter.py": "9e874c480fb305bb1151b699ca649830e4c76642c5e2ef9a89df61c9ddb98ee0",
-      "codex_worker_provider.py": ""
-    },
-    "11": {
-      "memory_sync.py": "6818f109ce4b10296338a12f052d4b7e63c113066b8692cf655c86d2581462bc",
-      "git_state.py": "b348eb66b0e3c02ac40be6e15d14646c3efe0865b0ffbaeb25d72a983260321a",
-      "workflow_state.py": "25d78d4ad7d9705391fca54819d7b0c9d05a49263137bc18e9ebd7be8c5687f2",
-      "policy.py": "3c405f32a2bc7f30dba7dbec14f938b13eede29d071cede54cb396e1bd7d740c",
-      "host_adapter.py": "9e874c480fb305bb1151b699ca649830e4c76642c5e2ef9a89df61c9ddb98ee0",
-      "codex_worker_provider.py": ""
+      "codex_worker_provider.py": "b9191a83530b5105dfe9db6d96b305f268497a26e64592cb6acb61a21f0f1dfc",
+      "claude_worker_provider.py": "",
+      "tool_gate_provider.py": ""
     }
   }
 }

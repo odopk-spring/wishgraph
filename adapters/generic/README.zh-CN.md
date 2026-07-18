@@ -27,7 +27,7 @@ cp adapters/generic/AGENTS.zh-CN.md /path/to/project/AGENTS.md
 Follow AGENTS.md. Start WishGraph for this project. If there is no PRD, run the WishGraph intake prompt and grill it into a PRD before writing code.
 ```
 
-项目明确启用后，用户侧仍保持简单：重新打开会话，输入“开始讨论”，执行某个准确 Task 时输入“执行 012 任务”。通用适配器本身不会创建原生 Worker；除非当前宿主另有等价、可检查的 thread 集成，否则只降级为一行执行命令。
+项目明确启用后，用户侧仍保持简单：重新打开会话，输入“开始讨论”，执行某个准确 Task 时输入“执行 012 任务”。通用适配器本身不会创建原生 Worker；除非当前宿主另有等价、可检查的 thread 集成，否则输出项目目录、可复制的宿主启动说明和准确 Task 命令。
 
 如果需要中英双语交接，追加：
 

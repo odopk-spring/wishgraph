@@ -64,7 +64,7 @@ Integration is not a role. It is a temporary Discussion-local phase.
 draft -> approved -> integrated -> reviewed
 ```
 
-Legacy Task records using `running`, `completed`, `blocked`, or `incomplete` remain readable. New execution does not rewrite Task files for transient progress. The canonical Run owns `dispatching -> running -> succeeded|failed|decision_required -> integrating -> integrated`. Preserve terminal audit evidence in immutable Runs, reports, Claims, and Git.
+Task files use only `draft -> approved -> integrated -> reviewed` and do not mirror transient execution progress. The canonical Run owns `dispatching -> running -> succeeded|failed|decision_required -> integrating -> integrated`. Preserve terminal audit evidence in immutable Runs, reports, Claims, and Git.
 
 ### Flow Phase
 
@@ -154,7 +154,7 @@ Events must come from structured user commands, persisted runtime facts, validat
 - Safe completed evidence produces a one-time reducer transition grant, then the bound Discussion acquires the lease and enters local `integrating`.
 - Material risk or ambiguity enters `decision_required` with one concrete question.
 - Missing evidence or failed validation enters Worker repair rather than integration.
-- Successful integration moves the durable Task from draft/approved (or a legacy terminal state) to `integrated`; human acceptance moves it to `reviewed`.
+- Successful integration moves the durable Task from `draft` or `approved` to `integrated`; human acceptance moves it to `reviewed`.
 - A Revision integrates without regressing an already integrated or reviewed parent Task.
 
 Do not persist `waiting_for_worker` until a real Worker exists and the runtime write succeeds. If host creation fails, persist `waiting_for_user_launch` and give a host-neutral handoff containing the exact project directory, copy-ready `codex` and `claude` startup commands with their resolved profiles, and the final `执行 <task-id>` line. Model selection happens in the startup command; the Task command remains stable.

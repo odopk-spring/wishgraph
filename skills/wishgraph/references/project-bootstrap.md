@@ -136,7 +136,7 @@ Adapt placeholders to repository facts. Do not inject creator-specific private c
 4. Install Hooks in `warn` and complete one closeout.
 5. Move to `enforce` only when the worktree and project state are clean.
 
-Do not rename native task folders for aesthetics. New projects use `tasks/build/*.md`; legacy `.tasks/build/*.md` remains supported.
+Use `tasks/build/*.md` for formal Tasks. Do not infer hidden or alternate Task directories.
 
 ## Cross-Window And Cross-Host Continuation
 
@@ -150,7 +150,7 @@ When switching hosts, preserve project files, Tasks, reports, Claims, and integr
 
 Use `reports/PROJECT_STATUS.md` as the current snapshot.
 
-- If only `reports/DEV_REPORT.md` exists, read it and Git state, use `git mv`, and update references.
+- If a pre-release WishGraph layout is detected, explain the unsupported paths and reactivate or migrate them explicitly before execution. Do not silently treat two formats as one truth source.
 - If both exist, stop and ask which is authoritative.
 - Keep current facts, unresolved risk, pending decisions, latest absorbed reports, and next action.
 - Keep detailed history in immutable Run Reports and Git.

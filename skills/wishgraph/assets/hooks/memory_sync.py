@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stable WishGraph hook entrypoint and compatibility facade.
+"""Stable WishGraph hook entrypoint.
 
 The runtime is split into Git discovery, workflow-state parsing, policy
 evaluation, and host adaptation. Hooks do not start agents or write semantic
@@ -31,7 +31,7 @@ def _configure_utf8_stdio() -> None:
 # Installed project hooks are plain sibling modules rather than a Python package.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-# Keep the historical module API available to installed hooks and downstream tests.
+# Re-export the four public runtime boundaries through one stable executable.
 from git_state import *  # noqa: F401,F403,E402
 from workflow_state import *  # noqa: F401,F403,E402
 from policy import *  # noqa: F401,F403,E402

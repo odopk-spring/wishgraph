@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 from git_state import (
-    LEGACY_PROJECT_STATUS_PATH,
     changed_path_statuses,
     changed_paths,
     configured_revision_glob,
@@ -26,7 +25,6 @@ from git_state import (
     report_contents_for_paths_across_refs,
     report_paths_in_ref,
     resolve_project_status_path,
-    standard_project_status_conflict,
     task_paths_for_id,
 )
 from workflow_state import (
@@ -64,7 +62,6 @@ ACCEPTED_REPORT_STATUSES = {
     "completed",
     "blocked",
     "incomplete",
-    "done",
     "rejected",
     "abandoned",
     "superseded",
@@ -741,10 +738,11 @@ def reduce_orchestration(
             )
         )
         if outcome == "safe":
+            canonical_run_terminal = data.get("canonical_run_terminal") is True
             allowed_lifecycles = (
                 {"completed", "integrated", "reviewed"}
                 if revision_id
-                else {"completed"}
+                else ({"approved", "completed"} if canonical_run_terminal else {"completed"})
             )
             if task is None or task.lifecycle not in allowed_lifecycles:
                 return FlowPlan(
@@ -759,7 +757,6 @@ def reduce_orchestration(
                                 "repair_worker_closeout", task_id
                             ),
                         },
-                        "task": {"lifecycle": "blocked"},
                     },
                 )
             return FlowPlan(
@@ -1163,7 +1160,7 @@ def report_state(report_path: str, content: str) -> ReportState:
         errors.append("missing or invalid work type")
     if state.execution_mode not in EXECUTION_MODES:
         errors.append("missing or invalid execution_mode")
-    if state.change_class not in {"formal", "revision", "micro"}:
+    if state.change_class not in {"formal", "revision"}:
         errors.append("missing or invalid change_class")
     if state.change_class == "revision":
         if not state.task_id or not state.revision_id:
@@ -1174,17 +1171,6 @@ def report_state(report_path: str, content: str) -> ReportState:
             errors.append("high-risk work cannot use Task Revision")
         if not state.changed_paths:
             errors.append("revision work requires explicit changed_paths")
-    if state.change_class == "micro":
-        if not state.risk_flags_known:
-            errors.append("micro work requires every explicit risk flag")
-        elif not state.risk_flags_clear:
-            errors.append("recorded API, data, security, billing, deletion, migration, dependency, or contract risk cannot be micro")
-        if state.work_type != "sequential":
-            errors.append("micro work must use sequential work_type")
-        if state.task_id:
-            errors.append("micro work must use an independent ad-hoc unit, not a formal Task")
-        if not state.changed_paths:
-            errors.append("micro work requires explicit changed_paths")
     if state.work_type == "parallel_batch" and state.batch_id in {
         "",
         "n/a",
@@ -1211,7 +1197,7 @@ def report_state(report_path: str, content: str) -> ReportState:
     if state.readiness not in READY_STATUSES | BLOCKED_READINESS:
         errors.append("missing or invalid integration readiness")
 
-    if state.status in {"completed", "done"}:
+    if state.status == "completed":
         if state.readiness not in READY_STATUSES:
             errors.append("completed work is not marked integration-ready")
         if not state.validation_results:
@@ -1235,13 +1221,12 @@ def task_state(task_path: str, content: str) -> TaskState:
     errors = state.errors
     if not state.task_id:
         errors.append("missing task_id")
-    if state.state_source == "structured":
-        if state.parent_task_id and state.parent_task_id == state.task_id:
-            errors.append("parent_task_id cannot equal task_id")
-        if state.task_id in state.dependencies:
-            errors.append("dependencies cannot contain task_id itself")
-        if len(state.dependencies) != len(set(state.dependencies)):
-            errors.append("dependencies cannot contain duplicates")
+    if state.parent_task_id and state.parent_task_id == state.task_id:
+        errors.append("parent_task_id cannot equal task_id")
+    if state.task_id in state.dependencies:
+        errors.append("dependencies cannot contain task_id itself")
+    if len(state.dependencies) != len(set(state.dependencies)):
+        errors.append("dependencies cannot contain duplicates")
     if state.status not in TASK_STATUSES:
         errors.append("missing or invalid task status")
     if state.work_type not in WORK_TYPES - {"discussion"}:
@@ -1381,7 +1366,7 @@ def integration_candidate_outcome(
     route, high-risk work, or competitive selection still requires Discussion.
     """
     mechanical_errors = mechanical_report_errors(report)
-    if report.status not in {"completed", "done"}:
+    if report.status != "completed":
         return "blocked", f"worker_{report.status}"
     if mechanical_errors:
         return "blocked", "terminal_report_failed_safety_validation"
@@ -1483,7 +1468,6 @@ def integration_state(
             for task in all_tasks
             if task.status
             in {"approved", "running", "completed", "blocked", "incomplete"}
-            or (task.state_source == "legacy" and task.status == "draft")
         ]
         selected_revisions = [
             revision
@@ -1564,7 +1548,6 @@ def integration_state(
         and path not in settled
         and (
             task.status in {"approved", "running"}
-            or (task.state_source == "legacy" and task.status == "draft")
             or (run_by_report.get(path) or {}).get("phase")
             in {"dispatching", "running"}
         )
@@ -1618,11 +1601,6 @@ def integration_state(
         )
         or (
             task is not None
-            and task.state_source == "legacy"
-            and pending_by_path[path].authorization in INHERITED_AUTHORIZATIONS
-        )
-        or (
-            task is not None
             and task.worker_creation_authorized
             and task.integration_policy == "inherited_task_approval"
             and pending_by_path[path].authorization in INHERITED_AUTHORIZATIONS
@@ -1640,7 +1618,6 @@ def integration_state(
     parallel_states = [pending_by_path[path] for path in ready]
     parallel_tasks_safe = bool(ready) and all(
         task is not None
-        and task.state_source == "structured"
         and task.execution_mode == "parallel_independent"
         and task.worker_creation_authorized
         and task.integration_policy
@@ -1775,7 +1752,6 @@ def integration_state(
                 "run_report": report_path,
                 "worker_creation_authorized": task.worker_creation_authorized,
                 "integration_policy": task.integration_policy,
-                "state_source": task.state_source,
                 "errors": task.errors,
                 "run_id": (execution_run or {}).get("run_id"),
                 "run_phase": (execution_run or {}).get("phase"),
@@ -1848,7 +1824,6 @@ def integration_state(
                 "run_report": revision.run_report,
                 "worker_creation_authorized": revision.worker_creation_authorized,
                 "integration_policy": "inherited_task_approval",
-                "state_source": revision.state_source,
                 "errors": revision.errors,
                 "active_claims": [
                     {
@@ -1941,7 +1916,7 @@ def validate_run_report(
         result.errors.append(
             f"{report_path} must set Integration readiness/集成就绪状态"
         )
-    if state.status in {"completed", "done"} and mechanical_report_errors(state):
+    if state.status == "completed" and mechanical_report_errors(state):
         result.errors.append(
             f"{report_path} cannot be Completed and integration-ready: "
             + "; ".join(mechanical_report_errors(state))
@@ -2076,7 +2051,7 @@ def validate_integration_overview(
             for error in state.safety_errors
             if error in DECISION_ONLY_REPORT_ERRORS
         ]
-        if state.status not in {"completed", "done"} or mechanical_errors:
+        if state.status != "completed" or mechanical_errors:
             result.errors.append(
                 f"Integration cannot absorb unsafe report {state.path}: "
                 + "; ".join(mechanical_errors or [f"status is {state.status}"])
@@ -2090,7 +2065,7 @@ def validate_integration_overview(
     revisions = revision_report_states(root, config, scope)
     for report_path in run_reports:
         task = tasks.get(report_path)
-        if task is not None and task.state_source == "structured" and task.status != "integrated":
+        if task is not None and task.status != "integrated":
             result.errors.append(
                 f"{task.path} must move task status to integrated when absorbing {report_path}"
             )
@@ -2234,7 +2209,7 @@ def validate_task_spec(
                 )
                 run_backed_integration = bool(
                     report is not None
-                    and report.status in {"completed", "done"}
+                    and report.status == "completed"
                     and not mechanical_report_errors(report)
                     and report.task_id in {"", state.task_id}
                     and report.attempt == state.attempt
@@ -2412,7 +2387,7 @@ def task_state_only_change(
     if content is None:
         return False
     if previous_content is None:
-        return state.state_source == "structured" and state.status == "draft" and not state.errors
+        return state.status == "draft" and not state.errors
     previous_block, previous_errors = parse_workflow_block(previous_content, "task")
     current_block, current_errors = parse_workflow_block(content, "task")
     if (
@@ -2427,8 +2402,7 @@ def task_state_only_change(
     transition = (previous.status, state.status)
     if transition == ("draft", "draft"):
         return (
-            previous.state_source == "structured"
-            and not previous.worker_creation_authorized
+            not previous.worker_creation_authorized
             and not state.worker_creation_authorized
         )
     return (
@@ -2454,19 +2428,7 @@ def discussion_state_only_change(root: Path, scope: str, discussion_path: str) -
 
 def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
     result = CheckResult()
-    if standard_project_status_conflict(root, scope):
-        result.errors.append(
-            "Both reports/PROJECT_STATUS.md and reports/DEV_REPORT.md exist. Confirm the "
-            "authoritative current facts, migrate with git mv when appropriate, and keep only "
-            "reports/PROJECT_STATUS.md; strict mode cannot continue with two status sources."
-        )
     overview_path = resolve_project_status_path(root, config, scope)
-    if overview_path == LEGACY_PROJECT_STATUS_PATH:
-        result.warnings.append(
-            "Legacy status file reports/DEV_REPORT.md is still in use. Read its current "
-            "snapshot, rename it with git mv to reports/PROJECT_STATUS.md, update project "
-            "references, and do not maintain both names."
-        )
     try:
         all_changed = changed_paths(root, scope)
     except (OSError, subprocess.CalledProcessError) as exc:
@@ -2505,10 +2467,9 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
             previous_content = read_head_version(root, old_path)
             if previous_content is not None:
                 previous = task_state(old_path, previous_content)
-                if previous.state_source == "structured":
-                    result.errors.append(
-                        f"Task Specs with allocated IDs cannot be deleted: {old_path}; mark the Task cancelled instead"
-                    )
+                result.errors.append(
+                    f"Task Specs with allocated IDs cannot be deleted: {old_path}; mark the Task cancelled instead"
+                )
             continue
         if not status.startswith("R") or new_path is None:
             continue
@@ -2518,14 +2479,14 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
         if previous_content is None:
             continue
         previous = task_state(old_path, previous_content)
-        if previous.state_source == "structured" and previous.status != "draft":
+        if previous.status != "draft":
             result.errors.append(
                 f"Approved Task Spec filename is immutable: {old_path} -> {new_path}"
             )
 
     task_paths_by_id: dict[str, list[str]] = {}
     for state in all_task_states(root, config, scope):
-        if state.state_source == "structured" and state.task_id:
+        if state.task_id:
             task_paths_by_id.setdefault(state.task_id, []).append(state.path)
     for task_id, duplicate_paths in sorted(task_paths_by_id.items()):
         if len(duplicate_paths) > 1:
@@ -2624,7 +2585,7 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
         if report_content is None:
             continue
         report = report_state(report_path, report_content)
-        if task is not None and task.state_source == "structured":
+        if task is not None:
             if report.task_id and report.task_id != task.task_id:
                 result.errors.append(
                     f"{report_path} task_id {report.task_id} does not match {task.path} task_id {task.task_id}"
@@ -2635,7 +2596,6 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
                 )
             expected_task_status = {
                 "completed": "completed",
-                "done": "completed",
                 "blocked": "blocked",
                 "incomplete": "incomplete",
                 "rejected": "rejected",
@@ -2678,7 +2638,6 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
             )
         expected_revision_status = {
             "completed": "completed",
-            "done": "completed",
             "blocked": "blocked",
             "incomplete": "blocked",
         }.get(report.status)

@@ -1,6 +1,6 @@
 {
   "version": 12,
-  "runtime_version": 24,
+  "runtime_version": 25,
   "mode": "enforce",
   "required_hosts": [
     "codex",
@@ -18,8 +18,7 @@
     "run_report_glob": "reports/runs/*.md",
     "task_glob": "tasks/build/*.md",
     "task_globs": [
-      "tasks/build/*.md",
-      ".tasks/build/*.md"
+      "tasks/build/*.md"
     ],
     "revision_glob": "tasks/revisions/*.md"
   },

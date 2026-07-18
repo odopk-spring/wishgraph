@@ -20,7 +20,7 @@ Use WishGraph as the project governance layer for AI-assisted development.
 - **Discussion entry:** read the concise dynamic block in `prompts/DISCUSSION_AI.md`, `reports/PROJECT_STATUS.md`, and the compact active status. Open `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, `CONVENTIONS.md`, or one Task only when the current question needs them.
 - **Worker:** read `prompts/EXECUTION_AI.md`, the exact assigned Task or Revision, the smallest necessary Project Status sections, and only References or source files required by its scope. Do not scan unrelated Tasks, historical reports, or the complete source tree.
 - **Integration:** read only the selected Run Reports, their Task/Revision records, and shared-memory files affected by those reports.
-- Use `.tasks/build/*.md` only as an existing-project compatibility path; new work uses `tasks/build/*.md`.
+- Formal Tasks use `tasks/build/*.md`; do not infer hidden or alternate Task directories.
 
 ## Collaboration Rules
 
@@ -30,10 +30,10 @@ Use WishGraph as the project governance layer for AI-assisted development.
 - Keep task specs self-contained; do not rely on chat history.
 - Worker sessions use separate branches or worktrees, create one immutable `reports/runs/<work-unit-id>.md`, and record Integrate or N/A proposals without editing shared memory.
 - Discussion-local Integration uses a bound lease, merges with `--no-commit`, rewrites `reports/PROJECT_STATUS.md` as the current snapshot, updates affected shared memory, and then refreshes the concise dynamic handoff in `prompts/DISCUSSION_AI.md`.
-- Worker creation requires an explicit human command. After authorization, prefer the managed native background Worker in a unique Worktree. The Host Adapter adds per-launch `--worktree` and `--settings` mechanics without rewriting user configuration; a project `.claude/settings.json` is optional when the global Adapter and Agent are current. Use a forked subagent only for short low-risk checks. If native launch is unavailable or fails, output exactly `执行 <task-id> 任务` and stop; Discussion never implements as fallback.
-- Claude Code cannot automatically deliver a lightweight Revision to an existing Worker. Create the `tasks/revisions/<task-id>-rN.md` record, output only `在任务 <task-id> 的执行窗口执行修订 <revision-id>`, and stop. A reused Worker must release its old Claim and acquire the Revision's new scope/validation binding first.
+- Worker creation requires an explicit human command. In Discussion, prefer the managed native background Worker in a unique Worktree; in an ordinary neutral window, the current inspectable session binds itself after Claim acquisition and does not create another Worker. The Host Adapter adds per-launch `--worktree` and `--settings` mechanics without rewriting user configuration. Use a forked subagent only for short low-risk checks. If native launch is unavailable or fails, print the project directory, copy-ready Codex/Claude startup commands, and the final `执行 <task-id> 任务` line, then stop; Discussion never implements as fallback.
+- Route a lightweight Revision to an eligible bound Worker when the host can inspect and steer it; otherwise create an eligible Worker route or print the exact Revision handoff. A reused Worker must release its old Claim and acquire the Revision's new scope/validation binding first.
 - Route exact execute/stop/retry/takeover and explicit competitive commands through structured Task IDs and Git-common-dir Claims. Contextual approvals are valid only for one unique `expected_transition`.
-- Persist that command in task-state before creation: `draft -> approved` and `worker_creation_authorized: true`. Workers record execution states, Integration records `integrated`, and discussion records `reviewed` after human acceptance.
+- Persist Task authorization as `draft -> approved` with `worker_creation_authorized: true`, and atomically create the canonical Run. The Run records dispatching, running, terminal evidence, and Integration; the Task moves to `integrated` only during Integration and to `reviewed` after human acceptance.
 - Claim release writes one idempotent pending notification in the Git-common runtime. The bound Discussion consumes and marks it read on its next activation; explicit Discussion entry or refresh can adopt it after a host switch. Safe sequential and mechanically proven `parallel_independent` results enter Discussion-local Integration automatically; risk, conflict, blocking, competition, or ambiguity becomes a concrete `decision_required` or `blocked` state. Never create a separate Integration window, daemon, polling loop, IPC service, or popup.
 - Hooks expose status and enforce boundaries; they do not choose parallelism, launch agents, merge code, write semantic memory, or replace review.
 - New windows are neutral. Default SessionStart is safety-only and does not activate Discussion; explicit Discussion entry or refresh loads current state.
@@ -44,7 +44,7 @@ Use WishGraph as the project governance layer for AI-assisted development.
 
 - A new Claude Code window in the same project continues by saying `Start discussion`; an active Discussion uses `Refresh project status`. Read the persisted handoff and current state instead of printing a full prompt for manual copying.
 - A host switch preserves project files but not host-specific thread/session IDs. The destination host must already be selected in `required_hosts`, or be explicitly enabled and installed before reopening its session.
-- When PRD and the first task are ready, set one exact `expected_transition` and ask for Worker authorization. After authorization, use the managed background Worker when available; otherwise output only `执行 <task-id> 任务`.
+- When PRD and the first Task are ready, set one exact `expected_transition` and ask for Worker authorization. After authorization, use the managed background Worker when available; otherwise print the copy-ready cross-host handoff.
 
 ## Debugging
 

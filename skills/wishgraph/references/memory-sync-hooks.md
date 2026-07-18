@@ -15,14 +15,16 @@ Use this reference when configuring, inspecting, debugging, or benchmarking the 
 
 Hooks enforce mechanical authority and external-memory closeout. They do not write semantic project memory, choose product meaning, select parallelism, launch Workers, merge branches, or replace human review.
 
-The stable entrypoint is `.wishgraph/hooks/memory_sync.py`. Its implementation keeps four public boundaries; the lazy Codex provider remains private behind the Host Adapter:
+The stable entrypoint is `.wishgraph/hooks/memory_sync.py`. Its implementation keeps four public boundaries. Native Worker and tool-gate providers remain private behind the Host Adapter:
 
 ```text
 workflow_state.py   typed state and parsing
 policy.py           pure transition and gate decisions
-host_adapter.py     host events, CLI, and output mapping
-codex_worker_provider.py  private lazy Codex native-thread implementation
-git_state.py        Git facts, canonical Runs, Claims, sessions, and Integration leases
+host_adapter.py           only public host boundary
+codex_worker_provider.py  private Codex native-thread implementation
+claude_worker_provider.py private Claude background-session implementation
+tool_gate_provider.py     private PreToolUse classification and authority gate
+git_state.py              Git facts, canonical Runs, Claims, sessions, and Integration leases
 ```
 
 ## Hook Events
@@ -68,6 +70,9 @@ Claude Code may also expose `TaskCompleted`; keep it as a host adapter event rat
 .wishgraph/hooks/workflow_state.py
 .wishgraph/hooks/policy.py
 .wishgraph/hooks/host_adapter.py
+.wishgraph/hooks/codex_worker_provider.py
+.wishgraph/hooks/claude_worker_provider.py
+.wishgraph/hooks/tool_gate_provider.py
 .wishgraph/hooks/runtime-manifest.json
 .codex/hooks.json        # Codex
 .codex/agents/wishgraph-worker.toml  # managed Codex Formal Worker
@@ -106,11 +111,11 @@ Key settings include:
 - `required_hosts`: non-empty subset of `codex` and `claude`; use `mode: off` instead of an empty list.
 - `paths`: canonical governance, Task, Revision, report, and prompt locations.
 - `required_impact_rows`: shared-memory files that require `Integrate` or concrete `N/A` evidence.
-- `session_start_context_mode`: default `safety_only`; compatibility mode may provide a compact summary.
+- `session_start_context_mode`: defaults to `safety_only`; `discussion_summary` is an explicit advanced opt-in, never an inferred migration mode.
 - Project Status and Discussion dynamic-block size limits.
 - `orchestration_gate_enabled` and host-dependent read-gate mode.
 
-New projects use `tasks/build/*.md`, `tasks/revisions/*.md`, and `reports/PROJECT_STATUS.md`. Legacy `.tasks/build/*.md` and a sole `reports/DEV_REPORT.md` remain readable for migration. If both standard status files exist, strict checks block until one authoritative source remains.
+WishGraph reads `tasks/build/*.md`, `tasks/revisions/*.md`, and `reports/PROJECT_STATUS.md`. Task, Revision, Run Report, and Project Status records require their structured state blocks. Pre-release hidden Task paths, `reports/DEV_REPORT.md`, old field aliases, and configuration without `required_hosts` are intentionally not inferred. Reactivate the project or regenerate the affected record instead of maintaining two truth formats.
 
 ## Commands
 

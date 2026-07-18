@@ -60,7 +60,7 @@ After Discussion receives exact authority, the Host Adapter detects the current 
 | --- | --- |
 | `background_session` | Run the equivalent of `claude --bg --agent wishgraph-worker --worktree <unique> --settings <ephemeral-json> "执行 <task-id> 任务"`, query `claude agents --json --all --cwd <project>`, and persist the stable session ID plus the observed worktree. |
 | `forked_subagent` | Use only for short, low-risk, read-only-by-default assistance; it is not a Formal business Worker. |
-| `manual_command_only` | Print only `执行 <task-id> 任务`, then stop Discussion execution. |
+| `manual_command_only` | Print the project directory, copy-ready Codex/Claude startup commands, and the final `执行 <task-id> 任务` line; then stop Discussion execution. |
 
 `background_session` requires all of the following:
 
@@ -71,7 +71,7 @@ After Discussion receives exact authority, the Host Adapter detects the current 
 
 A successful `claude --bg` return does not make the Task `running`. WishGraph must persist the real session ID, and the Worker must acquire a Claim bound to Task, session, branch, absolute worktree, scope, and validation plan after entering its actual worktree.
 
-Any detection or launch failure strictly falls back to:
+Any detection or launch failure strictly falls back to a copy-ready cross-host handoff whose final line remains:
 
 ```text
 执行 <task-id> 任务

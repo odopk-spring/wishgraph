@@ -141,7 +141,7 @@ python3 scripts/install_project_hooks.py --target PROJECT_ROOT --host claude --m
 
 The first command installs both project-local adapters. The other commands are explicit single-host choices. Dual-host activation preflights and snapshots the runtime, config, both adapter files, and both Worker Agent definitions before writing; any conflict or failed write restores the whole snapshot. Existing unrelated Hook groups are merged and preserved. A globally installed current Adapter and Agent may satisfy host execution without duplicating `.claude/settings.json` in every enabled project.
 
-Old configs without `required_hosts` retain the Adapter scope already installed. If no managed Adapter can be identified, they are interpreted as requiring both hosts so Doctor reports the incomplete state instead of silently claiming protection. The next successful activation or upgrade persists the resolved value. Upgrade preserves an existing choice; repair changes only the named Adapter.
+`required_hosts` is mandatory. A pre-release config without it is invalid and must be explicitly reactivated with `all`, `codex`, or `claude`; WishGraph does not infer protection scope from whichever Adapter happens to exist. Upgrade preserves an existing valid choice, while repair changes only the named Adapter.
 
 Use `--mode enforce --git-hook` for an explicitly selected strict setup. The installer detects the repository root and preserves unrelated hook configuration.
 

@@ -2,7 +2,6 @@
 
 Semantic project truth stays in human-authored Markdown. Lifecycle facts that
 hooks must evaluate live in small JSON blocks embedded in those Markdown files.
-Legacy label-based documents remain readable during migration.
 """
 
 from __future__ import annotations
@@ -113,7 +112,6 @@ EXECUTION_PROFILE_FILLERS = {
     "reasoning",
     "effort",
 }
-TASK_STATUS_ALIASES = {"pending": "draft", "done": "completed"}
 TASK_ID_RE = re.compile(r"^(?P<number>\d{3,})(?P<suffix>[a-z]*)$")
 REVISION_ID_RE = re.compile(
     r"^(?P<task_id>\d{3,}[a-z]*)-r(?P<revision_number>[1-9]\d*)$"
@@ -139,7 +137,6 @@ class ReportState:
     authorization: str
     readiness: str
     safety_errors: list[str] = field(default_factory=list)
-    state_source: str = "legacy"
     scope_check: str = "missing"
     conflict_status: str = "missing"
     new_decision: str = "missing"
@@ -173,7 +170,6 @@ class TaskState:
     comparison_group: str = ""
     worker_execution_profiles: dict[str, dict[str, str]] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
-    state_source: str = "legacy"
 
 
 @dataclass
@@ -188,7 +184,6 @@ class RevisionState:
     run_report: str
     worker_creation_authorized: bool = True
     errors: list[str] = field(default_factory=list)
-    state_source: str = "structured"
 
 
 @dataclass(frozen=True)
@@ -1027,104 +1022,84 @@ def validation_results(content: str) -> list[str]:
 
 def parse_report_state(report_path: str, content: str) -> ReportState:
     block, block_errors = parse_workflow_block(content, "run")
-    if block is not None:
-        data = block.data
-        status = normalized_string(data.get("status"))
-        work_type = normalized_string(data.get("work_type"))
-        batch_id = normalized_string(data.get("batch_id"), "n/a")
-        readiness = normalized_string(data.get("integration_readiness"))
-        recommendation = normalized_string(data.get("integration_recommendation"))
-        authorization = {
-            "safe_for_discussion_integration": "inherited_task_approval",
-            "decision_required": "explicit_user_confirmation",
-            "blocked": "blocked",
-        }.get(
-            recommendation,
-            normalized_string(data.get("integration_authorization")),
+    if block is None:
+        return ReportState(
+            path=report_path,
+            status="missing",
+            work_type="missing",
+            batch_id="n/a",
+            authorization="missing",
+            readiness="missing",
+            safety_errors=[*block_errors, "Run Report requires a wishgraph:run-state block"],
         )
-        scope_check = normalized_string(data.get("scope_check"))
-        conflict_status = normalized_string(data.get("conflict_status"))
-        new_decision = normalized_string(data.get("new_decision"))
-        results = validation_values(data.get("validation"))
-        raw_report_task_id = data.get("task_id")
-        task_id = "" if raw_report_task_id is None else canonical_task_id(raw_report_task_id)
-        if raw_report_task_id is not None and raw_report_task_id != "" and not task_id:
-            block_errors.append("task_id must be null or match ^\\d{3,}[a-z]*$")
-        raw_revision_id = data.get("revision_id")
-        revision_id = (
-            "" if raw_revision_id is None else canonical_revision_id(raw_revision_id)
+    data = block.data
+    status = normalized_string(data.get("status"))
+    work_type = normalized_string(data.get("work_type"))
+    batch_id = normalized_string(data.get("batch_id"), "n/a")
+    readiness = normalized_string(data.get("integration_readiness"))
+    recommendation = normalized_string(data.get("integration_recommendation"))
+    authorization = {
+        "safe_for_discussion_integration": "inherited_task_approval",
+        "decision_required": "explicit_user_confirmation",
+        "blocked": "blocked",
+    }.get(recommendation, "")
+    scope_check = normalized_string(data.get("scope_check"))
+    conflict_status = normalized_string(data.get("conflict_status"))
+    new_decision = normalized_string(data.get("new_decision"))
+    results = validation_values(data.get("validation"))
+    raw_report_task_id = data.get("task_id")
+    task_id = "" if raw_report_task_id is None else canonical_task_id(raw_report_task_id)
+    if raw_report_task_id is not None and raw_report_task_id != "" and not task_id:
+        block_errors.append("task_id must be null or match ^\\d{3,}[a-z]*$")
+    raw_revision_id = data.get("revision_id")
+    revision_id = (
+        "" if raw_revision_id is None else canonical_revision_id(raw_revision_id)
+    )
+    if raw_revision_id is not None and raw_revision_id != "" and not revision_id:
+        block_errors.append(
+            "revision_id must be null or match ^\\d{3,}[a-z]*-r[1-9]\\d*$"
         )
-        if raw_revision_id is not None and raw_revision_id != "" and not revision_id:
-            block_errors.append(
-                "revision_id must be null or match ^\\d{3,}[a-z]*-r[1-9]\\d*$"
-            )
-        if revision_id:
-            revision_parent, _ = revision_id_parts(revision_id)
-            if task_id != revision_parent:
-                block_errors.append("revision_id parent must equal task_id")
-        attempt = positive_attempt(data.get("attempt", 1), block_errors)
-        execution_mode = normalized_string(data.get("execution_mode"), "exclusive")
-        changed_paths = string_list(data.get("changed_paths"))
-        risk_values = [
-            data.get("public_api_change"),
-            data.get("schema_change"),
-            data.get("persistence_change"),
-            data.get("security_impact"),
-            data.get("permission_change"),
-            data.get("billing_impact"),
-            data.get("deletion_change"),
-            data.get("migration_change"),
-            data.get("dependency_change"),
-            data.get("cross_module_contract_change"),
-        ]
-        change_class = normalized_string(data.get("change_class"), "formal")
-        if change_class == "revision":
-            risk_values.append(data.get("privacy_impact"))
-        risk_flags_known = all(isinstance(value, bool) for value in risk_values)
-        risk_flags_clear = risk_flags_known and not any(risk_values)
-        raw_candidate_score = data.get("candidate_score")
-        candidate_score = (
-            float(raw_candidate_score)
-            if isinstance(raw_candidate_score, (int, float))
-            and not isinstance(raw_candidate_score, bool)
-            else None
-        )
-        selection_requires_judgment = data.get("selection_requires_judgment") is True
-        state_source = "structured"
-    else:
-        status = parse_report_status(content) or "missing"
-        work_type = parse_labeled_field(content, "Work type", "工作类型") or "missing"
-        batch_id = parse_labeled_field(content, "Batch ID", "批次 ID") or "n/a"
-        readiness = (
-            parse_labeled_field(content, "Integration readiness", "集成就绪状态")
-            or "missing"
-        )
-        authorization = (
-            parse_labeled_field(content, "Integration authorization", "集成授权")
-            or "missing"
-        )
-        scope_check = parse_labeled_field(content, "Scope check", "范围检查") or "missing"
-        conflict_status = (
-            parse_labeled_field(content, "Conflict status", "冲突状态") or "missing"
-        )
-        new_decision = parse_labeled_field(
-            content,
-            "New product / architecture / data decision",
-            "新增产品 / 架构 / 数据决策",
-        ) or "missing"
-        results = validation_results(content)
-        task_id = ""
-        revision_id = ""
-        attempt = 1
-        execution_mode = "exclusive"
-        changed_paths = []
-        risk_flags_known = False
-        risk_flags_clear = False
-        change_class = "formal"
-        candidate_score = None
-        selection_requires_judgment = False
-        state_source = "legacy"
+    if revision_id:
+        revision_parent, _ = revision_id_parts(revision_id)
+        if task_id != revision_parent:
+            block_errors.append("revision_id parent must equal task_id")
+    attempt = positive_attempt(data.get("attempt", 1), block_errors)
+    execution_mode = normalized_string(data.get("execution_mode"), "exclusive")
+    changed_paths = string_list(data.get("changed_paths"))
+    risk_values = [
+        data.get("public_api_change"),
+        data.get("schema_change"),
+        data.get("persistence_change"),
+        data.get("security_impact"),
+        data.get("permission_change"),
+        data.get("billing_impact"),
+        data.get("deletion_change"),
+        data.get("migration_change"),
+        data.get("dependency_change"),
+        data.get("cross_module_contract_change"),
+    ]
+    change_class = normalized_string(data.get("change_class"), "formal")
+    if change_class == "revision":
+        risk_values.append(data.get("privacy_impact"))
+    risk_flags_known = all(isinstance(value, bool) for value in risk_values)
+    risk_flags_clear = risk_flags_known and not any(risk_values)
+    raw_candidate_score = data.get("candidate_score")
+    candidate_score = (
+        float(raw_candidate_score)
+        if isinstance(raw_candidate_score, (int, float))
+        and not isinstance(raw_candidate_score, bool)
+        else None
+    )
+    selection_requires_judgment = data.get("selection_requires_judgment") is True
     errors: list[str] = list(block_errors)
+    if recommendation not in {
+        "safe_for_discussion_integration",
+        "decision_required",
+        "blocked",
+    }:
+        errors.append(
+            "integration_recommendation must be safe_for_discussion_integration, decision_required, or blocked"
+        )
 
     return ReportState(
         path=report_path,
@@ -1148,40 +1123,17 @@ def parse_report_state(report_path: str, content: str) -> ReportState:
         candidate_score=candidate_score,
         selection_requires_judgment=selection_requires_judgment,
         safety_errors=errors,
-        state_source=state_source,
     )
 
 
-def canonical_task_status(value: Any) -> str:
-    status = normalized_string(value)
-    return TASK_STATUS_ALIASES.get(status, status)
+
 
 
 def canonical_integration_policy(value: Any) -> str:
     policy = normalized_string(value)
-    if policy in {
-        "inherited_task_approval",
-        "inherited task approval",
-        "task approval",
-        "approved with task",
-        "随任务批准授权",
-        "任务批准",
-        "auto_in_discussion",
-    }:
+    if policy == "auto_in_discussion":
         return "inherited_task_approval"
-    if policy in {
-        "explicit_user_confirmation",
-        "explicit user confirmation",
-        "requires explicit user confirmation",
-        "user confirmed",
-        "explicitly confirmed",
-        "用户明确确认",
-        "用户已确认",
-        "需要用户明确确认",
-        "requires_explicit_user_confirmation",
-        "explicit_confirmation_required",
-        "decision_required",
-    }:
+    if policy == "decision_required":
         return "requires_explicit_user_confirmation"
     return policy
 
@@ -1202,7 +1154,6 @@ def parse_revision_state(revision_path: str, content: str) -> RevisionState:
             run_report="",
             worker_creation_authorized=False,
             errors=["Task Revision requires a wishgraph:revision-state block"],
-            state_source="legacy",
         )
 
     data = block.data
@@ -1253,83 +1204,72 @@ def parse_revision_state(revision_path: str, content: str) -> RevisionState:
 def parse_task_state(task_path: str, content: str) -> TaskState:
     block, block_errors = parse_workflow_block(content, "task")
     errors = list(block_errors)
-    if block is not None:
-        data = block.data
-        raw_task_id = str(data.get("task_id", "")).strip()
-        task_id = canonical_task_id(raw_task_id)
-        if raw_task_id and not task_id:
-            errors.append("task_id must match ^\\d{3,}[a-z]*$")
-        raw_parent = data.get("parent_task_id")
-        parent_task_id = "" if raw_parent is None else canonical_task_id(raw_parent)
-        if raw_parent is not None and raw_parent != "" and not parent_task_id:
-            errors.append("parent_task_id must be null or match ^\\d{3,}[a-z]*$")
-        dependencies = [item.lower() for item in string_list(data.get("dependencies"))]
-        if not isinstance(data.get("dependencies", []), list):
-            errors.append("dependencies must be a list")
-        invalid_dependencies = [item for item in dependencies if not canonical_task_id(item)]
-        if invalid_dependencies:
-            errors.append("dependencies must contain only valid Task IDs")
-        attempt = positive_attempt(data.get("attempt", 1), errors)
-        execution_mode = normalized_string(data.get("execution_mode"), "exclusive")
-        raw_comparison_group = data.get("comparison_group")
-        comparison_group = (
-            "" if raw_comparison_group is None else str(raw_comparison_group).strip()
+    if block is None:
+        return TaskState(
+            path=task_path,
+            task_id="",
+            status="missing",
+            work_type="missing",
+            batch_id="n/a",
+            run_report="",
+            worker_creation_authorized=False,
+            integration_policy="missing",
+            errors=[*block_errors, "Task Spec requires a wishgraph:task-state block"],
         )
-        status = canonical_task_status(data.get("status"))
-        work_type = normalized_string(data.get("work_type"))
-        batch_id = normalized_string(data.get("batch_id"), "n/a")
-        run_report = normalize_cell(str(data.get("run_report", "")))
-        worker_authorized_value = data.get("worker_creation_authorized")
-        worker_authorized = worker_authorized_value is True
-        if not isinstance(worker_authorized_value, bool):
-            errors.append("worker_creation_authorized must be true or false")
-        integration_policy = canonical_integration_policy(
-            data.get("integration_route", data.get("integration_policy"))
+    data = block.data
+    raw_task_id = str(data.get("task_id", "")).strip()
+    task_id = canonical_task_id(raw_task_id)
+    if raw_task_id and not task_id:
+        errors.append("task_id must match ^\\d{3,}[a-z]*$")
+    raw_parent = data.get("parent_task_id")
+    parent_task_id = "" if raw_parent is None else canonical_task_id(raw_parent)
+    if raw_parent is not None and raw_parent != "" and not parent_task_id:
+        errors.append("parent_task_id must be null or match ^\\d{3,}[a-z]*$")
+    dependencies = [item.lower() for item in string_list(data.get("dependencies"))]
+    if not isinstance(data.get("dependencies", []), list):
+        errors.append("dependencies must be a list")
+    invalid_dependencies = [item for item in dependencies if not canonical_task_id(item)]
+    if invalid_dependencies:
+        errors.append("dependencies must contain only valid Task IDs")
+    attempt = positive_attempt(data.get("attempt", 1), errors)
+    execution_mode = normalized_string(data.get("execution_mode"), "exclusive")
+    raw_comparison_group = data.get("comparison_group")
+    comparison_group = (
+        "" if raw_comparison_group is None else str(raw_comparison_group).strip()
+    )
+    status = normalized_string(data.get("status"))
+    work_type = normalized_string(data.get("work_type"))
+    batch_id = normalized_string(data.get("batch_id"), "n/a")
+    run_report = normalize_cell(str(data.get("run_report", "")))
+    worker_authorized_value = data.get("worker_creation_authorized")
+    worker_authorized = worker_authorized_value is True
+    if not isinstance(worker_authorized_value, bool):
+        errors.append("worker_creation_authorized must be true or false")
+    raw_integration_route = normalized_string(data.get("integration_route"))
+    integration_policy = canonical_integration_policy(raw_integration_route)
+    if raw_integration_route not in {"auto_in_discussion", "decision_required"}:
+        errors.append(
+            "integration_route must be auto_in_discussion or decision_required"
         )
-        raw_profiles = data.get("worker_execution_profiles", {})
-        worker_execution_profiles: dict[str, dict[str, str]] = {}
-        if raw_profiles is not None and not isinstance(raw_profiles, dict):
-            errors.append("worker_execution_profiles must be an object")
-        elif isinstance(raw_profiles, dict):
-            for host, raw_profile in raw_profiles.items():
-                if host not in {"codex", "claude"}:
-                    errors.append("worker_execution_profiles supports only codex and claude")
-                    continue
-                if not isinstance(raw_profile, dict):
-                    errors.append(f"worker_execution_profiles.{host} must be an object")
-                    continue
-                profile = {
-                    key: str(raw_profile.get(key) or "").strip()
-                    for key in ("model", "reasoning_effort")
-                    if raw_profile.get(key)
-                }
-                if profile:
-                    worker_execution_profiles[host] = profile
-        state_source = "structured"
-    else:
-        task_id = Path(task_path).stem
-        parent_task_id = ""
-        dependencies = []
-        attempt = 1
-        execution_mode = "exclusive"
-        comparison_group = ""
-        status = canonical_task_status(
-            parse_labeled_field(content, "Status", "状态") or "draft"
-        )
-        work_type = parse_labeled_field(content, "Work type", "工作类型") or "missing"
-        batch_id = parse_labeled_field(content, "Batch ID", "批次 ID") or "n/a"
-        run_report = normalize_cell(
-            parse_labeled_field(content, "Run report", "执行报告", lowercase=False)
-            or ""
-        )
-        worker_authorized = status != "draft"
-        integration_policy = canonical_integration_policy(
-            parse_labeled_field(content, "Integration authorization", "集成授权")
-            or "missing"
-        )
-        worker_execution_profiles = {}
-        state_source = "legacy"
-
+    raw_profiles = data.get("worker_execution_profiles", {})
+    worker_execution_profiles: dict[str, dict[str, str]] = {}
+    if raw_profiles is not None and not isinstance(raw_profiles, dict):
+        errors.append("worker_execution_profiles must be an object")
+    elif isinstance(raw_profiles, dict):
+        for host, raw_profile in raw_profiles.items():
+            if host not in {"codex", "claude"}:
+                errors.append("worker_execution_profiles supports only codex and claude")
+                continue
+            if not isinstance(raw_profile, dict):
+                errors.append(f"worker_execution_profiles.{host} must be an object")
+                continue
+            profile = {
+                key: str(raw_profile.get(key) or "").strip()
+                for key in ("model", "reasoning_effort")
+                if raw_profile.get(key)
+            }
+            if profile:
+                worker_execution_profiles[host] = profile
     return TaskState(
         path=task_path,
         task_id=task_id,
@@ -1346,8 +1286,8 @@ def parse_task_state(task_path: str, content: str) -> TaskState:
         comparison_group=comparison_group,
         worker_execution_profiles=worker_execution_profiles,
         errors=errors,
-        state_source=state_source,
     )
+
 
 
 def parse_impact_rows(content: str) -> dict[str, tuple[str, str]]:

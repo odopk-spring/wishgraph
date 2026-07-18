@@ -27,7 +27,7 @@ Then start the agent with:
 Follow AGENTS.md. Start WishGraph for this project. If there is no PRD, run the WishGraph intake prompt and grill it into a PRD before writing code.
 ```
 
-After the project is explicitly enabled, keep the user-facing loop simple: reopen the session, say `Start discussion`, and use `Execute task 012` for one exact Task. The generic adapter itself cannot create a native Worker; unless the host supplies an equivalent inspectable thread integration, it falls back to the one-line execution command.
+After the project is explicitly enabled, keep the user-facing loop simple: reopen the session, say `Start discussion`, and use `Execute task 012` for one exact Task. The generic adapter itself cannot create a native Worker; unless the host supplies an equivalent inspectable thread integration, it prints the project directory, copy-ready host startup instructions, and the exact Task command.
 
 For bilingual Chinese and English handoff, add:
 

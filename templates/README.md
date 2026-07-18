@@ -8,7 +8,7 @@ Project-level memory-sync hooks are bundled with the installable skill rather th
 
 Discussion AI classifies work as `discussion`, `sequential`, `parallel_batch`, or `high_risk`. After an explicit human command, Codex prefers a user-visible and inspectable `wishgraph-worker` Agent thread; Claude Code prefers its managed background Worker. Unsupported or failed creation outputs only `执行 <task-id> 任务`. Safe sequential and mechanically proven `parallel_independent` results enter Discussion-local Integration automatically; high-risk, conflicting, blocked, competitive, or ambiguous results ask only the concrete decision. Integration never creates a separate window.
 
-Task templates start with a versioned `wishgraph:task-state` block. New durable Tasks normally move `draft -> approved -> integrated -> reviewed`; the canonical Run records transient execution, and legacy Task execution states remain readable. Only an explicit human command creates Run authority.
+Task templates start with a versioned `wishgraph:task-state` block. Durable Tasks move `draft -> approved -> integrated -> reviewed`; the canonical Run records transient execution. Only an explicit human command creates Run authority.
 
 Worker threads or windows can be rebound after terminal closeout. Low-risk corrections use `tasks/revisions/<task-id>-rN.md` and a `wishgraph:revision-state` block instead of a full Task Spec.
 

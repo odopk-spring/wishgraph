@@ -64,7 +64,7 @@ draft -> approved -> integrated -> reviewed
 - `integrated`：Integration lease、合并、组合验证和共享状态收尾完成。
 - `reviewed`：Discussion 已呈现，用户接受结果。
 
-兼容读取旧 Task 中的 `running`、`completed`、`blocked` 和 `incomplete`。新流程把 `dispatching`、`running`、`succeeded|failed|decision_required`、`integrating` 和 `integrated` 放在 Git common dir 的规范 Run 中，避免 Task、session、observer 重复表达同一执行事实。
+Task 只保存 `draft -> approved -> integrated -> reviewed` 这组持久状态。`dispatching`、`running`、`succeeded|failed|decision_required`、`integrating` 和 `integrated` 由 Git common dir 的规范 Run 表达，避免 Task、session 和 observer 重复保存同一执行事实。
 
 ### Flow Phase
 

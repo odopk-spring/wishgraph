@@ -89,6 +89,8 @@ WishGraph lets the current host choose the best inspectable Worker it can genuin
 
 The Worker changes code only after exact Task preflight and Claim acquisition. It does not read unrelated Tasks, all historical reports, or the complete source tree.
 
+The “under three seconds” dispatch target covers exact-command parsing, durable canonical-Run authorization, and a copy-ready host route. Native thread/session creation and model startup may take longer; until a real ID and Claim exist, the Worker remains `starting` / `awaiting_claim`, never falsely `running`.
+
 ### 3. Validate and update the project
 
 The Worker writes an immutable Run Report describing the patch, checks, and remaining risk. On its next activation, Discussion receives a completion reminder and enters local Integration:
@@ -239,7 +241,11 @@ WishGraph is a **v0.1 public beta**. Automated tests cover installation, state t
 
 Existing projects do not need to create every file mechanically. WishGraph reuses native documents that already own the same truth.
 
+Current releases do not infer pre-release `.tasks/build/`, `reports/DEV_REPORT.md`, retired field aliases, or configuration without `required_hosts`. If Doctor finds one, explicitly reactivate the project or regenerate the affected structured record instead of preserving two truth formats.
+
 ## Go deeper
+
+Source-of-truth order: runtime behavior is defined by the Skill assets and automated tests; user experience by this README and Getting Started; detailed rules by `skills/wishgraph/references/`. Files under `docs/` are synchronized GitHub-facing explanations, not a second behavior specification.
 
 | What you need | Document |
 | --- | --- |

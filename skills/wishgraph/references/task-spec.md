@@ -1,6 +1,6 @@
 # Formal Task Specification
 
-Use this reference when creating, reviewing, or splitting `tasks/build/NNN-short-slug.md`. Keep legacy `.tasks/build/` when an existing project already uses it.
+Use this reference when creating, reviewing, or splitting `tasks/build/NNN-short-slug.md`.
 
 ## Contents
 
@@ -56,7 +56,7 @@ Language mode:
 ```
 <!-- wishgraph:task-state:end -->
 
-`integration_route` is immutable after approval and controls only the later Discussion route. Use `decision_required` for high-risk work. Legacy `integration_policy` remains readable but never grants the Worker Integration authority.
+`integration_route` is required, immutable after approval, and controls only the later Discussion route. Use `decision_required` for high-risk work. Unknown or retired field names fail closed.
 
 ## Intent
 

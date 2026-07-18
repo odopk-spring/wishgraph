@@ -108,6 +108,8 @@ It then asks for execution authority. Use an exact command:
 Execute task 012
 ```
 
+In Discussion, this command routes an independent Worker. In an ordinary neutral window already opened on the same enabled project, the current inspectable window binds itself as Worker after Claim acquisition; it does not create a second Worker.
+
 Authorization does not let Discussion implement the Task. It asks the current host for the best valid Worker route.
 
 | Host route | What happens |
@@ -117,6 +119,8 @@ Authorization does not let Discussion implement the Task. It asks the current ho
 | Native creation unavailable or failed | Discussion shows the project directory, Codex/Claude startup commands with their profiles, and `执行 012`; copy either host block. |
 
 The new Worker is not `running` merely because a process or thread was requested. It must pass exact Task preflight and acquire a Claim bound to its session, branch, absolute worktree, allowed scope, and validation plan.
+
+The dispatch p95 target under three seconds covers command parsing, canonical-Run authorization, and a ready host route. Native thread/session creation and model startup are outside that boundary; until the real ID and Claim exist, status remains `starting` or `awaiting_claim`.
 
 The global Claude Adapter and Worker Agent may serve every explicitly enabled project. A project `.claude/settings.json` is optional; per-launch settings do not overwrite global or project configuration.
 
@@ -180,6 +184,8 @@ WishGraph uses native-lite adoption by default:
 - Keep current status as a rewritten snapshot; keep history in immutable reports and Git.
 
 The standard file names are defaults, not a demand to duplicate good project documentation.
+
+Pre-release `.tasks/build/`, `reports/DEV_REPORT.md`, retired field aliases, and configuration without `required_hosts` are no longer auto-migrated. When Doctor detects one, explicitly reactivate the project or regenerate the affected structured record.
 
 ## Maintenance and recovery
 

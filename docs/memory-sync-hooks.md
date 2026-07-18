@@ -19,13 +19,13 @@ The runtime requires Git and Python 3.9 or newer and has no third-party Python d
 
 ### Simplest option
 
-If the skill is already installed, ask the agent:
+If the Skill is already installed, explicitly enable this project:
 
 ```text
-Use $wishgraph to enable automatic memory sync for this project in safe mode.
+Use WishGraph for this project with the recommended safe setup.
 ```
 
-The agent selects the current host and installs non-blocking `warn` hooks without asking the user to learn installer flags.
+The recommended setup selects Codex and Claude Code and installs non-blocking `warn` hooks without asking the user to learn installer flags. A user may explicitly choose only one host.
 
 Natural-language choices are:
 
@@ -96,7 +96,7 @@ For an enabled project, the bundled installer also provides three bounded mainte
 
 Normal users only enable WishGraph, reopen the current Agent session, and say `Start discussion`. If that does not respond, Doctor distinguishes static installation health from host execution observed through bounded `SessionStart` and `UserPromptSubmit` receipts under `.git/wishgraph/host-observations/`. Receipts never enter the worktree and are not written by `PreToolUse`. An unverified Codex session is routed to `/hooks`; Claude Code CLI may additionally use `claude doctor`.
 
-`memory_sync.py` is a stable entrypoint over four public boundaries: `workflow_state.py` defines Session Role, Task Lifecycle, Flow Phase, Expected Transition, events, and plans; `policy.py` implements the pure `reduce(current_state, user_event, host_capability)` transition function; `host_adapter.py` maps one authorized next action to Codex, Claude Code, CLI, and Hook behavior; `git_state.py` persists Git facts, session runtime, Worker Claims, and the Discussion-local Integration lease. The lazy `codex_worker_provider.py` is a private implementation detail behind `host_adapter.py`, not a fifth public boundary. Semantic project truth remains in Markdown and Git.
+`memory_sync.py` is a stable entrypoint over four public boundaries: `workflow_state.py` defines typed state; `policy.py` implements pure transitions; `host_adapter.py` maps one authorized action to the current host; `git_state.py` persists Git facts, canonical Runs, Claims, sessions, and Integration leases. `codex_worker_provider.py`, `claude_worker_provider.py`, and `tool_gate_provider.py` are private implementations behind `host_adapter.py`, not additional public boundaries. Semantic project truth remains in Markdown and Git.
 
 Start with `warn`. After one successful Task-backed Worker closeout and one Discussion-local integration, change `.wishgraph/config.json` to `enforce`.
 
@@ -112,7 +112,7 @@ Every worker uses a separate branch or worktree and creates one new immutable re
 reports/runs/<work-unit-id>.md
 ```
 
-New Task Specs contain `wishgraph:task-state`, Run Reports contain `wishgraph:run-state`, and Project Status snapshots contain `wishgraph:integration-state`. Durable Task files normally move `draft -> approved -> integrated -> reviewed`; the Git-common-dir canonical Run owns dispatching, running, terminal evidence, and Integration progress. Legacy Task execution states remain readable. Hooks require exact Run, Claim, commit, and report evidence before allowing direct integration, so main does not need artificial intermediate lifecycle commits.
+Task Specs contain `wishgraph:task-state`, Run Reports contain `wishgraph:run-state`, and Project Status snapshots contain `wishgraph:integration-state`. Durable Task files move `draft -> approved -> integrated -> reviewed`; the Git-common-dir canonical Run owns dispatching, running, terminal evidence, and Integration progress. Hooks require exact Run, Claim, commit, and report evidence before allowing direct integration, so main does not need artificial intermediate lifecycle commits.
 
 Completed-Task corrections may use `tasks/revisions/<task-id>-rN.md` with a `wishgraph:revision-state` block. This is intentionally smaller than a Task Spec: parent Task, exact request, allowed scope, targeted validation, status, and one immutable report. A Revision report uses `change_class: revision`, the parent `task_id`, and the exact `revision_id`. Any recorded API, schema, persistence, migration, dependency, permission, security, privacy, or product-decision risk requires a formal follow-up Task.
 
@@ -132,7 +132,7 @@ The Discussion-local Integration phase holds a bound lease, merges Worker commit
 
 Default size controls keep the snapshot usable: Project Status is limited to 160 lines and 12,000 characters, the discussion dynamic block to 30 lines, and optional compatibility-mode SessionStart context to 2,000 characters. If either Project Status limit is exceeded, `warn` reports the need to compress without blocking, while `enforce` blocks integration completion and commit. Move historical detail to Run Reports and Git history; never remove unresolved risks, conflicts, or pending decisions just to meet the limit.
 
-Existing `paths.dev_report` settings migrate to `paths.project_status` while preserving custom path values. An old-only `reports/DEV_REPORT.md` remains readable with a migration warning. If old and new standard files both exist, WishGraph reports an ambiguous truth source and strict mode blocks integration until the project keeps one authoritative `reports/PROJECT_STATUS.md`.
+WishGraph requires one configured `reports/PROJECT_STATUS.md` truth source. Pre-release `paths.dev_report`, `reports/DEV_REPORT.md`, hidden Task paths, and missing `required_hosts` are not inferred; reactivate the project or regenerate the affected structured record.
 
 Task and Run Report metadata distinguish `sequential`, `parallel_batch`, and `high_risk`, while execution mode distinguishes `exclusive`, `parallel_independent`, and `competitive`. Every Worker terminal event first enters `integration_pending`. Under the existing Task approval, the original Discussion automatically integrates safe sequential results and mechanically proven independent parallel batches; the Worker receives no Integration authority. High-risk, conflicting, blocked, competitive, or mechanically ambiguous results enter a concrete `decision_required` or `blocked` state. Hooks calculate and enforce recorded gates but do not grant authority or launch Agents.
 
@@ -140,11 +140,11 @@ Worker creation always requires an explicit human command. For Codex, the adapte
 
 Neither launch path makes a Run `running` from intent or prose. Codex requires a real registered thread ID; Claude requires a stable saved session ID; both still require exact preflight and Claim before business work. Terminal host state alone is insufficient for Integration without canonical Run evidence, the exact immutable report, result commit, and released Claim.
 
-New sessions are neutral. With the default `session_start_context_mode: safety_only`, hooks emit context only when they find safety or synchronization issues; they do not load the discussion prompt or activate a role. Say `Start discussion` to load Discussion state in the current visible window, or `Refresh WishGraph project state and present the latest integrated results` to refresh an active discussion. Existing installations that explicitly retain `discussion_summary` compatibility mode can still receive the old concise injection.
+New sessions are neutral. With the default `session_start_context_mode: safety_only`, hooks emit context only when they find safety or synchronization issues; they do not load the discussion prompt or activate a role. Say `Start discussion` to load Discussion state in the current visible window, or `Refresh WishGraph project state and present the latest integrated results` to refresh an active discussion. `discussion_summary` remains an explicit advanced opt-in, not an inferred migration mode.
 
 In a continuously running discussion window, say: `Refresh WishGraph project state and present the latest integrated results.`
 
-Existing legacy ad-hoc reports remain readable, but new business-code work runs in a claimed Worker. Existing `.tasks/build/*.md` projects remain supported.
+Business-code work runs in a claimed Worker. Formal Tasks use `tasks/build/*.md`; local corrections use `tasks/revisions/*.md`; reports require structured state blocks.
 
 ## Direct checks
 
@@ -156,7 +156,7 @@ python3 .wishgraph/hooks/memory_sync.py status --task 012
 python3 .wishgraph/hooks/memory_sync.py status --full
 ```
 
-The default status command emits a compact active view and resolves only current candidate report paths on visible refs. `--task` selects one exact Task; `--full` is the explicit historical scan. Status commands do not create a project queue or mutate semantic state; the separate Git-common notification inbox is written only by verified Worker closeout. Discussion entry and refresh use the active view; SessionStart only includes it in opt-in compatibility mode.
+The default status command emits a compact active view and resolves only current candidate report paths on visible refs. `--task` selects one exact Task; `--full` is the explicit historical scan. Status commands do not create a project queue or mutate semantic state; the separate Git-common notification inbox is written only by verified Worker closeout. Discussion entry and refresh use the active view; SessionStart includes it only when `discussion_summary` is explicitly selected.
 
 It also emits `auto_integration_eligible` and one of `nothing_to_integrate`, `wait_for_worker`, `auto_integrate`, `await_user_confirmation`, `discuss_blocker`, or `compare_candidates` as `next_action`. These are internal routing fields; normal users should see only Discussion and explicit Worker windows.
 
@@ -224,7 +224,7 @@ python3 .wishgraph/hooks/memory_sync.py competitive-plan 012 --candidates 2
 
 It proposes `012a`, `012b`, shared `comparison_group: 012`, separate Claims/worktrees/reports, and exactly one winner. Status publishes only the unique objective winner in `selected_reports`; a tie or `selection_requires_judgment` routes to `compare_candidates`. Losing candidates remain unmerged and become `rejected` or `superseded`.
 
-Legacy `micro` Run Reports remain readable for compatibility, but no new ad-hoc micro unit is created. A clear correction uses a Task Revision; new or expanded work uses a formal Task. Neither authorizes Discussion to edit business code.
+A clear local correction uses a Task Revision; new or expanded work uses a formal Task. Neither authorizes Discussion to edit business code.
 
 For strict `enforce` mode, add `--git-hook` so commits made outside an agent and tool paths that lifecycle hooks cannot intercept are also checked. The installer refuses to overwrite an existing Git pre-commit hook and prints chaining guidance instead.
 

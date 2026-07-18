@@ -38,6 +38,8 @@ RUNTIME_FILES = (
     "policy.py",
     "host_adapter.py",
     "codex_worker_provider.py",
+    "claude_worker_provider.py",
+    "tool_gate_provider.py",
 )
 RUNTIME_MANIFEST_NAME = "runtime-manifest.json"
 HOST_OBSERVATION_EVENTS = ("session-start", "user-prompt-submit")
@@ -240,9 +242,6 @@ def runtime_diagnosis(target: Path) -> dict[str, Any]:
     if installed_count == 0:
         state = "missing"
         safe_to_upgrade = False
-    elif installed_count != len(RUNTIME_FILES):
-        state = "incomplete"
-        safe_to_upgrade = False
     elif current_matches:
         if installed_manifest_matches and installed_version == bundled_version:
             state = "current"
@@ -262,6 +261,9 @@ def runtime_diagnosis(target: Path) -> dict[str, Any]:
         else:
             state = "version_conflict"
             safe_to_upgrade = False
+    elif installed_count != len(RUNTIME_FILES):
+        state = "incomplete"
+        safe_to_upgrade = False
     elif (
         installed_manifest_matches
         and installed_version is not None
@@ -324,20 +326,6 @@ def normalize_required_hosts(value: Any) -> list[str]:
 
 def hosts_for_selection(selection: str) -> list[str]:
     return list(KNOWN_HOSTS) if selection == "all" else [selection]
-
-
-def legacy_required_hosts(target: Path) -> list[str]:
-    """Infer only the Adapter scope an old project already had."""
-    detected: list[str] = []
-    for host in KNOWN_HOSTS:
-        path = host_config_path(target, host)
-        try:
-            value = read_json(path)
-        except ValueError:
-            continue
-        if contains_wishgraph_handler(value):
-            detected.append(host)
-    return detected or list(KNOWN_HOSTS)
 
 
 def host_config_path(target: Path, host: str) -> Path:
@@ -603,12 +591,8 @@ def doctor_report(target: Path, selected_host: Optional[str] = None) -> dict[str
     if config_path.is_file():
         try:
             config = read_json(config_path)
-            if "required_hosts" in config:
-                required_hosts = normalize_required_hosts(config["required_hosts"])
-                required_hosts_source = "configured"
-            else:
-                required_hosts = legacy_required_hosts(target)
-                required_hosts_source = "legacy_installed_adapters"
+            required_hosts = normalize_required_hosts(config["required_hosts"])
+            required_hosts_source = "configured"
             config_state = "active" if config.get("mode") in {"warn", "enforce"} else "off"
         except ValueError as exc:
             config_state = "invalid"
@@ -645,10 +629,9 @@ def doctor_report(target: Path, selected_host: Optional[str] = None) -> dict[str
         adapter["execution"] = host_execution_diagnosis(
             target, host, expected_runtime_version
         )
-    governance_ready = (
-        (target / "reports" / "PROJECT_STATUS.md").is_file()
-        or (target / "reports" / "DEV_REPORT.md").is_file()
-    ) and (target / "prompts" / "DISCUSSION_AI.md").is_file()
+    governance_ready = (target / "reports" / "PROJECT_STATUS.md").is_file() and (
+        target / "prompts" / "DISCUSSION_AI.md"
+    ).is_file()
 
     if config_state == "missing":
         next_action = "use_wishgraph"
@@ -851,23 +834,7 @@ def migrate_project_config(
     existing_config: dict[str, Any],
     *,
     required_hosts: Optional[list[str]] = None,
-    legacy_hosts: Optional[list[str]] = None,
 ) -> dict[str, Any]:
-    if "session_start_context_mode" not in existing_config:
-        legacy_injection = existing_config.get("inject_project_summary_on_session_start")
-        if isinstance(legacy_injection, bool):
-            existing_config = dict(existing_config)
-            existing_config["session_start_context_mode"] = (
-                "discussion_summary" if legacy_injection else "safety_only"
-            )
-    existing_paths = existing_config.get("paths")
-    if isinstance(existing_paths, dict) and "dev_report" in existing_paths:
-        migrated_paths = dict(existing_paths)
-        if "project_status" not in migrated_paths:
-            migrated_paths["project_status"] = migrated_paths["dev_report"]
-        del migrated_paths["dev_report"]
-        existing_config = dict(existing_config)
-        existing_config["paths"] = migrated_paths
     config = deep_merge(default_config, existing_config)
     config["version"] = default_config["version"]
     config["runtime_version"] = default_config["runtime_version"]
@@ -884,9 +851,7 @@ def migrate_project_config(
             existing_config["required_hosts"]
         )
     elif existing_config:
-        config["required_hosts"] = normalize_required_hosts(
-            legacy_hosts or list(KNOWN_HOSTS)
-        )
+        raise ValueError("required_hosts is required; reactivate this project")
     else:
         config["required_hosts"] = normalize_required_hosts(
             default_config.get("required_hosts", list(KNOWN_HOSTS))
@@ -996,7 +961,6 @@ def install_runtime(
             default_config,
             existing_config,
             required_hosts=required_hosts,
-            legacy_hosts=legacy_required_hosts(target),
         )
         if upgrade and existing_config.get("mode") in {"off", "warn", "enforce"}:
             config["mode"] = existing_config["mode"]
@@ -1608,7 +1572,7 @@ def main() -> int:
         elif "required_hosts" in existing_config:
             required_hosts = normalize_required_hosts(existing_config["required_hosts"])
         elif existing_config:
-            required_hosts = legacy_required_hosts(target)
+            raise ValueError("required_hosts is required; reactivate this project")
         else:
             required_hosts = list(KNOWN_HOSTS)
         result = activate_project(
