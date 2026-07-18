@@ -83,7 +83,7 @@ Detect one host-only capability tier without changing the reducer or authority:
 
 Require the managed `wishgraph-worker` Agent definition before background launch. Claude Code silently falls back to a default template when an Agent name is missing, so an absent or unrecognized definition is a launch failure, not permission to use the default Agent.
 
-The background Worker acquires its own Claim after Claude has placed it in its actual branch/worktree. Require the authorized Task record to match current `HEAD`. The Host Adapter adds a unique `--worktree` name and passes the minimal `baseRef: head` plus `.wishgraph` symlink contract through per-launch `--settings`; it does not overwrite global or project Claude settings and does not require a project `.claude/settings.json`. This needs a local Git repository with at least one local commit, but never requires GitHub, an `origin`, or any remote. The managed Agent may come from the global Claude Agent directory while `.wishgraph/config.json` remains the explicit project activation gate. Persist the stable session ID and observed actual worktree before `waiting_for_worker`; otherwise stop the failed session and use the host-neutral handoff. Do not move the Task to `running` merely because `claude --bg` returned.
+The background Worker acquires its own Claim after Claude has placed it in its actual branch/worktree. Require the Task content fingerprint and base commit recorded by the authorized Run to match the current baseline. The Host Adapter adds a unique `--worktree` name and passes the minimal `baseRef: head` plus `.wishgraph` symlink contract through per-launch `--settings`; it does not overwrite global or project Claude settings and does not require a project `.claude/settings.json`. This needs one local commit, not GitHub or a remote. Persist the stable session ID and actual branch/worktree before `waiting_for_worker`; otherwise stop the failed session and use the host-neutral handoff. `claude --bg` alone never makes a Run `running`; Claim acquisition does.
 
 Refresh with `claude agents --json --all --cwd <project>`. Use only structured state plus the durable Task, Run Report, and released Claim to enter `integration_pending`; conversation text is never completion evidence. For the current CLI, open `claude agents --cwd <project>` for interactive inspection/control and use `claude --resume <full-session-id>` when conversation recovery is appropriate. A created session that fails Worktree or runtime verification is persisted as `manual_intervention_required`; WishGraph does not pretend an unsupported stop command succeeded. A failed, blocked, missing, or unknown session without complete durable evidence also remains manual rather than becoming a guessed terminal result.
 
@@ -93,11 +93,11 @@ Refresh with `claude agents --json --all --cwd <project>`. Use only structured s
 
 Require a new user-opened inspectable window. Output the same bounded cross-host startup handoff and stop. Do not print the full Task Spec and do not offer direct implementation.
 
-### Neutral Dispatch Entry
+### Neutral Direct-Worker Entry
 
-An ordinary neutral window receiving an exact `执行 <task-id> 任务` command becomes the Discussion dispatcher. It resolves only the exact Task, checks its dependencies and execution sections, atomically replaces the session runtime's complete Task identity, persists authorization, and routes a separate Formal Worker. The user does not need to enter Discussion first, and the dispatching window never acquires the Worker Claim or implements business code.
+An ordinary neutral window receiving an exact `执行 <task-id> 任务` command becomes the Formal Worker container for that Task. It resolves only the exact Task and dependencies, atomically creates the authorized Run, then acquires the Claim in the current session. It does not create a second background Worker. Before Claim success it remains `starting/awaiting_claim` and cannot write or build. A Discussion receiving the same command keeps its Discussion role and routes an independent Worker.
 
-A Worker container enters `worker` only after native registration or an explicit manual/rebind route identifies that container as the Formal Worker. It then reads `CONVENTIONS.md`, `prompts/EXECUTION_AI.md`, and the exact Task, performs preflight, and acquires the exact Claim before the Task becomes `running`. An ordinary neutral session with no Worker binding cannot use an approved Task as permission to implement it locally.
+A Worker container enters `worker` only after native registration, explicit rebind, or exact neutral current-window authorization identifies it and Claim acquisition succeeds. It reads `prompts/EXECUTION_AI.md` and the exact Task, performs preflight, and acquires the exact Claim before the canonical Run becomes `running`. A neutral session without that exact Run cannot use an approved-looking Task as permission.
 
 ## Entry Preflight
 
@@ -105,11 +105,11 @@ Before implementation:
 
 1. Verify one local `HEAD` commit exists for the worktree baseline. A remote is optional; a repository with no first commit must establish its intended local baseline before Formal Worker launch.
 2. Read `CONVENTIONS.md`, `prompts/EXECUTION_AI.md`, and the exact Task or Revision record.
-3. Verify structured ID, lifecycle, Worker authority, dependencies, attempt, report path, allowed scope, and validation plan.
+3. Verify structured ID, authorized Run, dependencies, attempt, report path, allowed scope, and validation plan.
 4. Verify the intended branch and absolute worktree.
 5. Inspect active and stale Claims across the repository's Git common directory.
 6. Atomically acquire a Claim for the exact work unit.
-7. Persist the Worker session binding before moving the work to `running`.
+7. Persist the Worker session binding and Claim before moving the Run to `running`.
 
 Do not infer permission from a window title, chat history, branch name, or unstructured task prose.
 
@@ -146,7 +146,7 @@ Require the bound active Claim for:
 - Implementation builds and tests.
 - Dependency installation.
 - The Worker's atomic commit.
-- Updates to its own Task or Revision lifecycle and Run Report.
+- Creation of its immutable Run Report. The Worker does not rewrite the formal Task merely to mirror transient progress.
 
 Restrict writes to `allowed_scope`. Restrict gated build/test operations to `validation_plan`. Escalate when the implementation needs a public API, schema, persistence, migration, dependency, security, privacy, or product decision not present in the durable record.
 
@@ -159,11 +159,10 @@ For every execution unit:
 1. Run prescribed build, test, lint, manual, and WishGraph checks.
 2. Create exactly one new immutable `reports/runs/<work-unit>-attempt-N.md`.
 3. Record files changed, behavior, validation evidence, scope check, conflicts, material decisions, risks, and shared-memory impact.
-4. Move the Task or Revision to `completed`, `blocked`, or `incomplete` from real evidence.
-5. Create one bounded atomic commit unless the user explicitly forbids it.
-6. Release the Claim only after durable terminal state and report evidence exist.
-7. Let Claim release write one idempotent pending notification under the Git common directory. `Stop` / `TaskCompleted` may retry the same notification key, but cannot create a duplicate.
-8. End the Worker. Do not wait for, poll, or directly contact Discussion.
+4. Create one bounded atomic commit unless the user explicitly forbids it.
+5. Release the Claim only after durable commit and report evidence exist; release advances the canonical Run to its terminal outcome.
+6. Let Claim release write one idempotent pending notification under the Git common directory. `Stop` / `TaskCompleted` may retry the same notification key, but cannot create a duplicate.
+7. End the Worker. Do not wait for, poll, or directly contact Discussion.
 
 Bind the notification to the originating Discussion session when available. A Worker opened from a neutral window may leave the target empty; the next explicit Discussion entry adopts it. Keep pending notifications in one runtime inbox rather than creating project files per event. The inbox preserves all unread records, only a small recent-read window, and durable notification IDs for deduplication.
 

@@ -1,6 +1,6 @@
 # Discussion AI Start Prompt
 
-WishGraph must be explicitly enabled for this project before this prompt is used. Activation leaves a window neutral; `Start discussion` enters Discussion. A precise `Execute NNN` command may instead make an ordinary neutral window the dispatcher for a separate Worker.
+WishGraph must be explicitly enabled for this project before this prompt is used. Activation leaves a window neutral; `Start discussion` enters Discussion. In Discussion, a precise `Execute NNN` command routes an independent Worker. In neutral, it binds that current window as Worker and does not enter this prompt.
 
 This file contains a concise mutable handoff. Keep exceptional mechanics in the WishGraph References, not in this default prompt.
 

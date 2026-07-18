@@ -93,7 +93,7 @@ lease status and heartbeat
 
 Use the lease as the single-writer authority for merge resolution, combined validation, shared-state writes, and the integration commit. Do not use it to implement new product work.
 
-Lease acquisition rechecks that every work unit and report exists and is terminal, validation is complete, every matching Worker Claim is released, no active Claim remains, the route is still safe or specifically confirmed, and the branch/worktree binding still matches. Only one active lease may exist for the repository's Git common directory. A new Worker Claim is also rejected while a lease is active. Release the lease after durable completion; revoke only through explicit recovery authority.
+Lease acquisition reads each report from the exact Worker result commit recorded by the canonical Run; it does not require the report to appear in main first. It rechecks terminal Run evidence, validation, released Claims, risk outcome, and branch/worktree binding. Only one active lease may exist in the Git common directory. This removes the old report-before-merge circular dependency while retaining single-writer authority.
 
 ## Merge And Combined Validation
 
@@ -127,7 +127,7 @@ After Project Status is complete, update only the concise dynamic state block in
 
 Fill the `wishgraph:integration-state` block with the integration ID, status, kind, authority, and exactly the absorbed reports. Create the integration commit while the lease is active.
 
-- Move absorbed formal Tasks from `completed` to `integrated`.
+- Move absorbed formal Tasks from `draft` or `approved` directly to `integrated` when canonical Run evidence proves the execution path; accept legacy `completed` Tasks during migration.
 - Move absorbed Revisions from `completed` to `integrated` without regressing their parent lifecycle.
 - Release the Integration lease.
 - Enter `presenting_result` and show the compressed result and evidence.

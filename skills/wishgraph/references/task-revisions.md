@@ -50,7 +50,7 @@ A global theme system, new setting, cross-module contract, storage change, new d
 
 ## Running Parent
 
-When the original Task is still running and the feedback fits its current scope:
+When the original Task's Run is still running and the feedback fits its current scope:
 
 1. Send the feedback to that active Worker.
 2. Append the request to the current Task context and Run Report.

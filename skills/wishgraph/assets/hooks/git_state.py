@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -16,7 +17,7 @@ from typing import Any, Optional
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": 12,
-    "runtime_version": 23,
+    "runtime_version": 24,
     "mode": "enforce",
     "required_hosts": ["codex", "claude"],
     "paths": {
@@ -75,6 +76,15 @@ FORMAL_WORKER_CONTAINER_KINDS = {
     "claude_background_session",
 }
 KNOWN_REQUIRED_HOSTS = ("codex", "claude")
+EXECUTION_RUN_PHASES = {
+    "dispatching",
+    "running",
+    "succeeded",
+    "failed",
+    "decision_required",
+    "integrating",
+    "integrated",
+}
 
 
 def run_git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
@@ -586,6 +596,14 @@ RUNTIME_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 HOST_OBSERVATION_EVENTS = ("session-start", "user-prompt-submit")
 
 
+def canonical_runtime_id(value: Any) -> str:
+    """Normalize the one known host path wrapper, then require a stable ID."""
+    candidate = str(value or "").strip()
+    if candidate.startswith("/root/") and candidate.count("/") == 2:
+        candidate = candidate.removeprefix("/root/")
+    return candidate if RUNTIME_ID_RE.fullmatch(candidate) else ""
+
+
 def host_observation_root(root: Path) -> Path:
     """Keep host liveness evidence outside the worktree and project history."""
     return git_common_dir(root) / "wishgraph" / "host-observations"
@@ -658,7 +676,8 @@ def session_runtime_root(root: Path) -> Path:
 
 
 def _session_runtime_path(root: Path, session_id: str) -> Path:
-    if not RUNTIME_ID_RE.fullmatch(session_id):
+    session_id = canonical_runtime_id(session_id)
+    if not session_id:
         raise ValueError("invalid_session_id")
     return session_runtime_root(root) / f"{session_id}.json"
 
@@ -667,6 +686,9 @@ def write_session_runtime(
     root: Path, session_id: str, runtime: dict[str, Any]
 ) -> dict[str, Any]:
     """Atomically persist host/session orchestration state outside the worktree."""
+    session_id = canonical_runtime_id(session_id)
+    if not session_id:
+        return {"ok": False, "error": "invalid_session_id"}
     try:
         path = _session_runtime_path(root, session_id)
     except ValueError as exc:
@@ -698,6 +720,9 @@ def write_session_runtime(
 
 
 def read_session_runtime(root: Path, session_id: str) -> Optional[dict[str, Any]]:
+    session_id = canonical_runtime_id(session_id)
+    if not session_id:
+        return None
     try:
         path = _session_runtime_path(root, session_id)
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -735,6 +760,169 @@ def apply_session_runtime_patch(
             mutex.unlink()
         except OSError:
             pass
+
+
+def execution_run_root(root: Path) -> Path:
+    """Return the one shared runtime directory for canonical execution facts."""
+    return git_common_dir(root) / "wishgraph" / "runs"
+
+
+def execution_run_id(task_id: str, attempt: int, revision_id: str = "") -> str:
+    work_unit_id = revision_id or task_id
+    if not re.fullmatch(r"\d{3,}[a-z]*(?:-r[1-9]\d*)?", work_unit_id):
+        raise ValueError("invalid_execution_run_work_unit_id")
+    if attempt < 1:
+        raise ValueError("invalid_execution_run_attempt")
+    return f"{work_unit_id}-attempt-{attempt}"
+
+
+def _execution_run_path(root: Path, run_id: str) -> Path:
+    if not re.fullmatch(r"\d{3,}[a-z]*(?:-r[1-9]\d*)?-attempt-[1-9]\d*", run_id):
+        raise ValueError("invalid_execution_run_id")
+    return execution_run_root(root) / f"{run_id}.json"
+
+
+def content_fingerprint(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def read_execution_run(root: Path, run_id: str) -> Optional[dict[str, Any]]:
+    """Read one canonical Run; session/runtime projections are never consulted."""
+    try:
+        value = json.loads(_execution_run_path(root, run_id).read_text(encoding="utf-8"))
+    except (ValueError, OSError, json.JSONDecodeError):
+        return None
+    if (
+        not isinstance(value, dict)
+        or value.get("kind") != "execution_run"
+        or value.get("run_id") != run_id
+    ):
+        return None
+    return value
+
+
+def inspect_execution_runs(
+    root: Path, task_id: Optional[str] = None
+) -> list[dict[str, Any]]:
+    """Read the bounded Run ledger without scanning Tasks, reports, or source."""
+    directory = execution_run_root(root)
+    try:
+        paths = sorted(directory.glob("*.json"))
+    except OSError:
+        return []
+    runs: list[dict[str, Any]] = []
+    for path in paths:
+        run = read_execution_run(root, path.stem)
+        if run is None or (task_id and run.get("task_id") != task_id):
+            continue
+        runs.append(run)
+    return runs
+
+
+def latest_execution_run(
+    root: Path, task_id: str, *, attempt: Optional[int] = None
+) -> Optional[dict[str, Any]]:
+    candidates = [
+        run
+        for run in inspect_execution_runs(root, task_id)
+        if attempt is None or run.get("attempt") == attempt
+    ]
+    if not candidates:
+        return None
+    candidates.sort(
+        key=lambda item: (int(item.get("attempt") or 0), str(item.get("updated_at") or "")),
+        reverse=True,
+    )
+    return candidates[0]
+
+
+def update_execution_run(
+    root: Path,
+    *,
+    task_id: str,
+    attempt: int,
+    patch: dict[str, Any],
+    revision_id: str = "",
+    create: bool = False,
+) -> dict[str, Any]:
+    """Atomically create or advance the single canonical Run record.
+
+    The Run owns authorization, Worker binding, terminal evidence, and Integration
+    outcome. Session state, notifications, and status output are projections only.
+    """
+    if not isinstance(patch, dict):
+        return {"ok": False, "error": "execution_run_patch_must_be_object"}
+    try:
+        run_id = execution_run_id(task_id, attempt, revision_id)
+        path = _execution_run_path(root, run_id)
+        mutex = _claim_mutex(execution_run_root(root))
+    except (ValueError, OSError, RuntimeError) as exc:
+        return {"ok": False, "error": str(exc)}
+    try:
+        current = read_execution_run(root, run_id)
+        if current is None and not create:
+            return {"ok": False, "error": "execution_run_not_found"}
+        if current is None:
+            current = {
+                "schema_version": 1,
+                "kind": "execution_run",
+                "run_id": run_id,
+                "task_id": task_id,
+                "revision_id": revision_id or None,
+                "attempt": attempt,
+                "phase": "dispatching",
+                "authorization": {},
+                "worker": {},
+                "claim_id": "",
+                "result": {},
+                "created_at": utc_now(),
+            }
+        immutable = {
+            "run_id": run_id,
+            "task_id": task_id,
+            "revision_id": revision_id or None,
+            "attempt": attempt,
+        }
+        merged = deep_merge(current, patch)
+        # These are complete canonical snapshots, not partial reducer patches.
+        # Replacement prevents old Worker IDs, launch errors, and results from
+        # leaking into a retry when the new snapshot is intentionally empty.
+        for snapshot_key in (
+            "authorization",
+            "worker",
+            "result",
+            "last_error",
+            "integration",
+        ):
+            if snapshot_key in patch:
+                merged[snapshot_key] = patch[snapshot_key]
+        if any(merged.get(key) != value for key, value in immutable.items()):
+            return {"ok": False, "error": "execution_run_identity_is_immutable"}
+        phase = str(merged.get("phase") or "")
+        if phase not in EXECUTION_RUN_PHASES:
+            return {"ok": False, "error": "invalid_execution_run_phase"}
+        merged.update(immutable)
+        merged["schema_version"] = 1
+        merged["kind"] = "execution_run"
+        merged["updated_at"] = utc_now()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_claim_update(path, merged)
+        return {"ok": True, "run": read_execution_run(root, run_id)}
+    finally:
+        try:
+            mutex.unlink()
+        except OSError:
+            pass
+
+
+def read_ref_version(root: Path, ref: str, path: str) -> Optional[str]:
+    """Read one exact path from one exact commit/ref without scanning refs."""
+    if not ref or not path or path.startswith("/") or ".." in Path(path).parts:
+        return None
+    result = run_git(root, "show", f"{ref}:{path}", check=False)
+    if result.returncode != 0:
+        return None
+    return result.stdout.decode("utf-8", errors="replace")
 
 
 WORKER_NOTIFICATION_EVENTS = {"completed", "failed", "decision_required"}
@@ -804,12 +992,17 @@ def enqueue_worker_notification(
     agent_platform: str = "unknown",
     next_action: str = "",
     reason: str = "",
+    run_id: str = "",
 ) -> dict[str, Any]:
     """Idempotently append one durable Worker terminal notification."""
     if terminal_event not in WORKER_NOTIFICATION_EVENTS:
         return {"ok": False, "error": "invalid_worker_notification_event"}
     if not task_id or not work_unit_id or attempt < 1 or not run_report or not claim_id:
         return {"ok": False, "error": "worker_notification_binding_incomplete"}
+    worker_session_id = canonical_runtime_id(worker_session_id) if worker_session_id else ""
+    discussion_session_id = (
+        canonical_runtime_id(discussion_session_id) if discussion_session_id else ""
+    )
     for runtime_id in (worker_session_id, discussion_session_id):
         if runtime_id and not RUNTIME_ID_RE.fullmatch(runtime_id):
             return {"ok": False, "error": "invalid_notification_session_id"}
@@ -865,6 +1058,7 @@ def enqueue_worker_notification(
             "agent_platform": agent_platform,
             "next_action": next_action,
             "reason": reason,
+            "run_id": run_id,
             "status": "pending",
             "created_at": now,
             "read_at": "",
@@ -896,7 +1090,8 @@ def consume_worker_notifications(
     limit: int = 10,
 ) -> dict[str, Any]:
     """Atomically mark a bounded batch read when Discussion is activated."""
-    if not RUNTIME_ID_RE.fullmatch(discussion_session_id):
+    discussion_session_id = canonical_runtime_id(discussion_session_id)
+    if not discussion_session_id:
         return {"ok": False, "error": "invalid_discussion_session_id"}
     if limit < 1 or limit > 20:
         return {"ok": False, "error": "invalid_notification_consume_limit"}

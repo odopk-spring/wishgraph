@@ -22,14 +22,14 @@ workflow_state.py   typed state and parsing
 policy.py           pure transition and gate decisions
 host_adapter.py     host events, CLI, and output mapping
 codex_worker_provider.py  private lazy Codex native-thread implementation
-git_state.py        Git facts, Claims, sessions, and Integration leases
+git_state.py        Git facts, canonical Runs, Claims, sessions, and Integration leases
 ```
 
 ## Hook Events
 
 ### UserPromptSubmit
 
-Only after `.wishgraph/config.json` enables the project, route explicit entry commands. Low-risk Discussion entry and status refresh may normalize case, whitespace, terminal punctuation, and a bounded allowlist of polite wrappers before exact alias lookup. Task execution, stop, retry, takeover, and exact IDs remain strict and never receive that normalization. Missing config and `mode: off` are silent no-op states; `开始讨论` never installs or enables WishGraph. An ordinary neutral window receiving an exact Task command becomes the Discussion dispatcher, atomically stores the complete Task identity, and routes a separate user-visible and inspectable Worker thread or window; it does not become the Worker. Codex may ask the active host to start the project `wishgraph-worker` Agent; Claude Code may ask the Host Adapter to start a native background session. Hooks never create either Agent. Failed or unavailable automatic routing exposes only the bounded cross-host startup handoff. Short approvals are accepted only through one persisted `expected_transition`.
+Only after `.wishgraph/config.json` enables the project, route explicit entry commands. Low-risk Discussion entry and status refresh may normalize case, whitespace, terminal punctuation, and bounded polite wrappers; Task authority remains strict and exact. In Discussion, an exact Task command creates an authorized Run and asks the current host to route an independent Formal Worker. In an ordinary neutral window, it creates the same Run and binds the current window as Worker after Claim acquisition, without spawning another Worker. Hooks never create Agents themselves. Short approvals are accepted only through one persisted `expected_transition`.
 
 When the Hook cannot resolve the whole prompt to one allowed command, it emits no route and does not mutate session state. The original prompt continues to the Agent. The Agent may ask whether the user wants Discussion or refresh, but an ambiguous execution request must be answered with a request for the exact command, such as `执行 012 任务`; Agent interpretation cannot manufacture authorization.
 
@@ -83,7 +83,7 @@ The two host files are thin adapters over the same `.wishgraph/hooks/` runtime. 
 
 `required_hosts` in project config is the selected protection scope; `current_host` is only the Agent invoking this Hook. Before a Formal Worker is created or acquires/rebinds a Claim, the current host must be selected, its Adapter and managed Worker definition must be present, and a recent `SessionStart` or `UserPromptSubmit` receipt must match the current runtime version and postdate Adapter installation. A Worker write/build request is denied when that check fails. Helper agents never gain authority from this check.
 
-Worker completion reminders use `.git/wishgraph/notifications/inbox.json` (or the equivalent shared Git common directory), not a project file. Claim release writes the terminal record; `Stop` and `TaskCompleted` only retry the same deterministic ID. An existing Discussion consumes its bound records on `SessionStart` or the next `UserPromptSubmit`. Explicit Discussion entry or project refresh may adopt unread project records after switching hosts. Consumption is capped per activation and marks records read atomically. Hooks never launch a daemon, poll another terminal, open a popup, or parse logs/prose as terminal evidence.
+The canonical execution record lives at `.git/wishgraph/runs/<work-unit>-attempt-N.json`. It alone owns authorization, Worker binding, Claim ID, terminal commit/report evidence, risk outcome, and Integration result. Session runtime, host observation, Project Status, and notifications are bounded projections. Worker reminders still use one inbox; Claim release writes the Run first and then one idempotent notification. Hooks never launch a daemon, poll another terminal, open a popup, or parse prose as terminal evidence.
 
 A normal terminal Hook blocks while the Worker still holds an active Claim. Forced process termination can bypass every Hook; with daemon and polling explicitly excluded, the remaining recoverable signal is the stale Claim or structured host-session state discovered at the next Discussion inspection.
 
@@ -168,8 +168,11 @@ Use these regression budgets:
 SKILL.md                          < 15-20 KB
 PreToolUse p95                   < 200 ms
 SessionStart p95                 < 500 ms
+Discussion dispatch p95         < 3,000 ms
 non-commit PreToolUse bulk delta <= 25 ms
 ```
+
+Dispatch latency means exact user command to durable Run authorization plus a copy-ready Host Adapter route. Native host thread creation and model startup happen after this boundary and are reported as `starting` until a real thread/session ID and Claim exist.
 
 Run cold Python subprocesses and nearest-rank p95 with the bundled script:
 
@@ -183,7 +186,7 @@ python3 skills/wishgraph/scripts/benchmark_hooks.py \
   --json-out /tmp/wishgraph-hook-latency.json
 ```
 
-The temporary fixture covers passthrough, neutral-write denial, Worker-write allowance, staged commit, and existing/fresh SessionStart. It then adds a large untracked source tree and reruns ordinary non-commit gates.
+The temporary fixture covers passthrough, neutral-write denial, Worker-write allowance, staged commit, existing/fresh SessionStart, and repeated Discussion dispatch. It then adds a large untracked source tree and reruns ordinary non-commit gates.
 
 Keep the boundary exact:
 

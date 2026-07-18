@@ -28,6 +28,7 @@ RUNTIME_FILES = (
 )
 PRETOOL_LIMIT_MS = 200.0
 SESSION_LIMIT_MS = 500.0
+DISPATCH_LIMIT_MS = 3000.0
 BULK_DELTA_LIMIT_MS = 25.0
 
 
@@ -128,6 +129,14 @@ def setup_fixture(base: Path) -> tuple[Path, Path]:
     task_path = root / "tasks" / "build" / "012-hook-benchmark.md"
     task_path.parent.mkdir(parents=True)
     task_path.write_text(task_spec(), encoding="utf-8")
+    dispatch_task = root / "tasks" / "build" / "013-dispatch-benchmark.md"
+    dispatch_task.write_text(
+        task_spec()
+        .replace("# 012 -", "# 013 -")
+        .replace('"task_id": "012"', '"task_id": "013"')
+        .replace("012-attempt-1.md", "013-attempt-1.md"),
+        encoding="utf-8",
+    )
     (root / "src").mkdir()
     (root / "src" / "probe.py").write_text("VALUE = 1\n", encoding="utf-8")
     run(["git", "add", "."], cwd=root)
@@ -140,6 +149,17 @@ def setup_fixture(base: Path) -> tuple[Path, Path]:
         "host": "codex",
     }
     invoke(runtime, root, "session-start", neutral_payload)
+    invoke(
+        runtime,
+        root,
+        "user-prompt-submit",
+        {
+            "cwd": str(root),
+            "session_id": "bench-dispatch",
+            "host": "codex",
+            "prompt": "开始讨论",
+        },
+    )
     acquired = run(
         [
             sys.executable,
@@ -210,6 +230,10 @@ def validate_output(case: str, output: dict[str, Any]) -> None:
     }:
         if output != {}:
             raise RuntimeError(f"{case} expected an empty allow response: {output}")
+    elif case == "dispatch_discussion":
+        context = (output.get("hookSpecificOutput") or {}).get("additionalContext", "")
+        if '"host_action":"launch_codex_agent_worker"' not in context:
+            raise RuntimeError(f"Discussion dispatch route missing: {output}")
 
 
 def payload_factories(root: Path) -> dict[str, tuple[str, Callable[[int], dict[str, Any]]]]:
@@ -261,6 +285,15 @@ def payload_factories(root: Path) -> dict[str, tuple[str, Callable[[int], dict[s
                 "cwd": str(root),
                 "session_id": "bench-neutral",
                 "host": "codex",
+            },
+        ),
+        "dispatch_discussion": (
+            "user-prompt-submit",
+            lambda _: {
+                "cwd": str(root),
+                "session_id": "bench-dispatch",
+                "host": "codex",
+                "prompt": "执行 013 任务",
             },
         ),
         "session_fresh": (
@@ -386,9 +419,13 @@ def benchmark(args: argparse.Namespace) -> dict[str, Any]:
         violations: list[str] = []
         for name, result in results.items():
             limit = (
-                args.session_limit_ms
-                if name.startswith("session_")
-                else args.pretool_limit_ms
+                args.dispatch_limit_ms
+                if name.startswith("dispatch_")
+                else (
+                    args.session_limit_ms
+                    if name.startswith("session_")
+                    else args.pretool_limit_ms
+                )
             )
             if result["p95_ms"] >= limit:
                 violations.append(f"{name} p95 {result['p95_ms']}ms >= {limit}ms")
@@ -417,6 +454,7 @@ def benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "thresholds_ms": {
                 "pretool_p95": args.pretool_limit_ms,
                 "session_start_p95": args.session_limit_ms,
+                "dispatch_p95": args.dispatch_limit_ms,
                 "bulk_p95_delta": args.bulk_delta_limit_ms,
             },
             "results": results,
@@ -434,6 +472,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bulk-files", type=int, default=5000)
     parser.add_argument("--pretool-limit-ms", type=float, default=PRETOOL_LIMIT_MS)
     parser.add_argument("--session-limit-ms", type=float, default=SESSION_LIMIT_MS)
+    parser.add_argument("--dispatch-limit-ms", type=float, default=DISPATCH_LIMIT_MS)
     parser.add_argument(
         "--bulk-delta-limit-ms", type=float, default=BULK_DELTA_LIMIT_MS
     )

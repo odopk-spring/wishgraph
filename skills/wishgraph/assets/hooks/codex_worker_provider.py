@@ -11,10 +11,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 from git_state import (
+    canonical_runtime_id,
     apply_session_runtime_patch,
     current_branch,
     inspect_claims,
+    latest_execution_run,
+    read_ref_version,
     read_session_runtime,
+    update_execution_run,
 )
 from workflow_state import canonical_task_id
 
@@ -308,6 +312,10 @@ def register_codex_worker(
 ) -> dict[str, Any]:
     """Persist a Codex Worker only after the host returns a real inspectable ID."""
     canonical = canonical_task_id(task_id)
+    try:
+        thread_id = canonical_runtime_id(thread_id)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
     thread_id = str(thread_id or "").strip()
     if not canonical:
         return {"ok": False, "error": "invalid_task_id"}
@@ -435,6 +443,34 @@ def register_codex_worker(
             canonical,
             "codex_discussion_runtime_persistence_failed",
         )
+    execution_run = latest_execution_run(
+        root, canonical, attempt=int(task.get("attempt") or 1)
+    )
+    if isinstance(execution_run, dict):
+        run_bound = update_execution_run(
+            root,
+            task_id=canonical,
+            attempt=int(task.get("attempt") or 1),
+            patch={
+                "phase": "dispatching",
+                "worker": {
+                    "host": "codex",
+                    "container_kind": CODEX_AGENT_THREAD,
+                    "thread_or_session_id": thread_id,
+                    "branch": bound_branch,
+                    "worktree": bound_worktree,
+                    "registered_at": now,
+                },
+                "last_error": {},
+            },
+        )
+        if not run_bound.get("ok"):
+            return _manual_codex_worker_fallback(
+                root,
+                discussion_session_id,
+                canonical,
+                "codex_execution_run_binding_failed",
+            )
     return {
         "ok": True,
         "registered": True,
@@ -457,6 +493,10 @@ def observe_codex_worker(
     resolve_task_record: Callable[[Path, dict[str, Any], str], dict[str, Any]],
 ) -> dict[str, Any]:
     """Refresh Codex from a structured host state plus durable closeout evidence."""
+    try:
+        thread_id = canonical_runtime_id(thread_id)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
     runtime = read_session_runtime(root, discussion_session_id)
     if runtime is None:
         return {"ok": False, "error": "discussion_session_runtime_not_found"}
@@ -497,14 +537,33 @@ def observe_codex_worker(
     claim = claims[0] if claims else None
     resolved = resolve_task_record(root, config, task_id)
     task = resolved.get("task", {}) if resolved.get("ok") else {}
-    task_status = str(task.get("status") or "")
-    report_path_value = str(task.get("run_report") or "")
-    report_exists = bool(report_path_value and (root / report_path_value).is_file())
+    execution_run = latest_execution_run(
+        root, task_id, attempt=int(task.get("attempt") or 1)
+    )
+    result = (
+        execution_run.get("result")
+        if isinstance(execution_run, dict)
+        and isinstance(execution_run.get("result"), dict)
+        else {}
+    )
+    task_status = str(result.get("terminal_state") or task.get("status") or "")
+    report_path_value = str(result.get("report") or task.get("run_report") or "")
+    result_commit = str(result.get("commit") or "")
+    report_exists = bool(
+        report_path_value
+        and (
+            (result_commit and read_ref_version(root, result_commit, report_path_value))
+            or (root / report_path_value).is_file()
+        )
+    )
     claim_released = bool(claim and claim.get("lease_status") == "released")
     durable_terminal = (
         task_status in {"completed", "blocked", "incomplete"}
         and report_exists
         and claim_released
+        and isinstance(execution_run, dict)
+        and execution_run.get("phase")
+        in {"succeeded", "failed", "decision_required", "integrating", "integrated"}
     )
     if durable_terminal:
         phase = "integration_pending"

@@ -23,7 +23,7 @@ active   = mode: warn or mode: enforce
 
 - `use_wishgraph` must come from a user request that explicitly names WishGraph. It may start safe project setup, but successful setup leaves the session `neutral`.
 - `start_discussion` is accepted only for an active project and changes `neutral -> discussion`.
-- An exact `执行 NNN 任务` in an ordinary neutral session changes that session to the Discussion dispatcher, persists the complete authorized Task identity, and requests a separate Formal Worker. It never turns the same ordinary window into the business-code Worker.
+- An exact `执行 NNN 任务` in Discussion authorizes and routes an independent Formal Worker. The same exact command in an ordinary neutral session authorizes the Run and binds that current inspectable window as the Formal Worker after Claim acquisition; it must not create another Worker.
 - In an inactive project, generic `开始讨论`, `刷新项目状态`, and `执行 NNN 任务` text must not become WishGraph events.
 - Global Skill availability, a governance-looking repository, or pre-existing project documents do not imply activation.
 - This gate reads only the exact config path. It never scans the repository to guess whether WishGraph should be active.
@@ -58,13 +58,13 @@ worker
 
 Integration is not a role. It is a temporary Discussion-local phase.
 
-### Task Lifecycle
+### Durable Task Lifecycle
 
 ```text
-draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed
+draft -> approved -> integrated -> reviewed
 ```
 
-Also preserve terminal audit states such as `rejected`, `abandoned`, `superseded`, and `cancelled` where applicable.
+Legacy Task records using `running`, `completed`, `blocked`, or `incomplete` remain readable. New execution does not rewrite Task files for transient progress. The canonical Run owns `dispatching -> running -> succeeded|failed|decision_required -> integrating -> integrated`. Preserve terminal audit evidence in immutable Runs, reports, Claims, and Git.
 
 ### Flow Phase
 
@@ -145,15 +145,16 @@ Events must come from structured user commands, persisted runtime facts, validat
 
 ## Core Transitions
 
-- `neutral + exact Task authority -> discussion/routing_worker + approved`; no prior `start_discussion` command is required.
-- `draft + explicit Worker authority -> approved + routing_worker`.
-- `approved + real user-visible and inspectable Worker thread/window + acquired Claim -> running + waiting_for_worker`.
-- `running + valid terminal report + released Claim -> completed|blocked|incomplete`.
+- `neutral + exact Task authority -> current window routing_worker`; no prior `start_discussion` command and no nested Worker are required.
+- `discussion + exact Task authority -> routing_worker + independent Worker launch`.
+- Explicit authority atomically creates one canonical Run; no authorization commit is required.
+- `authorized Run + exact inspectable Worker binding + acquired Claim -> Run running`.
+- `Run running + committed immutable report + released Claim -> Run succeeded|failed|decision_required`.
 - Any Worker terminal result first enters `integration_pending`.
 - Safe completed evidence produces a one-time reducer transition grant, then the bound Discussion acquires the lease and enters local `integrating`.
 - Material risk or ambiguity enters `decision_required` with one concrete question.
 - Missing evidence or failed validation enters Worker repair rather than integration.
-- Successful integration moves formal Tasks to `integrated`; human acceptance moves them to `reviewed`.
+- Successful integration moves the durable Task from draft/approved (or a legacy terminal state) to `integrated`; human acceptance moves it to `reviewed`.
 - A Revision integrates without regressing an already integrated or reviewed parent Task.
 
 Do not persist `waiting_for_worker` until a real Worker exists and the runtime write succeeds. If host creation fails, persist `waiting_for_user_launch` and give a host-neutral handoff containing the exact project directory, copy-ready `codex` and `claude` startup commands with their resolved profiles, and the final `执行 <task-id>` line. Model selection happens in the startup command; the Task command remains stable.

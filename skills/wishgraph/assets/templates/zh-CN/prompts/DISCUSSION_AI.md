@@ -1,6 +1,6 @@
 # Discussion AI 启动提示词
 
-只有项目已经明确启用 WishGraph 后才使用本提示词。启用后窗口仍是 neutral；用户输入“开始讨论”才进入 Discussion。普通 neutral 窗口也可以通过准确的“执行 NNN 任务”成为派发端，但真正实现仍交给独立 Worker。
+只有项目已经明确启用 WishGraph 后才使用本提示词。启用后窗口仍是 neutral；用户输入“开始讨论”才进入 Discussion。Discussion 输入准确的“执行 NNN 任务”会派发独立 Worker；普通 neutral 窗口输入时直接绑定当前窗口为 Worker，不进入本提示词。
 
 本文件只保存精简交接。异常机制留在 WishGraph References，不放进默认上下文。
 
@@ -38,7 +38,7 @@
 NNN 已交给独立 Worker 执行。
 ```
 
-普通路径不展示 Claim ID、lease ID、runtime 路径、session JSON、capability 列表或 authorization commit 过程。
+普通路径不展示 Claim ID、lease ID、runtime 路径、session JSON 或 capability 列表。
 
 ## 讨论与授权
 

@@ -9,6 +9,10 @@ project memory.
 from __future__ import annotations
 
 import sys
+
+# Hook execution must not dirty a governed repository with __pycache__ files.
+# Set this before importing sibling runtime modules.
+sys.dont_write_bytecode = True
 from pathlib import Path
 
 

@@ -25,20 +25,25 @@ from git_state import (
     apply_session_runtime_patch,
     acquire_claim,
     acquire_integration_lease,
+    canonical_runtime_id,
     configured_revision_glob,
     configured_task_globs,
     current_branch,
     consume_worker_notifications,
     create_integration_transition_grant,
+    content_fingerprint,
     enqueue_worker_notification,
     find_git_root,
     load_config,
     inspect_claims,
     inspect_integration_grant,
     inspect_integration_lease,
+    latest_execution_run,
     read_version,
     read_session_runtime,
     read_host_observations,
+    read_execution_run,
+    read_ref_version,
     record_host_observation,
     rebind_worker_claim,
     resolve_project_status_path,
@@ -47,6 +52,7 @@ from git_state import (
     task_paths_for_id,
     revision_paths_for_parent,
     update_claim,
+    update_execution_run,
     update_integration_lease,
     write_session_runtime,
 )
@@ -54,7 +60,9 @@ from policy import (
     CheckResult,
     check_sync,
     execution_preflight as evaluate_execution_preflight,
+    integration_candidate_outcome,
     integration_state,
+    mechanical_report_errors,
     report_state,
     reduce_orchestration,
 )
@@ -309,7 +317,11 @@ def current_host_adapter_state(root: Path, host: str) -> dict[str, Any]:
 
 
 def current_host_execution_guard(
-    root: Path, config: dict[str, Any], host: str
+    root: Path,
+    config: dict[str, Any],
+    host: str,
+    *,
+    bound_claim: bool = False,
 ) -> dict[str, Any]:
     required_hosts = config.get("required_hosts", [])
     if host not in {"codex", "claude"}:
@@ -357,7 +369,7 @@ def current_host_execution_guard(
         age = max(0.0, (datetime.now(timezone.utc) - latest[0]).total_seconds())
         adapter_updated_at = float(adapter.get("updated_at_epoch") or 0.0)
         observed_epoch = latest[0].timestamp()
-        if age <= HOST_RECEIPT_RECENT_SECONDS and observed_epoch + 1 >= adapter_updated_at:
+        if age <= HOST_RECEIPT_RECENT_SECONDS and observed_epoch + 5 >= adapter_updated_at:
             return {
                 "ok": True,
                 "host": host,
@@ -365,6 +377,18 @@ def current_host_execution_guard(
                 "receipt": latest[1],
                 "age_seconds": int(age),
             }
+    # A fully bound active Claim is stronger execution evidence than a periodic
+    # Hook receipt. This keeps long-running Workers alive without introducing a
+    # heartbeat daemon, while launch and Claim acquisition still require a fresh
+    # receipt and a current adapter.
+    if bound_claim:
+        return {
+            "ok": True,
+            "host": host,
+            "adapter": adapter,
+            "receipt": latest[1] if latest is not None else {},
+            "receipt_state": "active_claim_binding",
+        }
     return {
         "ok": False,
         "error": "current_host_receipt_not_recent",
@@ -380,6 +404,14 @@ def map_flow_plan_to_host(
     plan: FlowPlan, capability: HostCapability
 ) -> HostAction:
     """Map one authorized semantic plan to a host action without changing authority."""
+    if plan.next_action == "bind_current_worker":
+        return HostAction(
+            action="bind_current_worker",
+            state_patch=plan.state_patch,
+            stop_after_action=True,
+            creates_inspectable_thread=False,
+            work_payload=plan.work_payload,
+        )
     if plan.next_action == "launch_worker":
         if not capability.supports_formal_worker_thread:
             task_id = plan.task_id
@@ -1046,25 +1078,28 @@ def _authorized_execution_thread_launch(
         return {"ok": False, "error": "worker_routing_phase_required"}
     if task_runtime.get("task_id") != task_id:
         return {"ok": False, "error": "authorized_task_mismatch"}
-    if (
-        task_runtime.get("lifecycle") != "approved"
-        or task_runtime.get("worker_authorized") is not True
-    ):
-        return {"ok": False, "error": "worker_launch_not_authorized"}
     host_guard = current_host_execution_guard(root, config, current_host)
     if not host_guard.get("ok"):
         return host_guard
     baseline = _local_git_baseline(root)
     if not baseline.get("ok"):
         return baseline
-    preflight = execution_preflight(root, config, task_id, "execute")
-    if not preflight.get("ok"):
+    resolved = resolve_task(root, config, task_id)
+    if not resolved.get("ok"):
+        return resolved
+    durable_task = resolved["task"]
+    _, preflight_errors = evaluate_execution_preflight(
+        root,
+        config,
+        str(durable_task.get("task_path") or ""),
+        "execute",
+    )
+    if preflight_errors:
         return {
             "ok": False,
             "error": "execution_preflight_failed",
-            "detail": preflight,
+            "detail": preflight_errors,
         }
-    durable_task = preflight["task"]
     expected_identity = {
         "task_id": task_id,
         "lifecycle": "approved",
@@ -1072,15 +1107,18 @@ def _authorized_execution_thread_launch(
         "worker_authorized": True,
         "run_report": str(durable_task.get("run_report") or ""),
     }
-    if any(
-        task_runtime.get(key) != value for key, value in expected_identity.items()
+    if (
+        task_runtime.get("lifecycle") != "approved"
+        or task_runtime.get("worker_authorized") is not True
     ):
+        return {"ok": False, "error": "worker_launch_not_authorized"}
+    if any(task_runtime.get(key) != value for key, value in expected_identity.items()):
         return {
             "ok": False,
             "error": "authorized_task_identity_incomplete_or_stale",
             "required_fields": list(expected_identity),
         }
-    task_path = str(preflight["task"].get("task_path") or "")
+    task_path = str(durable_task.get("task_path") or "")
     current_task = read_version(root, task_path, "worktree") if task_path else None
     committed = run_git(root, "show", f"HEAD:{task_path}", check=False)
     committed_task = (
@@ -1094,7 +1132,58 @@ def _authorized_execution_thread_launch(
             "error": "authorized_task_must_match_current_head_for_execution_thread",
             "task_path": task_path,
         }
-    return {"ok": True, "runtime": runtime, "task": preflight["task"]}
+    run = latest_execution_run(
+        root, task_id, attempt=int(durable_task.get("attempt") or 1)
+    )
+    authorization = run.get("authorization") if isinstance(run, dict) else {}
+    valid_run_authority = bool(
+        isinstance(authorization, dict)
+        and authorization.get("authorized") is True
+        and authorization.get("source_session_id") == discussion_session_id
+        and authorization.get("dispatch_mode") == "background_worker"
+        and run.get("phase") == "dispatching"
+    )
+    if not valid_run_authority:
+        legacy_authorized = bool(
+            durable_task.get("status") == "approved"
+            and durable_task.get("worker_creation_authorized") is True
+            and task_runtime.get("lifecycle") == "approved"
+            and task_runtime.get("worker_authorized") is True
+        )
+        if not legacy_authorized:
+            return {"ok": False, "error": "authorized_execution_run_required"}
+        migrated = update_execution_run(
+            root,
+            task_id=task_id,
+            attempt=int(durable_task.get("attempt") or 1),
+            create=run is None,
+            patch={
+                "phase": "dispatching",
+                "task_path": task_path,
+                "run_report": str(durable_task.get("run_report") or ""),
+                "base_commit": baseline["head"],
+                "task_fingerprint": content_fingerprint(current_task),
+                "authorization": {
+                    "authorized": True,
+                    "event": "legacy_approved_task_migration",
+                    "source_session_id": discussion_session_id,
+                    "parent_discussion_id": discussion_session_id,
+                    "host": current_host,
+                    "dispatch_mode": "background_worker",
+                    "authorized_at": _utc_now(),
+                },
+            },
+        )
+        if not migrated.get("ok"):
+            return migrated
+        run = migrated["run"]
+    if (
+        run.get("base_commit") != baseline.get("head")
+        or run.get("task_path") != task_path
+        or run.get("task_fingerprint") != content_fingerprint(current_task)
+    ):
+        return {"ok": False, "error": "authorized_execution_run_stale"}
+    return {"ok": True, "runtime": runtime, "task": durable_task, "run": run}
 
 
 def _authorize_codex_execution_thread_launch(
@@ -1255,7 +1344,6 @@ def launch_claude_worker(
         launch_settings,
         f"执行 {canonical} 任务",
     ]
-    before = _query_claude_agents(root, executable)
     starting = apply_session_runtime_patch(
         root,
         discussion_session_id,
@@ -1320,18 +1408,6 @@ def launch_claude_worker(
     after = _query_claude_agents(root, executable)
     sessions = after.get("sessions", []) if after.get("ok") else []
     session = _find_claude_session(sessions, "", short_id)
-    if session is None and before.get("ok") and after.get("ok"):
-        previous_ids = {
-            str(item.get("sessionId") or item.get("id") or "")
-            for item in before.get("sessions", [])
-        }
-        new_sessions = [
-            item
-            for item in sessions
-            if str(item.get("sessionId") or item.get("id") or "") not in previous_ids
-        ]
-        if len(new_sessions) == 1:
-            session = new_sessions[0]
     full_session_id = str((session or {}).get("sessionId") or "")
     short_id = short_id or str((session or {}).get("id") or "")
     claude_session_id = full_session_id
@@ -1503,6 +1579,36 @@ def launch_claude_worker(
             "discussion_runtime_persistence_failed",
             orphan_session_id=claude_session_id,
         )
+    execution_run = latest_execution_run(
+        root, canonical, attempt=int(authorized["task"].get("attempt") or 1)
+    )
+    if isinstance(execution_run, dict):
+        run_bound = update_execution_run(
+            root,
+            task_id=canonical,
+            attempt=int(authorized["task"].get("attempt") or 1),
+            patch={
+                "phase": "dispatching",
+                "worker": {
+                    "host": "claude",
+                    "container_kind": CLAUDE_BACKGROUND_CONTAINER,
+                    "thread_or_session_id": claude_session_id,
+                    "branch": launch_branch,
+                    "worktree": launch_worktree,
+                    "registered_at": _utc_now(),
+                },
+                "last_error": {},
+            },
+        )
+        if not run_bound.get("ok"):
+            return _manual_worker_fallback(
+                root,
+                discussion_session_id,
+                canonical,
+                capability,
+                "claude_execution_run_binding_failed",
+                orphan_session_id=claude_session_id,
+            )
     return {
         "ok": True,
         "launched": True,
@@ -1595,15 +1701,33 @@ def refresh_claude_worker(
     claim = claims[0] if claims else None
     resolved = resolve_task(root, config, task_id)
     task = resolved.get("task", {}) if resolved.get("ok") else {}
-    task_status = str(task.get("status") or "")
-    report_path_value = str(task.get("run_report") or "")
-    report_path = root / report_path_value if report_path_value else None
-    report_exists = bool(report_path and report_path.is_file())
+    execution_run = latest_execution_run(
+        root, task_id, attempt=int(task.get("attempt") or 1)
+    )
+    result = (
+        execution_run.get("result")
+        if isinstance(execution_run, dict)
+        and isinstance(execution_run.get("result"), dict)
+        else {}
+    )
+    task_status = str(result.get("terminal_state") or task.get("status") or "")
+    report_path_value = str(result.get("report") or task.get("run_report") or "")
+    result_commit = str(result.get("commit") or "")
+    report_exists = bool(
+        report_path_value
+        and (
+            (result_commit and read_ref_version(root, result_commit, report_path_value))
+            or (root / report_path_value).is_file()
+        )
+    )
     claim_released = bool(claim and claim.get("lease_status") == "released")
     durable_terminal = (
         task_status in {"completed", "blocked", "incomplete"}
         and report_exists
         and claim_released
+        and isinstance(execution_run, dict)
+        and execution_run.get("phase")
+        in {"succeeded", "failed", "decision_required", "integrating", "integrated"}
     )
 
     if durable_terminal:
@@ -1818,9 +1942,9 @@ def format_failure(result: CheckResult, scope: str) -> str:
     lines.extend(
         [
             "",
-            "Task lifecycle: draft task specs do not authorize Workers; after an explicit",
-            "creation command record approved + worker_creation_authorized=true, then",
-            "Worker records running and completed/blocked/incomplete.",
+            "Execution truth: an exact command creates one canonical Run; Claim acquisition",
+            "moves that Run to running, and Claim release records its terminal evidence.",
+            "Workers do not rewrite Task files merely to mirror transient progress.",
             "Worker: create one new immutable reports/runs/<work-unit-id>.md,",
             "record work type, readiness, safety fields, validation, and Integrate or N/A,",
             "and do not edit shared state or start other agents.",
@@ -1880,48 +2004,117 @@ def enqueue_terminal_notification_from_claim(
         work_type = task_state.work_type
         execution_mode = task_state.execution_mode
         integration_policy = task_state.integration_policy
-    lifecycle = str(work.get("status") or "")
     run_report = str(work.get("run_report") or "")
-    if lifecycle not in {"completed", "blocked", "incomplete"} or not run_report:
+    if not run_report:
         return {"ok": False, "error": "terminal_evidence_incomplete"}
     report_content = read_version(root, run_report, "worktree")
+    existing_run = latest_execution_run(
+        root, task_id, attempt=int(claim.get("attempt") or 1)
+    )
+    result_commit = str(
+        ((existing_run or {}).get("result") or {}).get("commit") or ""
+    )
+    if not result_commit:
+        branch = str(claim.get("branch") or "")
+        commit_result = run_git(root, "rev-parse", branch or "HEAD", check=False)
+        if commit_result.returncode == 0:
+            result_commit = commit_result.stdout.decode(
+                "utf-8", errors="replace"
+            ).strip()
+    if report_content is None and result_commit:
+        report_content = read_ref_version(root, result_commit, run_report)
     if report_content is None:
         return {"ok": False, "error": "terminal_run_report_missing"}
     report = report_state(run_report, report_content)
-
-    material_decision = (
-        report.new_decision not in NO_MATERIAL_DECISION_VALUES
-        or report.selection_requires_judgment
-        or (report.risk_flags_known and not report.risk_flags_clear)
-        or work_type == "high_risk"
-        or execution_mode == "competitive"
-        or integration_policy == "requires_explicit_user_confirmation"
-    )
-    decision_only_errors = {
-        "a new product, architecture, or data decision requires review"
-    }
-    mechanical_errors = [
-        error for error in report.safety_errors if error not in decision_only_errors
-    ]
-    if lifecycle in {"blocked", "incomplete"} or report.status not in {
-        "completed",
-        "done",
-    }:
+    lifecycle = {
+        "completed": "completed",
+        "done": "completed",
+        "blocked": "blocked",
+        "incomplete": "incomplete",
+        "rejected": "rejected",
+        "abandoned": "abandoned",
+        "superseded": "superseded",
+    }.get(report.status, report.status)
+    parsed_task = None
+    if not revision_id:
+        task_path = str(work.get("task_path") or "")
+        task_content = read_version(root, task_path, "worktree") or ""
+        parsed_task = parse_task_state(task_path, task_content)
+    risk_outcome, risk_reason = integration_candidate_outcome(parsed_task, report)
+    if risk_outcome == "blocked":
         terminal_event = "failed"
         next_action = "resolve_worker_failure"
-        reason = f"worker_{lifecycle}"
-    elif mechanical_errors:
-        terminal_event = "failed"
-        next_action = "resolve_worker_failure"
-        reason = "terminal_report_failed_safety_validation"
-    elif material_decision:
+        reason = risk_reason
+    elif risk_outcome == "decision_required":
         terminal_event = "decision_required"
         next_action = "resolve_conflict"
-        reason = "material_integration_decision_required"
+        reason = risk_reason
     else:
         terminal_event = "completed"
         next_action = "auto_integrate"
-        reason = "safe_terminal_result_ready"
+        reason = risk_reason
+
+    if not dry_run:
+        terminal_phase = {
+            "completed": "succeeded",
+            "decision_required": "decision_required",
+            "failed": "failed",
+        }[terminal_event]
+        run_persisted = update_execution_run(
+            root,
+            task_id=task_id,
+            revision_id=revision_id,
+            attempt=int(claim.get("attempt") or 1),
+            create=existing_run is None,
+            patch={
+                "phase": terminal_phase,
+                "task_path": str(work.get("task_path") or ""),
+                "run_report": run_report,
+                "base_commit": result_commit,
+                "claim_id": str(claim.get("claim_id") or ""),
+                "worker": {
+                    "host": str(claim.get("agent_platform") or "unknown"),
+                    "container_kind": str(claim.get("container_kind") or ""),
+                    "thread_or_session_id": str(
+                        claim.get("host_thread_ref") or claim.get("worker_id") or ""
+                    ),
+                    "branch": str(claim.get("branch") or ""),
+                    "worktree": str(claim.get("worktree") or ""),
+                },
+                "result": {
+                    "terminal_state": lifecycle,
+                    "commit": result_commit,
+                    "report": run_report,
+                    "risk_outcome": risk_outcome,
+                    "reason": risk_reason,
+                    "observed_at": _utc_now(),
+                },
+                "last_error": (
+                    {
+                        "class": "material_decision",
+                        "code": risk_reason,
+                        "at": _utc_now(),
+                    }
+                    if terminal_event == "decision_required"
+                    else (
+                        {
+                            "class": "execution_failure",
+                            "code": risk_reason,
+                            "at": _utc_now(),
+                        }
+                        if terminal_event == "failed"
+                        else {}
+                    )
+                ),
+            },
+        )
+        if not run_persisted.get("ok"):
+            return {
+                "ok": False,
+                "error": "terminal_execution_run_persistence_failed",
+                "detail": run_persisted,
+            }
+        existing_run = run_persisted.get("run")
 
     notification_values = {
         "task_id": task_id,
@@ -1938,6 +2131,7 @@ def enqueue_terminal_notification_from_claim(
         "agent_platform": str(claim.get("agent_platform") or "unknown"),
         "next_action": next_action,
         "reason": reason,
+        "run_id": str((existing_run or {}).get("run_id") or ""),
     }
     if dry_run:
         return {"ok": True, "notification_plan": notification_values}
@@ -2020,7 +2214,60 @@ def consume_discussion_notification_context(
             "WishGraph Worker notification inbox could not be consumed: "
             + str(consumed.get("error") or "unknown_error")
         )
-    return format_worker_notifications(consumed.get("notifications", []))
+    notifications = consumed.get("notifications", [])
+    if len(notifications) == 1:
+        notification = notifications[0]
+        task_id = canonical_task_id(notification.get("task_id"))
+        config = load_config(root)
+        resolved = resolve_task(root, config, task_id) if config and task_id else {
+            "ok": False
+        }
+        run_id = str(notification.get("run_id") or "")
+        run = read_execution_run(root, run_id) if run_id else None
+        if run is None and task_id:
+            run = latest_execution_run(root, task_id)
+        if resolved.get("ok") and isinstance(run, dict):
+            terminal_state = str((run.get("result") or {}).get("terminal_state") or "")
+            lifecycle = (
+                terminal_state
+                if terminal_state in {"completed", "blocked", "incomplete"}
+                else (
+                    "completed"
+                    if run.get("phase") in {"succeeded", "decision_required"}
+                    else "blocked"
+                )
+            )
+            projected = _persist_runtime_with_complete_task(
+                root,
+                session_id,
+                resolved["task"],
+                {
+                    "session": {
+                        "phase": "integration_pending",
+                        "expected_transition": {
+                            "kind": "auto_integrate",
+                            "task_id": task_id,
+                            "report_id": str(
+                                (run.get("result") or {}).get("report") or ""
+                            ),
+                        },
+                    },
+                    "task": {
+                        "lifecycle": lifecycle,
+                        "worker_authorized": True,
+                    },
+                    "worker_runtime": {
+                        "run_id": run.get("run_id"),
+                    },
+                },
+            )
+            if not projected.get("ok"):
+                return (
+                    "WishGraph Worker result exists, but its Discussion projection "
+                    "could not be refreshed: "
+                    + str(projected.get("error") or "unknown_error")
+                )
+    return format_worker_notifications(notifications)
 
 
 def join_context(*parts: Optional[str]) -> str:
@@ -2104,7 +2351,7 @@ def hook_session_id(payload: dict[str, Any]) -> str:
     for key in ("session_id", "conversation_id", "thread_id"):
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
-            return value.strip()
+            return canonical_runtime_id(value)
     return ""
 
 
@@ -2432,14 +2679,6 @@ def orchestration_gate_plan(
     session_value = dict(session_value) if isinstance(session_value, dict) else {}
     role = str(session_value.get("role") or "neutral")
     session_host = str(session_value.get("host") or "unknown")
-    if role == "worker" and current_host in {"codex", "claude"}:
-        host_guard = current_host_execution_guard(root, config, current_host)
-        if not host_guard.get("ok"):
-            return FlowPlan(
-                accepted=False,
-                next_action="deny_current_host_execution",
-                denial_reason=str(host_guard.get("message") or host_guard.get("error")),
-            )
     task_value = runtime.get("task") if isinstance(runtime.get("task"), dict) else {}
     task_id = str(task_value.get("task_id") or "")
     runtime["worker_runtime"] = {}
@@ -2474,6 +2713,19 @@ def orchestration_gate_plan(
                     "execution_ownership", "worker_claim"
                 ),
             }
+    if role == "worker" and current_host in {"codex", "claude"}:
+        host_guard = current_host_execution_guard(
+            root,
+            config,
+            current_host,
+            bound_claim=bool(runtime["worker_runtime"].get("claim_id")),
+        )
+        if not host_guard.get("ok"):
+            return FlowPlan(
+                accepted=False,
+                next_action="deny_current_host_execution",
+                denial_reason=str(host_guard.get("message") or host_guard.get("error")),
+            )
     if role == "discussion" and session_value.get("phase") == "integrating":
         lease = inspect_integration_lease(root)
         if (
@@ -2667,20 +2919,135 @@ def _persist_execution_route_runtime(
     previous_runtime: Optional[dict[str, Any]],
     task_record: dict[str, Any],
     state_patch: dict[str, Any],
+    *,
+    dispatch_mode: str,
 ) -> dict[str, Any]:
-    """Persist an accepted dispatch plan with verified Discussion provenance."""
+    """Persist one authorized Run, then its small session projection."""
+    if dispatch_mode not in {"background_worker", "current_window"}:
+        return {"ok": False, "error": "invalid_dispatch_mode"}
+    task_path = str(task_record.get("task_path") or "")
+    task_content = read_version(root, task_path, "worktree") if task_path else None
+    committed = run_git(root, "show", f"HEAD:{task_path}", check=False)
+    if (
+        task_content is None
+        or (
+            dispatch_mode == "background_worker"
+            and (
+                committed.returncode != 0
+                or committed.stdout.decode("utf-8", errors="replace") != task_content
+            )
+        )
+    ):
+        return {
+            "ok": False,
+            "error": "task_spec_must_match_head_before_dispatch",
+            "task_path": task_path,
+        }
+    attempt = int(task_record.get("attempt") or 1)
+    task_id = str(task_record.get("task_id") or "")
+    existing = latest_execution_run(root, task_id, attempt=attempt)
+    if existing is not None:
+        recoverable_preclaim_failure = (
+            existing.get("phase") == "failed"
+            and not existing.get("claim_id")
+            and not ((existing.get("result") or {}).get("commit"))
+        )
+        same_pending_authority = (
+            existing.get("phase") == "dispatching"
+            and (
+                ((existing.get("authorization") or {}).get("source_session_id"))
+                == session_id
+                or (
+                    dispatch_mode == "current_window"
+                    and not existing.get("claim_id")
+                    and not (existing.get("worker") or {}).get("thread_or_session_id")
+                )
+            )
+        )
+        if not (recoverable_preclaim_failure or same_pending_authority):
+            return {
+                "ok": False,
+                "error": "execution_run_already_exists",
+                "run": existing,
+            }
+    base_commit = run_git(root, "rev-parse", "HEAD").stdout.decode().strip()
+    previous_authorization = (
+        existing.get("authorization")
+        if isinstance(existing, dict)
+        and isinstance(existing.get("authorization"), dict)
+        else {}
+    )
+    parent_discussion_id = str(
+        previous_authorization.get("parent_discussion_id")
+        or (session_id if dispatch_mode == "background_worker" else "")
+    )
+    run_result = update_execution_run(
+        root,
+        task_id=task_id,
+        attempt=attempt,
+        create=existing is None,
+        patch={
+            "phase": "dispatching",
+            "task_path": task_path,
+            "run_report": str(task_record.get("run_report") or ""),
+            "base_commit": base_commit,
+            "task_fingerprint": content_fingerprint(task_content),
+            "authorization": {
+                "authorized": True,
+                "event": "exact_execute_command",
+                "source_session_id": session_id,
+                "parent_discussion_id": parent_discussion_id,
+                "host": host,
+                "dispatch_mode": dispatch_mode,
+                "authorized_at": _utc_now(),
+            },
+            "worker": {},
+            "claim_id": "",
+            "result": {},
+            "last_error": {},
+        },
+    )
+    if not run_result.get("ok"):
+        return run_result
+    run = run_result["run"]
     patch = dict(state_patch)
     previous_role = str(
         (((previous_runtime or {}).get("session") or {}).get("role") or "neutral")
     )
-    if previous_role == "neutral":
+    if previous_role == "neutral" and dispatch_mode == "background_worker":
         patch["session_provenance"] = _discussion_provenance_patch(host)
-    return _persist_runtime_with_complete_task(
+    patch["worker_runtime"] = {
+        **(
+            patch.get("worker_runtime")
+            if isinstance(patch.get("worker_runtime"), dict)
+            else {}
+        ),
+        "run_id": run["run_id"],
+        "dispatch_mode": dispatch_mode,
+    }
+    persisted = _persist_runtime_with_complete_task(
         root,
         session_id,
         task_record,
         patch,
     )
+    if not persisted.get("ok"):
+        update_execution_run(
+            root,
+            task_id=task_id,
+            attempt=attempt,
+            patch={
+                "phase": "failed",
+                "last_error": {
+                    "class": "recoverable",
+                    "code": "session_projection_write_failed",
+                    "at": _utc_now(),
+                },
+            },
+        )
+        return persisted
+    persisted["run"] = run
+    return persisted
 
 
 def formal_worker_launch_context(
@@ -2698,16 +3065,10 @@ def formal_worker_launch_context(
     }:
         return ""
     record = task_path or "the exact resolved Task record"
-    authorization_step = (
-        f"Persist approved + worker_creation_authorized=true for {task_id} in "
-        f"{record}, then create one bounded authorization commit."
-        if authorization_patch_required
-        else f"Verify the already-authorized record {record} for {task_id}."
-    )
     return (
         "WishGraph Formal Worker launch contract (mandatory):\n"
-        f"1. {authorization_step} The working-tree Task record must exactly match "
-        "HEAD before launch.\n"
+        f"1. Use the authorized Run already bound to {record} at the current HEAD. "
+        "Do not create a separate authorization commit.\n"
         "2. In this current Discussion session, directly run this exact Host Adapter "
         f"command: {host_adapter_command}\n"
         "3. Do not use Task, Agent, /fork, a helper, or any ordinary background "
@@ -2718,6 +3079,28 @@ def formal_worker_launch_context(
         "authorization-commit details hidden unless launch fails or the user asks.\n"
         "5. Stop after the Host Adapter result. Never implement business code in "
         f"Discussion. The originating Discussion session ID is {discussion_session_id}."
+    )
+
+
+def current_worker_binding_context(
+    task_id: str,
+    session_id: str,
+    host: str,
+    claim_command: str,
+) -> str:
+    """Return the one-step Neutral -> current Formal Worker handoff."""
+    return (
+        "WishGraph current-window Worker contract (mandatory):\n"
+        f"1. This neutral window is the Worker container for Task {task_id}; do not "
+        "create another Agent, Task, /fork, or background Worker.\n"
+        f"2. Immediately run this exact Claim command in the current project: {claim_command}\n"
+        "3. Claim acquisition reads the exact authorized Run, Task fingerprint, current "
+        "branch, and absolute worktree. Before it succeeds, report only 正在派发 and do "
+        "not write business code or run implementation validation.\n"
+        "4. After it succeeds, execute only the Task scope, write the immutable Run "
+        "Report, commit, and release the Claim. A later Discussion adopts the result "
+        "and integrates it automatically.\n"
+        f"5. The current Worker session ID is {session_id}; host is {host}."
     )
 
 
@@ -2781,14 +3164,12 @@ def user_prompt_submit_main(
                         runtime,
                         contextual_task,
                         action.state_patch,
+                        dispatch_mode="background_worker",
                     )
                     if not persisted.get("ok"):
                         accepted = False
                         denial_reason = "authorization_runtime_persistence_failed"
-                authorization_patch_required = bool(
-                    contextual_task.get("status") != "approved"
-                    or contextual_task.get("worker_creation_authorized") is not True
-                )
+                authorization_patch_required = False
         if not accepted:
             action = HostAction(action="no_action", stop_after_action=True)
         requested_profile = action.work_payload.get("execution_profile")
@@ -3070,6 +3451,11 @@ def user_prompt_submit_main(
                         runtime,
                         task_record,
                         mapped.state_patch,
+                        dispatch_mode=(
+                            "current_window"
+                            if plan.next_action == "bind_current_worker"
+                            else "background_worker"
+                        ),
                     )
                     if not persisted.get("ok"):
                         accepted = False
@@ -3110,17 +3496,42 @@ def user_prompt_submit_main(
         dispatch_session = bool(
             accepted and plan_payload.get("next_action") == "launch_worker"
         )
-        authorization_patch_required = bool(
-            dispatch_session
-            and (
-                resolved["task"].get("status") != "approved"
-                or resolved["task"].get("worker_creation_authorized") is not True
-            )
+        current_worker_session = bool(
+            accepted and plan_payload.get("next_action") == "bind_current_worker"
         )
+        authorization_patch_required = False
         native_launch = host_action in {
             "launch_codex_agent_worker",
             "launch_claude_background_worker",
         }
+        active_run = latest_execution_run(
+            root,
+            task_id,
+            attempt=int(resolved["task"].get("attempt") or 1),
+        )
+        run_authorization = (
+            active_run.get("authorization")
+            if isinstance(active_run, dict)
+            and isinstance(active_run.get("authorization"), dict)
+            else {}
+        )
+        parent_discussion_id = str(
+            run_authorization.get("parent_discussion_id") or ""
+        )
+        current_worker_claim_command = (
+            "python3 .wishgraph/hooks/memory_sync.py "
+            f"claim acquire {task_id} --worker-id {session_id} "
+            f"--session-id {session_id} --host-thread-ref {session_id} "
+            f"--host {host} --container-kind manual_worker_window "
+            "--agent-kind formal_worker"
+            + (
+                f" --discussion-session-id {parent_discussion_id}"
+                if parent_discussion_id
+                else ""
+            )
+            if current_worker_session
+            else ""
+        )
         route = {
             "ok": accepted,
             "command": command,
@@ -3130,6 +3541,7 @@ def user_prompt_submit_main(
             "worker_session_id": session_id,
             "discussion_session_id": session_id if dispatch_session else "",
             "host_adapter_command": host_adapter_command,
+            "current_worker_claim_command": current_worker_claim_command,
             "execution_profile": profile_resolution,
             "manual_command": (
                 f"执行 {task_id} 任务"
@@ -3146,15 +3558,19 @@ def user_prompt_submit_main(
                 if host_action == "show_manual_worker_command"
                 else ""
             ),
-            "stop_after_action": dispatch_session,
+            "stop_after_action": dispatch_session or current_worker_session,
             "authorization_patch_required": authorization_patch_required,
-            "authorization_commit_required": authorization_patch_required,
+            "authorization_commit_required": False,
             "launch_must_run_in_current_discussion": native_launch,
-            "delegation_forbidden": native_launch,
+            "delegation_forbidden": native_launch or current_worker_session,
             "required_before_business_work": "execution_preflight_and_worker_claim",
             "read_boundary": "exact_task_scope_and_explicit_context_only",
             "user_output_contract": {
-                "after_real_worker_created": f"{task_id} 已交给独立 Worker 执行。",
+                "after_real_worker_created": (
+                    f"当前窗口已绑定 {task_id}；Claim 成功后开始执行。"
+                    if current_worker_session
+                    else f"{task_id} 已交给独立 Worker 执行。"
+                ),
                 "on_manual_fallback": (
                     "Worker 没有成功启动，当前窗口没有接管代码修改。"
                 ),
@@ -3164,7 +3580,6 @@ def user_prompt_submit_main(
                     "runtime_path",
                     "session_json",
                     "capabilities",
-                    "authorization_commit",
                 ],
             },
         }
@@ -3182,6 +3597,14 @@ def user_prompt_submit_main(
                         str(resolved["task"].get("task_path") or ""),
                         authorization_patch_required,
                     ),
+                    current_worker_binding_context(
+                        task_id,
+                        session_id,
+                        host,
+                        current_worker_claim_command,
+                    )
+                    if current_worker_session
+                    else "",
                     "WishGraph explicit route:\n"
                     + json.dumps(route, ensure_ascii=False, separators=(",", ":")),
                 ),
@@ -3319,7 +3742,21 @@ def hook_main(event: str, host: str = "unknown") -> int:
                     }
                 )
             return 0
-        result = check_sync(root, config, "staged") if commit_command else None
+        result = None
+        if commit_command:
+            # A no-op commit has no staged governance surface to validate. One
+            # bounded Git probe avoids the full staged checker and keeps the common
+            # PreToolUse path below its latency budget.
+            staged_probe = run_git(root, "diff", "--cached", "--quiet", check=False)
+            try:
+                allow_empty_commit = "--allow-empty" in shlex.split(str(command))
+            except ValueError:
+                allow_empty_commit = False
+            if staged_probe.returncode == 0 and not allow_empty_commit:
+                emit({})
+                return 0
+            if staged_probe.returncode != 0:
+                result = check_sync(root, config, "staged")
         if result is not None and not result.ok:
             reason = format_failure(result, "staged")
             if config.get("mode") == "warn":
@@ -3705,12 +4142,6 @@ def _integration_transition_selection(
             return {"ok": False, "error": "integration_work_unit_not_completed"}
         if unit.get("active_claims"):
             return {"ok": False, "error": "active_worker_claim_exists"}
-        report_content = read_version(root, report_path, "worktree")
-        if report_content is None:
-            return {"ok": False, "error": "integration_run_report_missing"}
-        parsed_report = report_state(report_path, report_content)
-        if parsed_report.status not in {"completed", "done"} or parsed_report.safety_errors:
-            return {"ok": False, "error": "integration_run_report_invalid"}
         matching_claims = [
             claim
             for claim in inspect_claims(root, task_id)
@@ -3724,8 +4155,119 @@ def _integration_transition_selection(
             for claim in matching_claims
         ):
             return {"ok": False, "error": "active_worker_claim_exists"}
-        if not any(claim.get("lease_status") == "released" for claim in matching_claims):
+        released_claims = [
+            claim for claim in matching_claims if claim.get("lease_status") == "released"
+        ]
+        if not released_claims:
             return {"ok": False, "error": "released_worker_claim_required"}
+        released_claims.sort(
+            key=lambda item: str(item.get("updated_at") or ""), reverse=True
+        )
+        released_claim = released_claims[0]
+        execution_run = latest_execution_run(
+            root,
+            task_id,
+            attempt=int(unit.get("attempt") or 1),
+        )
+        result_commit = str(
+            ((execution_run or {}).get("result") or {}).get("commit") or ""
+        )
+        if not result_commit:
+            branch_result = run_git(
+                root,
+                "rev-parse",
+                str(released_claim.get("branch") or "HEAD"),
+                check=False,
+            )
+            if branch_result.returncode == 0:
+                result_commit = branch_result.stdout.decode(
+                    "utf-8", errors="replace"
+                ).strip()
+        report_content = (
+            read_ref_version(root, result_commit, report_path)
+            if result_commit
+            else None
+        )
+        if report_content is None:
+            report_content = read_version(root, report_path, "worktree")
+        if report_content is None:
+            return {"ok": False, "error": "integration_run_report_missing"}
+        parsed_report = report_state(report_path, report_content)
+        if (
+            parsed_report.status not in {"completed", "done"}
+            or mechanical_report_errors(parsed_report)
+        ):
+            return {"ok": False, "error": "integration_run_report_invalid"}
+        if not isinstance(execution_run, dict):
+            parsed_task = None
+            task_path = str(unit.get("task_path") or "")
+            task_content = read_version(root, task_path, "worktree") or ""
+            if task_path and task_content:
+                parsed_task = parse_task_state(task_path, task_content)
+            risk_outcome, risk_reason = integration_candidate_outcome(
+                parsed_task, parsed_report
+            )
+            migrated = update_execution_run(
+                root,
+                task_id=task_id,
+                attempt=int(unit.get("attempt") or 1),
+                revision_id=str(unit.get("revision_id") or ""),
+                create=True,
+                patch={
+                    "phase": (
+                        "decision_required"
+                        if risk_outcome == "decision_required"
+                        else "succeeded"
+                    ),
+                    "task_path": task_path,
+                    "run_report": report_path,
+                    "base_commit": result_commit,
+                    "claim_id": str(released_claim.get("claim_id") or ""),
+                    "authorization": {
+                        "authorized": True,
+                        "event": "legacy_terminal_evidence_migration",
+                        "source_session_id": str(
+                            released_claim.get("discussion_session_id") or session.get("session_id") or ""
+                        ),
+                        "parent_discussion_id": str(
+                            released_claim.get("discussion_session_id") or session.get("session_id") or ""
+                        ),
+                        "host": str(released_claim.get("agent_platform") or "unknown"),
+                        "dispatch_mode": "background_worker",
+                        "authorized_at": str(released_claim.get("started_at") or _utc_now()),
+                    },
+                    "worker": {
+                        "host": str(released_claim.get("agent_platform") or "unknown"),
+                        "container_kind": str(released_claim.get("container_kind") or ""),
+                        "thread_or_session_id": str(
+                            released_claim.get("host_thread_ref")
+                            or released_claim.get("worker_id")
+                            or ""
+                        ),
+                        "branch": str(released_claim.get("branch") or ""),
+                        "worktree": str(released_claim.get("worktree") or ""),
+                    },
+                    "result": {
+                        "terminal_state": "completed",
+                        "commit": result_commit,
+                        "report": report_path,
+                        "risk_outcome": risk_outcome,
+                        "reason": risk_reason,
+                        "observed_at": _utc_now(),
+                    },
+                },
+            )
+            if not migrated.get("ok"):
+                return migrated
+            execution_run = migrated["run"]
+        if (
+            not isinstance(execution_run, dict)
+            or execution_run.get("phase")
+            not in {"succeeded", "decision_required", "integrating"}
+            or ((execution_run.get("result") or {}).get("report")) != report_path
+            or not result_commit
+        ):
+            return {"ok": False, "error": "canonical_execution_run_incomplete"}
 
     return {
         "ok": True,
@@ -3998,6 +4540,41 @@ def integration_lease_main(args: argparse.Namespace) -> int:
                         "error": "integration_runtime_persistence_failed",
                         "detail": persisted,
                     }
+                else:
+                    run_updates: list[dict[str, Any]] = []
+                    for task_id, report_path in zip(args.task_id, args.report):
+                        run = latest_execution_run(root, task_id)
+                        if not isinstance(run, dict):
+                            run_updates.append(
+                                {"ok": False, "error": "execution_run_not_found"}
+                            )
+                            continue
+                        run_updates.append(
+                            update_execution_run(
+                                root,
+                                task_id=task_id,
+                                attempt=int(run.get("attempt") or 1),
+                                revision_id=str(run.get("revision_id") or ""),
+                                patch={
+                                    "phase": "integrating",
+                                    "integration": {
+                                        "integration_id": args.integration_id,
+                                        "lease_id": payload["lease"]["lease_id"],
+                                        "report": report_path,
+                                        "started_at": _utc_now(),
+                                    },
+                                },
+                            )
+                        )
+                    if not all(item.get("ok") for item in run_updates):
+                        update_integration_lease(
+                            root, "revoke", session_id=args.session_id
+                        )
+                        payload = {
+                            "ok": False,
+                            "error": "integration_run_binding_failed",
+                            "detail": run_updates,
+                        }
     else:
         payload = update_integration_lease(
             root,
@@ -4014,6 +4591,49 @@ def integration_lease_main(args: argparse.Namespace) -> int:
                 else None
             ),
         )
+        if payload.get("ok") and args.lease_action == "release":
+            lease = payload.get("lease") or {}
+            integration_commit = run_git(
+                root, "rev-parse", "HEAD", check=False
+            ).stdout.decode("utf-8", errors="replace").strip()
+            run_updates = []
+            for task_id, report_path in zip(
+                lease.get("selected_task_ids") or [],
+                lease.get("selected_reports") or [],
+            ):
+                run = latest_execution_run(root, str(task_id))
+                report_in_head = read_ref_version(
+                    root, "HEAD", str(report_path)
+                ) is not None
+                if not isinstance(run, dict) or not report_in_head:
+                    run_updates.append(
+                        {"ok": False, "error": "integrated_report_not_in_head"}
+                    )
+                    continue
+                run_updates.append(
+                    update_execution_run(
+                        root,
+                        task_id=str(task_id),
+                        attempt=int(run.get("attempt") or 1),
+                        revision_id=str(run.get("revision_id") or ""),
+                        patch={
+                            "phase": "integrated",
+                            "integration": {
+                                "integration_id": str(lease.get("integration_id") or ""),
+                                "lease_id": str(lease.get("lease_id") or ""),
+                                "commit": integration_commit,
+                                "completed_at": _utc_now(),
+                            },
+                        },
+                    )
+                )
+            if run_updates and not all(item.get("ok") for item in run_updates):
+                payload = {
+                    "ok": False,
+                    "error": "lease_released_but_run_closeout_failed",
+                    "lease": lease,
+                    "detail": run_updates,
+                }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if payload.get("ok") else 1
 
@@ -4427,9 +5047,18 @@ def execution_preflight(
     _, errors = evaluate_execution_preflight(
         root, config, task["task_path"], authorization_action
     )
-    if task.get("worker_creation_authorized") is not True:
-        errors.append("worker_creation_authorized_must_be_true")
-    return {"ok": not errors, "task": task, "errors": errors}
+    run = latest_execution_run(
+        root, task_id, attempt=int(task.get("attempt") or 1)
+    )
+    run_authorized = bool(
+        isinstance(run, dict)
+        and isinstance(run.get("authorization"), dict)
+        and run["authorization"].get("authorized") is True
+        and run.get("task_path") == task.get("task_path")
+    )
+    if task.get("worker_creation_authorized") is not True and not run_authorized:
+        errors.append("authorized_execution_run_required")
+    return {"ok": not errors, "task": task, "run": run, "errors": errors}
 
 
 def _record_worker_claim_failure(
@@ -4630,6 +5259,18 @@ def claim_main(args: argparse.Namespace) -> int:
             if config is None:
                 payload = {"ok": False, "error": "wishgraph_not_installed"}
             else:
+                worker_id = canonical_runtime_id(args.worker_id)
+                session_id = canonical_runtime_id(args.session_id or "")
+                host_thread_ref = canonical_runtime_id(
+                    args.host_thread_ref or args.session_id or args.worker_id
+                )
+                requested_discussion_id = canonical_runtime_id(
+                    args.discussion_session_id or ""
+                )
+                if not worker_id or (args.session_id and not session_id) or not host_thread_ref:
+                    payload = {"ok": False, "error": "invalid_worker_runtime_identity"}
+                    print(json.dumps(payload, ensure_ascii=False, indent=2))
+                    return 1
                 host_guard = current_host_execution_guard(root, config, args.host)
                 if not host_guard.get("ok"):
                     print(json.dumps(host_guard, ensure_ascii=False, indent=2))
@@ -4667,8 +5308,8 @@ def claim_main(args: argparse.Namespace) -> int:
                 else:
                     task = preflight["task"]
                     existing_runtime = (
-                        read_session_runtime(root, args.session_id)
-                        if args.session_id
+                        read_session_runtime(root, session_id)
+                        if session_id
                         else None
                     ) or {}
                     launch_context = (
@@ -4682,11 +5323,24 @@ def claim_main(args: argparse.Namespace) -> int:
                         else {}
                     )
                     discussion_session_id = str(
-                        args.discussion_session_id
+                        requested_discussion_id
                         or launch_context.get("discussion_session_id")
                         or existing_worker_runtime.get("discussion_session_id")
                         or ""
                     )
+                    execution_run = preflight.get("run")
+                    authorization = (
+                        execution_run.get("authorization")
+                        if isinstance(execution_run, dict)
+                        and isinstance(execution_run.get("authorization"), dict)
+                        else {}
+                    )
+                    if authorization:
+                        discussion_session_id = str(
+                            discussion_session_id
+                            or authorization.get("parent_discussion_id")
+                            or ""
+                        )
                     launch_context_error = ""
                     if args.container_kind != MANUAL_WORKER_WINDOW:
                         expected_thread_id = str(
@@ -4698,9 +5352,9 @@ def claim_main(args: argparse.Namespace) -> int:
                         expected_worktree = str(launch_context.get("worktree") or "")
                         expected_branch = str(launch_context.get("branch") or "")
                         actual_thread_ids = {
-                            str(args.worker_id or ""),
-                            str(args.session_id or ""),
-                            str(args.host_thread_ref or ""),
+                            worker_id,
+                            session_id,
+                            host_thread_ref,
                         }
                         if launch_context.get("agent_kind") != "formal_worker":
                             launch_context_error = "formal_worker_launch_context_required"
@@ -4732,12 +5386,40 @@ def claim_main(args: argparse.Namespace) -> int:
                             and args.host != "claude"
                         ):
                             launch_context_error = "worker_host_binding_mismatch"
+                        elif authorization.get("dispatch_mode") != "background_worker":
+                            launch_context_error = "worker_dispatch_mode_mismatch"
+                        elif authorization.get("source_session_id") != expected_discussion_id:
+                            launch_context_error = "worker_authorization_source_mismatch"
+                        elif authorization.get("host") != args.host:
+                            launch_context_error = "worker_authorization_host_mismatch"
                         elif launch_context.get("inspectable") is not True:
                             launch_context_error = "worker_thread_not_inspectable"
                         elif launch_context.get("controllable") is not True:
                             launch_context_error = "worker_thread_not_controllable"
                         elif launch_context.get("independent_context") is not True:
                             launch_context_error = "worker_context_not_independent"
+                    elif authorization and (
+                        authorization.get("dispatch_mode") != "current_window"
+                        or authorization.get("source_session_id") != session_id
+                        or authorization.get("host") != args.host
+                    ):
+                        launch_context_error = "current_worker_authorization_mismatch"
+                    if authorization:
+                        task_path = str(task.get("task_path") or "")
+                        task_content = read_version(root, task_path, "worktree") or ""
+                        base_head = run_git(root, "rev-parse", "HEAD", check=False)
+                        actual_head = (
+                            base_head.stdout.decode("utf-8", errors="replace").strip()
+                            if base_head.returncode == 0
+                            else ""
+                        )
+                        if (
+                            execution_run.get("phase") != "dispatching"
+                            or execution_run.get("task_fingerprint")
+                            != content_fingerprint(task_content)
+                            or execution_run.get("base_commit") != actual_head
+                        ):
+                            launch_context_error = "authorized_execution_run_stale"
                     if launch_context_error:
                         payload = {"ok": False, "error": launch_context_error}
                     else:
@@ -4745,13 +5427,13 @@ def claim_main(args: argparse.Namespace) -> int:
                             root,
                             task["task_id"],
                             task["attempt"],
-                            args.worker_id,
+                            worker_id,
                             execution_mode=(
                                 "competitive"
                                 if task["execution_mode"] == "competitive"
                                 else "exclusive"
                             ),
-                            host_thread_ref=args.host_thread_ref or args.session_id,
+                            host_thread_ref=host_thread_ref,
                             agent_platform=args.host,
                             revision_id=(args.revision_id or None),
                             allowed_scope=task.get("allowed_scope", []),
@@ -4774,14 +5456,45 @@ def claim_main(args: argparse.Namespace) -> int:
                         )
                     if payload.get("ok"):
                         payload["task"] = task
-                        if args.session_id:
+                        if isinstance(execution_run, dict):
+                            run_persisted = update_execution_run(
+                                root,
+                                task_id=task["task_id"],
+                                attempt=task["attempt"],
+                                revision_id=args.revision_id or "",
+                                patch={
+                                    "phase": "running",
+                                    "claim_id": payload["claim"]["claim_id"],
+                                    "worker": {
+                                        "host": args.host,
+                                        "container_kind": args.container_kind,
+                                        "thread_or_session_id": host_thread_ref,
+                                        "branch": payload["claim"]["branch"],
+                                        "worktree": payload["claim"]["worktree"],
+                                        "started_at": _utc_now(),
+                                    },
+                                    "last_error": {},
+                                },
+                            )
+                            if not run_persisted.get("ok"):
+                                update_claim(
+                                    root,
+                                    payload["claim"]["claim_id"],
+                                    "revoke",
+                                )
+                                payload = {
+                                    "ok": False,
+                                    "error": "claim_acquired_but_run_persistence_failed",
+                                    "detail": run_persisted,
+                                }
+                        if payload.get("ok") and session_id:
                             runtime_payload = _persist_runtime_with_complete_task(
                                 root,
-                                args.session_id,
+                                session_id,
                                 task,
                                 {
                                     "session": {
-                                        "session_id": args.session_id,
+                                        "session_id": session_id,
                                         "role": "worker",
                                         "host": args.host,
                                         "phase": "waiting_for_worker",
@@ -4799,14 +5512,16 @@ def claim_main(args: argparse.Namespace) -> int:
                                         "branch": payload["claim"]["branch"],
                                         "worktree": payload["claim"]["worktree"],
                                         "host_window_or_thread_id": (
-                                            args.host_thread_ref or args.session_id
+                                            host_thread_ref
                                         ),
                                         "active_task_id": task["task_id"],
                                         "active_revision_id": args.revision_id or "",
-                                        "worker_session_id": args.session_id,
+                                        "worker_session_id": session_id,
                                         "discussion_session_id": discussion_session_id,
                                         "worker_availability": "busy",
                                         "binding_status": "active",
+                                        "launch_error": "",
+                                        "recovery_reason": "",
                                         "allowed_scope": task.get("allowed_scope", []),
                                         "validation_plan": task.get(
                                             "validation_plan", []
@@ -4816,9 +5531,7 @@ def claim_main(args: argparse.Namespace) -> int:
                                             "host": args.host,
                                             "container_kind": args.container_kind,
                                             "thread_or_session_id": (
-                                                args.host_thread_ref
-                                                or args.session_id
-                                                or args.worker_id
+                                                host_thread_ref
                                             ),
                                             "parent_discussion_id": discussion_session_id,
                                             "task_id": task["task_id"],

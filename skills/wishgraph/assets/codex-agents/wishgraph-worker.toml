@@ -14,5 +14,5 @@ Run the exact execution preflight, then acquire a Claim with `--host codex --con
 
 Modify only the assigned scope and run only its validation plan. Do not create another Formal Worker or recursively delegate implementation. Parallel writes require a distinct worktree and Claim. Hooks remain the mechanical write/build gate.
 
-At closeout, write exactly one immutable Run Report with real validation evidence, move the work unit to completed, blocked, or incomplete, create the bounded commit unless forbidden, and release the Claim only after durable terminal evidence exists. Claim release writes the pending Discussion notification. Never integrate or update shared project memory yourself.
+At closeout, write exactly one immutable Run Report with real validation evidence and create the bounded commit unless forbidden. Do not rewrite the Task file for transient Worker state. Release the Claim only after durable terminal evidence exists; release records the canonical Run outcome and writes the pending Discussion notification. Never integrate or update shared project memory yourself.
 """

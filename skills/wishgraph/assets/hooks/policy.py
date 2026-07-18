@@ -16,9 +16,11 @@ from git_state import (
     configured_revision_glob,
     configured_task_globs,
     inspect_claims,
+    latest_execution_run,
     matches_any,
     project_status_candidates,
     read_head_version,
+    read_ref_version,
     read_version,
     report_contents_across_refs,
     report_contents_for_paths_across_refs,
@@ -967,16 +969,12 @@ def reduce_orchestration(
         if session.role == "neutral":
             return FlowPlan(
                 accepted=True,
-                next_action="launch_worker",
+                next_action="bind_current_worker",
                 task_id=task_id,
-                host_route=(
-                    "automatic_thread"
-                    if host_capability.supports_formal_worker_thread
-                    else "manual_window"
-                ),
+                host_route="current_inspectable_window",
                 state_patch={
                     "session": {
-                        "role": "discussion",
+                        "role": "neutral",
                         "phase": "routing_worker",
                         "expected_transition": None,
                     },
@@ -986,7 +984,11 @@ def reduce_orchestration(
                         "worker_execution_profiles": task.worker_execution_profiles,
                     },
                 },
-                work_payload={"execution_profile": execution_profile},
+                work_payload={
+                    "execution_profile": execution_profile,
+                    "dispatch_mode": "current_window",
+                },
+                stop_after_action=True,
             )
         if session.role == "discussion":
             return FlowPlan(
@@ -1356,6 +1358,49 @@ def task_report_states(
     return tasks
 
 
+DECISION_ONLY_REPORT_ERRORS = {
+    "a new product, architecture, or data decision requires review"
+}
+
+
+def mechanical_report_errors(report: ReportState) -> list[str]:
+    return [
+        error
+        for error in report.safety_errors
+        if error not in DECISION_ONLY_REPORT_ERRORS
+    ]
+
+
+def integration_candidate_outcome(
+    task: Optional[TaskState], report: ReportState
+) -> tuple[str, str]:
+    """Return the one risk result used by notifications and Integration.
+
+    Explicit risk flags describe the patch; they do not independently revoke a
+    Task's already-approved sequential scope. A new decision, an explicit Task
+    route, high-risk work, or competitive selection still requires Discussion.
+    """
+    mechanical_errors = mechanical_report_errors(report)
+    if report.status not in {"completed", "done"}:
+        return "blocked", f"worker_{report.status}"
+    if mechanical_errors:
+        return "blocked", "terminal_report_failed_safety_validation"
+    task_work_type = task.work_type if task is not None else report.work_type
+    task_execution_mode = (
+        task.execution_mode if task is not None else report.execution_mode
+    )
+    task_route = task.integration_policy if task is not None else report.authorization
+    if (
+        report.new_decision not in {"no", "none", "false", "无", "否"}
+        or report.selection_requires_judgment
+        or task_work_type == "high_risk"
+        or task_execution_mode == "competitive"
+        or task_route == "requires_explicit_user_confirmation"
+    ):
+        return "decision_required", "material_integration_decision_required"
+    return "safe", "safe_terminal_result_ready"
+
+
 def execution_preflight(
     root: Path,
     config: dict[str, Any],
@@ -1468,6 +1513,19 @@ def integration_state(
         if view == "full" and task_filter is None
         else report_contents_for_paths_across_refs(root, config, candidate_reports)
     )
+    run_by_report: dict[str, dict[str, Any]] = {}
+    for task in selected_tasks:
+        run = latest_execution_run(root, task.task_id, attempt=task.attempt)
+        if not isinstance(run, dict):
+            continue
+        report_path = str((run.get("result") or {}).get("report") or task.run_report)
+        result_commit = str((run.get("result") or {}).get("commit") or "")
+        if report_path:
+            run_by_report[report_path] = run
+        if report_path and result_commit:
+            exact_content = read_ref_version(root, result_commit, report_path)
+            if exact_content is not None:
+                reports[report_path] = exact_content
     prefix = config["paths"]["run_report_glob"].split("*", 1)[0].rstrip("/")
     settled = (
         report_paths_in_ref(root, "HEAD", prefix)
@@ -1485,15 +1543,19 @@ def integration_state(
         for path, content in sorted(reports.items())
         if path not in settled
     ]
+    pending_by_path = {state.path: state for state in pending_states}
+    task_by_report = tasks
+    candidate_outcomes = {
+        path: integration_candidate_outcome(task_by_report.get(path), state)[0]
+        for path, state in pending_by_path.items()
+    }
     ready = sorted(
-        state.path
-        for state in pending_states
-        if state.status in {"completed", "done"} and not state.safety_errors
+        path
+        for path, outcome in candidate_outcomes.items()
+        if outcome in {"safe", "decision_required"}
     )
     blocked = sorted(
-        state.path
-        for state in pending_states
-        if state.status not in {"completed", "done"} or state.safety_errors
+        path for path, outcome in candidate_outcomes.items() if outcome == "blocked"
     )
     waiting = sorted(
         path
@@ -1503,6 +1565,8 @@ def integration_state(
         and (
             task.status in {"approved", "running"}
             or (task.state_source == "legacy" and task.status == "draft")
+            or (run_by_report.get(path) or {}).get("phase")
+            in {"dispatching", "running"}
         )
     )
     waiting.extend(
@@ -1536,8 +1600,6 @@ def integration_state(
         kind = "none"
 
     pending = bool(ready or blocked)
-    pending_by_path = {state.path: state for state in pending_states}
-    task_by_report = tasks
     task_status_by_id = {task.task_id: task.status for task in all_tasks if task.task_id}
 
     def dependencies_satisfied(task: TaskState) -> bool:
@@ -1548,6 +1610,8 @@ def integration_state(
 
     structured_ready_tasks = [task_by_report.get(path) for path in ready]
     sequential_safe = bool(ready) and all(
+        candidate_outcomes.get(path) == "safe"
+        and (
         (
             task is None
             and pending_by_path[path].authorization in INHERITED_AUTHORIZATIONS
@@ -1564,7 +1628,13 @@ def integration_state(
             and pending_by_path[path].authorization in INHERITED_AUTHORIZATIONS
             and dependencies_satisfied(task)
         )
+        )
         for path, task in zip(ready, structured_ready_tasks)
+    )
+    decision_ready = sorted(
+        path
+        for path in ready
+        if candidate_outcomes.get(path) == "decision_required"
     )
 
     parallel_states = [pending_by_path[path] for path in ready]
@@ -1636,10 +1706,10 @@ def integration_state(
                 next_action = "compare_candidates"
                 confirmation = True
                 reason = "Competitive candidates need a preference or tie-break decision."
-    elif kind == "high_risk" and ready:
+    elif decision_ready:
         next_action = "await_user_confirmation"
         confirmation = True
-        reason = "High-risk work requires a Discussion decision before integration."
+        reason = "The canonical Integration evaluator found one material decision."
     elif waiting:
         next_action = "wait_for_worker"
         reason = "Planned workers have not all produced terminal run reports yet."
@@ -1666,6 +1736,9 @@ def integration_state(
         reason = "No worker results are waiting for integration."
     work_units: list[dict[str, Any]] = []
     for report_path, task in sorted(tasks.items(), key=lambda item: item[1].path):
+        execution_run = run_by_report.get(report_path) or latest_execution_run(
+            root, task.task_id, attempt=task.attempt
+        )
         active_claims = [
             claim
             for claim in inspect_claims(root, task.task_id)
@@ -1679,7 +1752,8 @@ def integration_state(
         elif report is not None:
             lifecycle = (
                 "completed"
-                if report.status in {"completed", "done"} and not report.safety_errors
+                if integration_candidate_outcome(task, report)[0]
+                in {"safe", "decision_required"}
                 else "blocked"
             )
         elif active_claims:
@@ -1703,6 +1777,21 @@ def integration_state(
                 "integration_policy": task.integration_policy,
                 "state_source": task.state_source,
                 "errors": task.errors,
+                "run_id": (execution_run or {}).get("run_id"),
+                "run_phase": (execution_run or {}).get("phase"),
+                "user_status": {
+                    "dispatching": "正在派发",
+                    "running": "执行中",
+                    "succeeded": "正在集成",
+                    "decision_required": "需要处理",
+                    "failed": "需要处理",
+                    "integrating": "正在集成",
+                    "integrated": "已完成",
+                }.get(str((execution_run or {}).get("phase") or ""), "待执行"),
+                "checkpoint": (
+                    ((execution_run or {}).get("result") or {}).get("reason")
+                    or ("等待 Claim" if (execution_run or {}).get("phase") == "dispatching" else "")
+                ),
                 "candidate_score": report.candidate_score if report else None,
                 "selection_requires_judgment": (
                     report.selection_requires_judgment if report else False
@@ -1739,7 +1828,8 @@ def integration_state(
         elif report is not None:
             lifecycle = (
                 "completed"
-                if report.status in {"completed", "done"} and not report.safety_errors
+                if integration_candidate_outcome(None, report)[0]
+                in {"safe", "decision_required"}
                 else "blocked"
             )
         elif active_claims:
@@ -1851,10 +1941,10 @@ def validate_run_report(
         result.errors.append(
             f"{report_path} must set Integration readiness/集成就绪状态"
         )
-    if state.status in {"completed", "done"} and state.safety_errors:
+    if state.status in {"completed", "done"} and mechanical_report_errors(state):
         result.errors.append(
             f"{report_path} cannot be Completed and integration-ready: "
-            + "; ".join(state.safety_errors)
+            + "; ".join(mechanical_report_errors(state))
         )
     impact_rows = parse_impact_rows(content)
     for memory_path in config.get("required_impact_rows", []):
@@ -1980,10 +2070,20 @@ def validate_integration_overview(
             f"{overview_path} must record inherited task approval or explicit user confirmation"
         )
     for state in report_states:
-        if state.status not in {"completed", "done"} or state.safety_errors:
+        mechanical_errors = mechanical_report_errors(state)
+        decision_errors = [
+            error
+            for error in state.safety_errors
+            if error in DECISION_ONLY_REPORT_ERRORS
+        ]
+        if state.status not in {"completed", "done"} or mechanical_errors:
             result.errors.append(
                 f"Integration cannot absorb unsafe report {state.path}: "
-                + "; ".join(state.safety_errors or [f"status is {state.status}"])
+                + "; ".join(mechanical_errors or [f"status is {state.status}"])
+            )
+        elif decision_errors and authorization not in EXPLICIT_AUTHORIZATIONS:
+            result.errors.append(
+                f"Integration of {state.path} requires the resolved material decision"
             )
 
     tasks = task_report_states(root, config, scope)
@@ -2112,6 +2212,40 @@ def validate_task_spec(
         ):
             previous = task_state(task_path, previous_content)
             transition = (previous.status, state.status)
+            run_backed_integration = False
+            if transition in {
+                ("draft", "integrated"),
+                ("approved", "integrated"),
+                ("running", "integrated"),
+            }:
+                report_content = read_version(root, state.run_report, scope)
+                report = (
+                    report_state(state.run_report, report_content)
+                    if report_content is not None
+                    else None
+                )
+                run = latest_execution_run(
+                    root, state.task_id, attempt=state.attempt
+                )
+                released_claim = any(
+                    claim.get("lease_status") == "released"
+                    and claim.get("attempt") == state.attempt
+                    for claim in inspect_claims(root, state.task_id)
+                )
+                run_backed_integration = bool(
+                    report is not None
+                    and report.status in {"completed", "done"}
+                    and not mechanical_report_errors(report)
+                    and report.task_id in {"", state.task_id}
+                    and report.attempt == state.attempt
+                    and isinstance(run, dict)
+                    and run.get("phase")
+                    in {"succeeded", "decision_required", "integrating"}
+                    and ((run.get("result") or {}).get("report"))
+                    == state.run_report
+                    and ((run.get("result") or {}).get("commit"))
+                    and released_claim
+                )
             draft_revision = transition == ("draft", "draft")
             if not draft_revision:
                 if previous.task_id != state.task_id:
@@ -2156,8 +2290,10 @@ def validate_task_spec(
                     result.errors.append(
                         f"{task_path} attempt may change only when retrying blocked or incomplete work"
                     )
-            if previous.status != state.status and state.status not in TASK_TRANSITIONS.get(
-                previous.status, set()
+            if (
+                previous.status != state.status
+                and state.status not in TASK_TRANSITIONS.get(previous.status, set())
+                and not run_backed_integration
             ):
                 result.errors.append(
                     f"{task_path} has invalid task transition {previous.status} -> {state.status}"
@@ -2506,7 +2642,23 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
                 "abandoned": "abandoned",
                 "superseded": "superseded",
             }.get(report.status)
-            if expected_task_status and task.status != expected_task_status:
+            run = latest_execution_run(
+                root, task.task_id, attempt=task.attempt
+            )
+            run_owned_terminal = bool(
+                isinstance(run, dict)
+                and run.get("run_report", task.run_report) == report_path
+                and run.get("phase")
+                in {"running", "succeeded", "failed", "decision_required"}
+            )
+            if (
+                expected_task_status
+                and task.status != expected_task_status
+                and not (
+                    run_owned_terminal
+                    and task.status in {"draft", "approved", "running"}
+                )
+            ):
                 result.errors.append(
                     f"{task.path} must set task status to {expected_task_status} for {report_path}"
                 )

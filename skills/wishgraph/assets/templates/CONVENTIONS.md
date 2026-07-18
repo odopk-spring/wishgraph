@@ -10,7 +10,7 @@ The planning agent turns human intent into durable task specs.
 
 Responsibilities:
 
-- Enter this role after the project is enabled and the user says "Start discussion", or automatically when an ordinary neutral window receives one exact Task execution command and becomes its dispatcher; first-time activation alone still leaves the window neutral.
+- Enter this role after the project is enabled and the user says "Start discussion". An exact execution command in Discussion routes an independent Worker; the same command in neutral binds that current window as Worker instead of entering Discussion.
 - Start from `prompts/DISCUSSION_AI.md` when opening a fresh planning window.
 - Read project docs before asking questions.
 - Establish or update `PRD.md` before authorizing a Worker to restructure architecture or implement feature work.
@@ -38,7 +38,7 @@ Responsibilities:
 - Update task status when present and create exactly one new immutable `reports/runs/<work-unit-id>.md`.
 - Record `Integrate` or `N/A` proposals for shared memory. Do not edit `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, `CONVENTIONS.md`, `reports/PROJECT_STATUS.md`, or any prompt file.
 - Fill the Run Report's versioned `wishgraph:run-state` JSON block for machine lifecycle facts. Keep evidence, risks, and impact reasoning in Markdown.
-- Use the versioned task-state lifecycle `draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed`. Discussion records explicit Worker authorization and human review, Workers record execution states, and Integration records `integrated`.
+- Use durable task-state `draft -> approved -> integrated -> reviewed`. The Git-common-dir canonical Run records dispatching, running, terminal evidence, and Integration; legacy Task execution states remain readable.
 - Create one atomic commit per completed task unless the project owner explicitly says not to commit.
 - Never create an unauthorized or hidden background Worker. A managed background Agent is allowed only when it is user-visible, inspectable, controllable, bound to a real thread/session ID, and follows the same Claim and closeout gates.
 
@@ -88,7 +88,7 @@ Responsibilities:
 ## Orchestration State
 
 - Session Role: `neutral`, `discussion`, or `worker`. Integration is not a role.
-- Task Lifecycle: `draft`, `approved`, `running`, `completed`, `blocked`, `incomplete`, `integrated`, `reviewed`.
+- Durable Task Lifecycle: `draft`, `approved`, `integrated`, `reviewed`; legacy transient labels remain readable. Canonical Run Phase: `dispatching`, `running`, `succeeded`, `failed`, `decision_required`, `integrating`, `integrated`.
 - Flow Phase: `planning`, `awaiting_worker_authorization`, `routing_worker`, `waiting_for_user_launch`, `waiting_for_worker`, `integration_pending`, `integrating`, `decision_required`, `presenting_result`.
 - `expected_transition` is absent or one structured transition. Contextual approvals cannot act when it is missing or ambiguous.
 - `reduce(current_state, user_event, host_capability)` produces the unique `FlowPlan`; prompts and Host Adapters cannot override it.
@@ -114,7 +114,7 @@ Workers propose shared-memory impact in their immutable Run Reports. The origina
 - Worker run reports use `Integrate` or `N/A`. Project Status snapshots use `Updated` or `N/A`.
 - Runtime session state, Worker Claims, and Integration leases live under the Git common directory rather than in business files.
 - Global Skill installation does not activate this project. `.wishgraph/config.json` with `mode: warn` or `mode: enforce` records explicit project opt-in; missing config or `mode: off` leaves generic entry phrases inactive.
-- New windows in an enabled project are neutral. By default SessionStart performs safety checks only. "Start discussion" enters planning; an exact Task execution command instead promotes the neutral window to the Discussion dispatcher and routes a separate Worker. First-time activation never enters Discussion in the same step. Refresh is explicit in an already-running window.
+- New windows in an enabled project are neutral. By default SessionStart performs safety checks only. "Start discussion" enters planning. An exact Task execution command in neutral binds the current window as Worker after Claim acquisition; in Discussion it routes an independent Worker. First-time activation never enters Discussion in the same step.
 - Hooks may expose pending integration, integration kind, ready, waiting, and blocked reports, confirmation requirement, and a reason. They do not choose parallelism, start agents, merge code, write semantic memory, or replace human review.
 
 ## Validation

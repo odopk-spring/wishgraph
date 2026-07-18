@@ -1,6 +1,6 @@
 # Worker 启动提示词
 
-仅在已注册或明确重新绑定的 Formal Worker 容器收到准确 Task/Revision 路由后使用本文件。普通 neutral 窗口收到 `执行 <task-id> 任务` 时是 Discussion 派发端，不是 Worker。精确解析 Task 或 Revision ID，并读取对应的持久记录。
+仅在已注册、明确重新绑定，或由精确执行命令绑定的 Formal Worker 容器中使用本文件。Discussion 输入 `执行 <task-id> 任务` 时派发独立 Worker；普通 neutral 窗口输入同一命令时，当前窗口直接绑定为 Worker，不再创建第二个 Worker。精确解析 Task 或 Revision ID，并读取对应持久记录。
 
 这个提示词是稳定的。不要把具体任务要求写在这里；任务要求应写在任务文件里。
 
@@ -35,7 +35,7 @@
 
 ## Worker 规则
 
-- 首次绑定前确认当前容器已有原生注册或明确的人工 Worker 路由，执行准确 preflight，原子获取 Worker Claim，持久化 Session Role `worker`，取得 Claim 后才把 Task 改为 `running`；Codex/Claude 原生 Worker 必须使用已注册的正式容器类型和准确 thread/session ID。路由提供 `discussion_session_id` 时必须保留。重新绑定时，先确认旧工作已进入终态且旧 Claim 已释放，再获取新 Claim。两种情况都要核对 Task/Revision ID、attempt、branch、绝对 worktree、session/Worker identity、scope、验证计划和 Claim 绑定。已有其他 exclusive Claim 时禁止执行。
+- 首次绑定前确认当前容器已有原生注册、明确 rebind 或 current-window Run 授权，执行准确 preflight，并在实现前原子获取 Worker Claim。Claim 获取成功后由规范 Run 进入 `running`；不要为了镜像临时进度改写 Task 文件。Codex/Claude 原生 Worker 必须使用准确 thread/session ID。路由提供 `discussion_session_id` 时必须保留。重新绑定时，先确认旧 Run 已进入终态且旧 Claim 已释放。两种情况都要核对 Task/Revision ID、attempt、branch、绝对 worktree、session/Worker identity、scope、验证计划和 Claim 绑定。
 - Explorer、Reviewer、Plan、Helper 和隐藏/内部 Agent 只能检查或汇报，不得取得 Worker Claim 或写业务代码。
 - 长任务要持续 heartbeat。只在规定的收尾 / 集成边界释放 Claim；接管必须先显式 revoke，再使用新 attempt 和新报告，不能覆盖其他 Worker 报告。
 - 当前工作进入终态后可以复用本窗口。新 Task 或 Revision 开始前，必须释放旧 Claim、清除旧 scope 与验证计划、读取新记录、获取新 Claim 并持久化新绑定。同一时刻不得保留两个 active 工作单元，也不能只改聊天中的编号。
@@ -51,9 +51,9 @@
 
 最终报告前必须：
 
-- 正式任务先确认 task-state 为 `approved` 且 `worker_creation_authorized: true`，开始执行时再改为 `running`；缺少这些授权门时停止并返回讨论。
+- 确认准确的授权 Run 和绑定 Claim。`dispatching`、`running` 与 Worker 终态由 Run 负责；Task 文件只保留规划与集成事实，不为临时执行进度反复改写。
 - 运行任务列出的验证。
-- 收尾时把 task-state 改为与执行报告一致的 `completed`、`blocked` 或 `incomplete`。
+- 收尾时由 Claim release 根据不可变报告原子写入 Run 的 `succeeded`、`failed` 或 `decision_required`；不要把 Task 文件改为临时 Worker 终态。
 - 集成前安全停止或被拒绝的 attempt 可标记 `abandoned` 或 `rejected`；竞争失败候选标记 `superseded`。保留 branch、报告和证据。
 - 从 `reports/RUN_REPORT.md` 创建唯一的新文件 `reports/runs/<task-id>-attempt-N.md`。
 - 在该执行报告中记录验证证据，并对每个共享记忆文件填写 `Integrate` 或 `N/A`。

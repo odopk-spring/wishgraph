@@ -52,19 +52,19 @@ discussion
 worker
 ```
 
-新会话默认 `neutral`。“开始讨论”用于主动进入规划讨论；普通 neutral 窗口收到精确“执行 NNN 任务”后会自动成为 Discussion 派发端，持久化完整 Task 身份并创建独立 Worker，不要求先手动进入 Discussion。只有已注册或明确重新绑定的 Formal Worker 容器才能在取得 Claim 后进入 `worker`。
+新会话默认 `neutral`。“开始讨论”进入规划讨论；Discussion 收到精确“执行 NNN 任务”后派发独立 Worker，普通 neutral 窗口收到同一命令时直接绑定当前窗口为 Worker，不再创建第二个窗口。两条路径都必须先持久化授权 Run，并在 Claim 成功后进入 `worker`。
 
-### Task Lifecycle
+### 持久 Task Lifecycle
 
 ```text
-draft -> approved -> running -> completed|blocked|incomplete -> integrated -> reviewed
+draft -> approved -> integrated -> reviewed
 ```
 
-- `approved`：Task 已获得准确 Worker 启动授权。
-- `running`：存在真实 Worker 和有效 Claim。
-- `completed`：存在终态记录与预期 Run Report。
+- `approved`：Task 已完成规划，执行授权由规范 Run 单独记录。
 - `integrated`：Integration lease、合并、组合验证和共享状态收尾完成。
 - `reviewed`：Discussion 已呈现，用户接受结果。
+
+兼容读取旧 Task 中的 `running`、`completed`、`blocked` 和 `incomplete`。新流程把 `dispatching`、`running`、`succeeded|failed|decision_required`、`integrating` 和 `integrated` 放在 Git common dir 的规范 Run 中，避免 Task、session、observer 重复表达同一执行事实。
 
 ### Flow Phase
 
@@ -170,7 +170,7 @@ claude --resume <full-session-id>
 
 第一条用于结构化刷新，第二条打开原生交互视图进行查看与控制，第三条用于适合恢复时按完整 ID 继续会话。当前 CLI 不提供 `claude logs`、`claude attach` 或 `claude stop` 子命令，WishGraph 不得假装这些命令成功。已创建但 Worktree/runtime 验证失败的 session 进入明确人工处理状态，同时用户侧降级仍只显示一行执行命令。
 
-`claude --bg` 返回不等于 Task 已 `running`。Worker 进入实际 worktree 后仍需取得绑定 Claim。`/tasks` 只查看当前 Claude session 关联的后台工作，不创建 WishGraph Task，也不授予权限。
+`claude --bg` 返回不等于 Run 已 `running`。Worker 进入实际 worktree 后仍需取得绑定 Claim。`/tasks` 只查看当前 Claude session 关联的后台工作，不创建 WishGraph Task，也不授予权限。
 
 ### 未知或不支持的宿主
 

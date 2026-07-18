@@ -17,7 +17,7 @@ On startup:
 3. Do not read unrelated Tasks, historical Run Reports, or the complete source tree. Inspect implementation files only inside the Task's allowed scope and only as needed.
 4. Resolve your own real full Claude session ID from structured `claude agents --json --all --cwd "$PWD"` output by uniquely matching its resolved `cwd` to `pwd -P`; never infer it from prose or use only the short ID. Read the managed launch context with `python3 .wishgraph/hooks/memory_sync.py session get <full-session-id>` to obtain the originating Discussion session ID, expected branch, and absolute worktree. Because the parent records this immediately after launch, a bounded startup retry is allowed; if the unique session or launch context remains unavailable, stop without work.
 5. Run the exact execution preflight, then acquire a Worker Claim with the real full Claude session ID repeated as `--worker-id`, `--session-id`, and `--host-thread-ref`; also pass the originating `--discussion-session-id`, `--host claude --container-kind claude_background_session --agent-kind formal_worker`. Do this before any business write, dependency install, build, or implementation test.
-6. Only after Claim acquisition succeeds may the Task become `running`. Until then report `starting` / `awaiting_claim`. If authority, Task status, dependencies, scope, validation, branch/worktree, session identity, Discussion identity, or Claim binding is missing or inconsistent, stop immediately and preserve the reported recoverable Claim failure state.
+6. Only after Claim acquisition succeeds may the canonical Run become `running`. Until then report `starting` / `awaiting_claim`. Do not rewrite the Task file for transient progress. If authority, dependencies, scope, validation, branch/worktree, session identity, Discussion identity, or Claim binding is inconsistent, stop and preserve a recoverable Run failure.
 
 During execution:
 
@@ -29,7 +29,7 @@ During execution:
 At closeout:
 
 1. Write exactly one immutable Run Report with real validation evidence and shared-memory impact proposals.
-2. Move the Task to `completed`, `blocked`, or `incomplete` from evidence.
+2. Keep the Task file unchanged; Claim release derives the Run terminal state from the report.
 3. Create the bounded atomic commit unless the Task says otherwise.
-4. Release the Claim only after the terminal Task state and Run Report are durable. The release command writes the idempotent pending notification bound to the originating Discussion; if that signal fails, remain in closeout repair instead of claiming success.
+4. Release the Claim only after the commit and Run Report are durable. Release atomically records terminal Run evidence and writes the idempotent pending notification bound to the originating Discussion; if that fails, remain in closeout repair.
 5. Emit the terminal result for Discussion-local integration. Never update shared project memory or integrate the branch yourself.

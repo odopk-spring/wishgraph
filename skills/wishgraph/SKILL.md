@@ -31,7 +31,7 @@ continue without chat history.
 
 ## Role Boundaries
 
-- Treat every new host window as `neutral`. `开始讨论` enters Discussion for planning; an exact Task command promotes an ordinary neutral window to the Discussion dispatcher and routes a separate Formal Worker. Only a registered or explicitly rebound Worker container may enter `worker`.
+- Treat every new host window as `neutral`. `开始讨论` enters Discussion for planning. In Discussion, an exact Task command routes an independent Formal Worker; in an ordinary neutral window, the same exact command binds that current window as the Formal Worker after Claim acquisition. Never create a second Worker from the neutral direct-execution path.
 - Use `discussion` for planning, Task creation, Worker routing, integration, and result presentation.
 - Use `worker` only in a separate user-visible and inspectable Agent thread or window bound to one Task or Revision.
 - Treat Integration as an automatically triggered, Discussion-local Flow Phase, never a role or separate window.
@@ -44,13 +44,13 @@ continue without chat history.
 
 For the default single-Task path, keep the user-visible loop to `discuss -> approve ->
 independent Worker -> validated result`. Hide Claim, lease, runtime, session, capability, and
-authorization-commit mechanics unless failure, recovery, or an explicit user request requires them.
+runtime mechanics unless failure, recovery, or an explicit user request requires them.
 
 1. Inspect the repository and reuse compatible project truth instead of creating parallel memory.
 2. Compile intent into observable behavior, acceptance criteria, non-goals, and material decisions.
 3. Create only the minimum durable project-state graph and bounded executable work units.
 4. Classify work, record one exact expected transition, and obtain the required human authority.
-5. Route each authorized unit to a separate user-visible and inspectable Worker thread or window; Discussion stops execution after handoff.
+5. Route from Discussion to a separate inspectable Worker, or bind an explicitly addressed neutral window as the Worker; never let Discussion implement the Task.
 6. Require scoped implementation, prescribed validation, immutable evidence, and safe Claim closeout.
 7. Send every terminal result to Discussion-local integration automatically; ask only material decisions.
 8. Present the integrated result, evidence, residual risk, and next action without erasing history.
@@ -61,6 +61,7 @@ authorization-commit mechanics unless failure, recovery, or an explicit user req
 - Interpret short approvals only when one unique structured `expected_transition` exists; explicit commands take priority.
 - Require explicit human authority before creating a Formal Worker. Persist `waiting_for_worker` only after a real stable thread/session ID is saved. Host limitations never expand Discussion authority.
 - Require a live Worker Claim bound to work unit, session, branch, absolute worktree, scope, and validation before implementation.
+- Treat the Git-common-dir execution Run as the canonical transient fact for dispatching, running, terminal evidence, and Integration. Session state, notifications, Task lifecycle labels, and host observations are projections, not competing authority sources.
 - Before Formal Worker creation or Claim acquisition, require the current host to be listed in `required_hosts`, its Adapter to be current, and a recent matching `SessionStart` or `UserPromptSubmit` receipt from this runtime.
 - Release or revoke the old Claim before Worker rebind. Never let one window hold two active work units or inherit stale scope.
 - Require a reducer-issued one-time transition grant and bound Discussion-local Integration lease before merge resolution, combined validation, shared-state writes, or integration commit.
