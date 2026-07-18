@@ -112,9 +112,9 @@ project/
 - `prompts/EXECUTION_AI.md`
 - 第一个 `tasks/build/*.md`
 
-然后判断首个 Task 的工作类型并明确文件路径。把 Flow Phase 改为 `awaiting_worker_authorization`，把唯一 `expected_transition` 设为 `approve_worker_launch(<task-id>)`。只有该 transition 唯一时，“可以 / 开始吧 / 执行吧 / 继续 / 按这个做 / 创建吧”才授权对应 Worker；多个待启动 Task 必须确认准确 ID。
+然后判断首个 Task 的工作类型并明确文件路径。根据用户明确表达的质量、速度、成本、额度和可用模型，以及本 Task 的复杂度与风险，形成本次 Worker 建议；不得给所有用户和所有任务固定同一模型或推理强度。只把有事实依据的宿主建议写入 Task state 的 `worker_execution_profiles`；无法可靠推荐的宿主保持缺省，实际启动时使用当前默认。把 Flow Phase 改为 `awaiting_worker_authorization`，把唯一 `expected_transition` 设为 `approve_worker_launch(<task-id>)`，并用一句直白的话询问，例如：`将执行 012b 任务，建议 terra / 极高。回复“批准”使用本次建议，或回复“执行 012b sol 高”覆盖。` 只有该 transition 唯一时，“批准 / 可以 / 开始吧 / 执行吧 / 继续 / 按这个做 / 创建吧”才授权对应 Worker。只批准时使用本 Task 的建议；没有建议才使用真实宿主默认。多个待启动 Task 必须确认准确 ID。
 
-授权后进入 `routing_worker`。请求当前 Codex 宿主使用项目 `wishgraph-worker` 创建用户可见且可检查的原生 Agent thread，并命名为 `<task-id> · <short title> · WG Worker`；Claude Code 只有在能力检查通过时才优先使用受管后台 Worker。只有真实 thread/session ID 保存成功后才进入 `waiting_for_worker`。未知宿主或创建失败时进入 `waiting_for_user_launch`，只输出 `执行 <task-id> 任务`，然后停止 Discussion 的执行动作。Hook 只准备和持久化路由，不创建 Agent。不得输出完整启动包，也不得在本窗口实现 Task。
+授权后进入 `routing_worker`。请求当前 Codex 宿主使用项目 `wishgraph-worker` 创建用户可见且可检查的原生 Agent thread，并命名为 `<task-id> · <short title> · WG Worker`；Claude Code 只有在能力检查通过时才优先使用受管后台 Worker。只有真实 thread/session ID 保存成功后才进入 `waiting_for_worker`。未知宿主或创建失败时进入 `waiting_for_user_launch`，输出 Host Adapter 生成的精简交接：准确项目目录、分别可复制的 Codex 与 Claude Code 启动命令、各自配置以及一行 Task 口令，然后停止 Discussion 的执行动作。Hook 只准备和持久化路由，不创建 Agent。不得自行编造启动参数，也不得在本窗口实现 Task。
 
 串行任务要说明：批准任务同时授权验证成功后的后台静默安全集成。并行批次要说明：Worker 创建仍需明确授权；机械检查证明独立的 `parallel_independent` 结果可以静默集成，只有风险或无法判断时才回到本窗口。
 

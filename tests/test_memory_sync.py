@@ -344,17 +344,77 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertEqual(routed["task_id"], "012ba")
         self.assertTrue(routed["authorizes_execution"])
 
+        self.assertEqual(
+            memory_sync.parse_user_prompt("执行 012b terra 推理 高"),
+            {
+                "action": "execute",
+                "task_id": "012b",
+                "authorizes_execution": True,
+                "execution_profile": {
+                    "model": "gpt-5.6-terra",
+                    "reasoning_effort": "high",
+                },
+            },
+        )
+        self.assertEqual(
+            memory_sync.parse_user_prompt("execute 012b sonnet high"),
+            {
+                "action": "execute",
+                "task_id": "012b",
+                "authorizes_execution": True,
+                "execution_profile": {
+                    "model": "sonnet",
+                    "reasoning_effort": "high",
+                },
+            },
+        )
+        self.assertEqual(
+            memory_sync.parse_user_prompt("执行 012b terra 极高"),
+            {
+                "action": "execute",
+                "task_id": "012b",
+                "authorizes_execution": True,
+                "execution_profile": {
+                    "model": "gpt-5.6-terra",
+                    "reasoning_effort": "xhigh",
+                },
+            },
+        )
+
         for prompt in (
             "执行任务",
             "执行任务 012",
             "请执行 012 任务",
-            "执行 012 任务吧",
             "执行 012 和 013 任务",
             "执行 12 任务",
             "我们执行 012 任务",
+            "执行 012b unknown-model 高",
+            "执行 012 任务吧",
         ):
             with self.subTest(prompt=prompt):
                 self.assertIsNone(memory_sync.parse_user_prompt(prompt))
+
+    def test_contextual_authorization_accepts_common_replies_but_not_conditions(self) -> None:
+        for prompt in (
+            "批准",
+            "批准，用 terra 极高",
+            "行，就按推荐执行吧",
+            "没问题，开始执行",
+            "Sounds good, go ahead",
+            "OK, use sonnet high",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assertTrue(memory_sync.is_contextual_approval(prompt))
+        for prompt in (
+            "可以，不过先改验收标准",
+            "先别执行",
+            "可以吗？",
+            "我们讨论一下颜色",
+            "批准，删除数据库",
+            "批准 012 任务",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assertFalse(memory_sync.is_contextual_approval(prompt))
 
     def test_entry_commands_require_explicit_project_activation(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -607,6 +667,7 @@ class OrchestrationStateMachineTests(unittest.TestCase):
         binding_status: str = "unbound",
         allowed_scope: tuple[str, ...] = (),
         validation_plan: tuple[str, ...] = (),
+        worker_execution_profiles: Optional[dict[str, dict[str, str]]] = None,
     ):
         expected = (
             memory_sync.ExpectedTransition(
@@ -630,6 +691,7 @@ class OrchestrationStateMachineTests(unittest.TestCase):
                 lifecycle=lifecycle,
                 worker_authorized=worker_authorized,
                 run_report=f"reports/runs/{task_id}-attempt-1.md",
+                worker_execution_profiles=worker_execution_profiles or {},
             ),
             worker_runtime=memory_sync.WorkerRuntimeState(
                 claim_id=worker_claim_id,
@@ -687,6 +749,45 @@ class OrchestrationStateMachineTests(unittest.TestCase):
         self.assertEqual(plan.state_patch["task"]["lifecycle"], "approved")
         self.assertTrue(plan.state_patch["task"]["worker_authorized"])
         self.assertNotEqual(plan.next_action, "discussion_window_implements_business_code")
+
+    def test_contextual_approval_may_override_worker_profile(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(),
+            self.event("user_message", text="批准，用 sol 高"),
+            self.capability(),
+        )
+        self.assertTrue(plan.accepted)
+        self.assertEqual(
+            plan.work_payload["execution_profile"],
+            {"model": "gpt-5.6-sol", "reasoning_effort": "high"},
+        )
+
+    def test_plain_approval_uses_this_tasks_grounded_recommendation(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(
+                worker_execution_profiles={
+                    "codex": {
+                        "model": "gpt-5.6-terra",
+                        "reasoning_effort": "medium",
+                    },
+                    "claude": {"model": "sonnet", "reasoning_effort": "low"},
+                }
+            ),
+            self.event("user_message", text="批准"),
+            self.capability(host="codex"),
+        )
+        self.assertEqual(
+            plan.work_payload["execution_profile"],
+            {"model": "gpt-5.6-terra", "reasoning_effort": "medium"},
+        )
+
+    def test_plain_approval_without_recommendation_keeps_host_default(self) -> None:
+        plan = memory_sync.reduce_orchestration(
+            self.state(),
+            self.event("user_message", text="批准"),
+            self.capability(host="codex"),
+        )
+        self.assertEqual(plan.work_payload["execution_profile"], {})
 
     def test_osm_02_neutral_explicit_execute_enters_worker_with_claim_requirement(self) -> None:
         plan = memory_sync.reduce_orchestration(
@@ -1899,6 +2000,7 @@ class MemorySyncTests(unittest.TestCase):
         run_report: Optional[str] = None,
         execution_mode: str = "exclusive",
         comparison_group: Optional[str] = None,
+        worker_execution_profiles: Optional[dict[str, dict[str, str]]] = None,
     ) -> str:
         match = re.match(r"\d{3,}[a-z]*", task_id)
         structured_id = match.group(0) if match else task_id
@@ -1916,6 +2018,7 @@ class MemorySyncTests(unittest.TestCase):
             "comparison_group": comparison_group,
             "run_report": run_report or f"reports/runs/{task_id}.md",
             "worker_creation_authorized": worker_authorized,
+            "worker_execution_profiles": worker_execution_profiles or {},
             "integration_policy": integration_policy,
         }
         return (
@@ -2170,12 +2273,30 @@ class MemorySyncTests(unittest.TestCase):
         self.assertEqual(state.safety_errors, [])
 
     def test_new_integration_route_and_recommendation_fields_are_canonical(self) -> None:
-        task_content = self.structured_task("061", status="approved").replace(
+        task_content = self.structured_task(
+            "061",
+            status="approved",
+            worker_execution_profiles={
+                "codex": {
+                    "model": "gpt-5.6-sol",
+                    "reasoning_effort": "high",
+                }
+            },
+        ).replace(
             '"integration_policy": "inherited_task_approval"',
             '"integration_route": "auto_in_discussion"',
         )
         task = memory_sync.parse_task_state("tasks/build/061.md", task_content)
         self.assertEqual(task.integration_policy, "inherited_task_approval")
+        self.assertEqual(
+            task.worker_execution_profiles,
+            {
+                "codex": {
+                    "model": "gpt-5.6-sol",
+                    "reasoning_effort": "high",
+                }
+            },
+        )
 
         report_content = self.structured_run_report("061-attempt-1").replace(
             '"integration_authorization": "inherited_task_approval"',
@@ -3085,11 +3206,22 @@ class MemorySyncTests(unittest.TestCase):
         thread_id = "codex-thread-041"
         self.prepare_claude_worker_task(task_id, discussion_id, host="codex")
         prepared = memory_sync.prepare_codex_worker(
-            self.root, self.config, task_id, discussion_id
+            self.root,
+            self.config,
+            task_id,
+            discussion_id,
+            execution_profile={
+                "model": "gpt-5.6-terra",
+                "reasoning_effort": "xhigh",
+            },
         )
         self.assertTrue(prepared["ok"], prepared)
         self.assertEqual(prepared["agent_name"], "wishgraph-worker")
         self.assertIn(f"执行 {task_id} 任务", prepared["prompt"])
+        self.assertEqual(
+            prepared["host_spawn_options"],
+            {"model": "gpt-5.6-terra", "thinking": "xhigh"},
+        )
         runtime = memory_sync.read_session_runtime(self.root, discussion_id)
         assert runtime is not None
         self.assertEqual(runtime["session"]["phase"], "routing_worker")
@@ -3222,7 +3354,7 @@ class MemorySyncTests(unittest.TestCase):
         hook_output = json.loads(process.stdout)["hookSpecificOutput"]
         self.assertEqual(hook_output["permissionDecision"], "deny")
 
-    def test_codex_spawn_failure_cli_outputs_only_manual_command(self) -> None:
+    def test_codex_spawn_failure_cli_outputs_cross_host_handoff(self) -> None:
         task_id = "043"
         discussion_id = "discussion-043"
         self.prepare_claude_worker_task(task_id, discussion_id, host="codex")
@@ -3240,7 +3372,14 @@ class MemorySyncTests(unittest.TestCase):
         ):
             exit_code = host_adapter_module.codex_worker_main(args)
         self.assertEqual(exit_code, 0)
-        printed.assert_called_once_with(f"执行 {task_id} 任务")
+        handoff = printed.call_args.args[0]
+        self.assertIn("Codex：", handoff)
+        self.assertIn("Claude Code：", handoff)
+        self.assertIn("当前默认配置", handoff)
+        self.assertIn("\ncodex\n", handoff)
+        self.assertIn("\nclaude\n", handoff)
+        self.assertNotIn("--model", handoff)
+        self.assertIn(f"执行 {task_id}", handoff)
 
     def test_helper_and_hidden_agents_cannot_acquire_formal_worker_claim(self) -> None:
         for agent_kind, container_kind in (
@@ -3419,7 +3558,11 @@ class MemorySyncTests(unittest.TestCase):
             ) as run_process,
         ):
             payload = memory_sync.launch_claude_worker(
-                self.root, self.config, task_id, discussion_id
+                self.root,
+                self.config,
+                task_id,
+                discussion_id,
+                execution_profile={"model": "sonnet", "reasoning_effort": "high"},
             )
         self.assertEqual(
             (self.root / ".claude" / "settings.json").read_bytes(), settings_before
@@ -3429,14 +3572,15 @@ class MemorySyncTests(unittest.TestCase):
         self.assertEqual(payload["claude_session_id"], worker_id)
         actual_command = run_process.call_args.args[0]
         self.assertEqual(actual_command[:4], ["/bin/claude", "--bg", "--agent", "wishgraph-worker"])
-        self.assertEqual(actual_command[4], "--worktree")
-        self.assertRegex(actual_command[5], r"^wishgraph-036-[0-9a-f]{8}$")
-        self.assertEqual(actual_command[6], "--settings")
+        self.assertEqual(actual_command[4:8], ["--model", "sonnet", "--effort", "high"])
+        self.assertEqual(actual_command[8], "--worktree")
+        self.assertRegex(actual_command[9], r"^wishgraph-036-[0-9a-f]{8}$")
+        self.assertEqual(actual_command[10], "--settings")
         self.assertEqual(
-            json.loads(actual_command[7]),
+            json.loads(actual_command[11]),
             {"worktree": {"baseRef": "head", "symlinkDirectories": [".wishgraph"]}},
         )
-        self.assertEqual(actual_command[8], "执行 036 任务")
+        self.assertEqual(actual_command[12], "执行 036 任务")
         runtime = memory_sync.read_session_runtime(self.root, discussion_id)
         assert runtime is not None
         self.assertEqual(runtime["session"]["phase"], "waiting_for_worker")
@@ -3611,7 +3755,64 @@ class MemorySyncTests(unittest.TestCase):
         self.assertNotEqual(first, second)
         self.assertRegex(first, r"^wishgraph-056-[0-9a-f]{8}$")
 
-    def test_claude_launch_failure_cli_outputs_only_manual_command(self) -> None:
+    def test_execution_profile_uses_grounded_request_or_actual_host_default(self) -> None:
+        host_adapter_module = sys.modules["host_adapter"]
+        defaults = host_adapter_module._resolve_execution_profile(
+            self.config, "codex", {}
+        )
+        self.assertEqual(defaults["resolved"], {})
+        self.assertEqual(defaults["source"], "current_host_default")
+        self.assertEqual(
+            host_adapter_module._resolve_claude_execution_profile(
+                {"model": "opus", "reasoning_effort": "xhigh"}, self.config
+            )["resolved"],
+            {"model": "opus", "reasoning_effort": "xhigh"},
+        )
+        incompatible = host_adapter_module._resolve_claude_execution_profile(
+            {"model": "gpt-5.6-sol", "reasoning_effort": "high"}, self.config
+        )
+        self.assertTrue(incompatible["override_applied"])
+        self.assertEqual(
+            incompatible["resolved"],
+            {"reasoning_effort": "high"},
+        )
+        self.assertEqual(incompatible["ignored_fields"], ["model"])
+
+    def test_formal_worker_requires_local_head_but_not_remote(self) -> None:
+        host_adapter_module = sys.modules["host_adapter"]
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            missing = host_adapter_module._local_git_baseline(root)
+            self.assertFalse(missing["ok"])
+            self.assertEqual(missing["error"], "local_git_baseline_commit_required")
+            (root / "README.md").write_text("baseline\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "add", "README.md"], check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "-c",
+                    "user.name=WishGraph Test",
+                    "-c",
+                    "user.email=wishgraph@example.test",
+                    "commit",
+                    "-qm",
+                    "local baseline",
+                ],
+                check=True,
+            )
+            self.assertTrue(host_adapter_module._local_git_baseline(root)["ok"])
+            remotes = subprocess.run(
+                ["git", "-C", str(root), "remote"],
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            )
+            self.assertEqual(remotes.stdout, "")
+
+    def test_claude_launch_failure_cli_outputs_host_neutral_manual_handoff(self) -> None:
         task_id = "037"
         discussion_id = "discussion-037"
         self.prepare_claude_worker_task(task_id, discussion_id)
@@ -3648,6 +3849,14 @@ class MemorySyncTests(unittest.TestCase):
             )
         self.assertTrue(payload["fallback"])
         self.assertEqual(payload["user_message"], "执行 037 任务")
+        self.assertIn("cd ", payload["manual_launch_instructions"])
+        self.assertIn("Codex：", payload["manual_launch_instructions"])
+        self.assertIn("Claude Code：", payload["manual_launch_instructions"])
+        self.assertIn("当前默认配置", payload["manual_launch_instructions"])
+        self.assertIn("\ncodex\n", payload["manual_launch_instructions"])
+        self.assertIn("\nclaude\n", payload["manual_launch_instructions"])
+        self.assertNotIn("--model", payload["manual_launch_instructions"])
+        self.assertIn("执行 037", payload["manual_launch_instructions"])
         runtime = memory_sync.read_session_runtime(self.root, discussion_id)
         assert runtime is not None
         self.assertEqual(runtime["session"]["phase"], "waiting_for_user_launch")
@@ -3669,7 +3878,7 @@ class MemorySyncTests(unittest.TestCase):
         ):
             exit_code = host_adapter_module.claude_worker_main(args)
         self.assertEqual(exit_code, 0)
-        printed.assert_called_once_with("执行 037 任务")
+        printed.assert_called_once_with(payload["manual_launch_instructions"])
 
     def test_claude_unverified_created_session_uses_real_recovery_surface(self) -> None:
         task_id = "063"
@@ -6917,7 +7126,7 @@ class InstallerTests(unittest.TestCase):
 
             with mock.patch.object(installer_module, "ASSET_ROOT", asset_root):
                 manifest = installer_module.bundled_runtime_manifest()
-                self.assertEqual(manifest["runtime_version"], 20)
+                self.assertEqual(manifest["runtime_version"], 21)
 
                 policy_path = asset_root / "policy.py"
                 policy_path.write_bytes(policy_path.read_bytes() + b"# changed\r\n")
@@ -7011,7 +7220,7 @@ class InstallerTests(unittest.TestCase):
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["state"], "confirmed_recently")
             self.assertEqual(execution["last_event"], "session-start")
-            self.assertEqual(execution["observed_runtime_version"], 20)
+            self.assertEqual(execution["observed_runtime_version"], 21)
             self.assertTrue(payload["host_execution_confirmed"])
             self.assertEqual(payload["next_action"], "bootstrap_project_memory")
 
@@ -7177,12 +7386,12 @@ class InstallerTests(unittest.TestCase):
             payload = json.loads(upgraded.stdout)
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["after"]["state"], "current")
-            self.assertEqual(payload["after"]["installed_runtime_version"], 20)
+            self.assertEqual(payload["after"]["installed_runtime_version"], 21)
             config = json.loads(
                 (root / ".wishgraph" / "config.json").read_text(encoding="utf-8")
             )
             self.assertEqual(config["mode"], "enforce")
-            self.assertEqual(config["runtime_version"], 20)
+            self.assertEqual(config["runtime_version"], 21)
 
     def test_safe_upgrade_replaces_only_a_bundled_known_old_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -7516,7 +7725,7 @@ class InstallerTests(unittest.TestCase):
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["version"], 12)
-            self.assertEqual(config["runtime_version"], 20)
+            self.assertEqual(config["runtime_version"], 21)
             self.assertTrue(
                 (root / ".wishgraph" / "hooks" / "runtime-manifest.json").is_file()
             )

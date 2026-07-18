@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -21,10 +22,87 @@ from workflow_state import canonical_task_id
 CODEX_AGENT_THREAD = "codex_agent_thread"
 CODEX_RUNNING_STATES = {"starting", "running", "working", "waiting"}
 CODEX_TERMINAL_STATES = {"completed", "failed", "stopped", "cancelled"}
+CODEX_MODELS = {"gpt-5.6-terra", "gpt-5.6-sol"}
+CODEX_EFFORTS = {"minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
+CLAUDE_MODELS = {"sonnet", "opus", "fable"}
+CLAUDE_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
+MODEL_DISPLAY_NAMES = {
+    "gpt-5.6-terra": "terra",
+    "gpt-5.6-sol": "sol",
+}
+EFFORT_DISPLAY_NAMES = {
+    "minimal": "最低",
+    "low": "低",
+    "medium": "中",
+    "high": "高",
+    "xhigh": "极高",
+    "max": "最高",
+    "ultra": "极强",
+}
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _manual_profiles(root: Path, discussion_session_id: str) -> dict[str, dict[str, str]]:
+    profiles: dict[str, dict[str, str]] = {"codex": {}, "claude": {}}
+    runtime = read_session_runtime(root, discussion_session_id) or {}
+    task_runtime = runtime.get("task")
+    task_runtime = task_runtime if isinstance(task_runtime, dict) else {}
+    recommendations = task_runtime.get("worker_execution_profiles")
+    if isinstance(recommendations, dict):
+        for host in ("codex", "claude"):
+            value = recommendations.get(host)
+            if isinstance(value, dict):
+                profiles[host].update(
+                    {
+                        key: str(value[key]).strip()
+                        for key in ("model", "reasoning_effort")
+                        if value.get(key)
+                    }
+                )
+    worker_runtime = runtime.get("worker_runtime")
+    worker_runtime = worker_runtime if isinstance(worker_runtime, dict) else {}
+    requested = worker_runtime.get("requested_execution_profile")
+    if not isinstance(requested, dict):
+        stored = worker_runtime.get("execution_profile")
+        requested = stored.get("requested", {}) if isinstance(stored, dict) else {}
+    model = str(requested.get("model") or "")
+    effort = str(requested.get("reasoning_effort") or "")
+    if model in CODEX_MODELS:
+        profiles["codex"]["model"] = model
+    if effort in CODEX_EFFORTS:
+        profiles["codex"]["reasoning_effort"] = effort
+    if model in CLAUDE_MODELS:
+        profiles["claude"]["model"] = model
+    if effort in CLAUDE_EFFORTS:
+        profiles["claude"]["reasoning_effort"] = effort
+    return profiles
+
+
+def _manual_command(host: str, profile: dict[str, str]) -> str:
+    command = [host]
+    if profile.get("model"):
+        command.extend(["--model", profile["model"]])
+    if profile.get("reasoning_effort"):
+        if host == "codex":
+            command.extend(
+                ["-c", f'model_reasoning_effort="{profile["reasoning_effort"]}"']
+            )
+        else:
+            command.extend(["--effort", profile["reasoning_effort"]])
+    return shlex.join(command)
+
+
+def _manual_profile_display(profile: dict[str, str]) -> str:
+    if not profile:
+        return "当前默认配置"
+    raw_model = profile.get("model", "")
+    raw_effort = profile.get("reasoning_effort", "")
+    model = MODEL_DISPLAY_NAMES.get(raw_model, raw_model) or "当前默认模型"
+    effort = EFFORT_DISPLAY_NAMES.get(raw_effort, raw_effort) or "当前默认强度"
+    return f"{model} / {effort}"
 
 
 def _manual_codex_worker_fallback(
@@ -73,11 +151,38 @@ def _manual_codex_worker_fallback(
             },
         },
     )
+    profiles = _manual_profiles(root, discussion_session_id)
+    codex_profile = profiles["codex"]
+    claude_profile = profiles["claude"]
+    codex_command = _manual_command("codex", codex_profile)
+    claude_command = _manual_command("claude", claude_profile)
+    codex_display = _manual_profile_display(codex_profile)
+    claude_display = _manual_profile_display(claude_profile)
     return {
         "ok": bool(persisted.get("ok")),
         "launched": False,
         "fallback": True,
         "user_message": f"执行 {task_id} 任务",
+        "manual_launch_instructions": "\n".join(
+            (
+                "自动创建独立 Worker 失败。请任选一个 Agent 启动新会话：",
+                "",
+                f"本次建议：Codex {codex_display}；Claude Code {claude_display}。",
+                "",
+                "Codex：",
+                f"cd {shlex.quote(str(root.resolve()))}",
+                codex_command,
+                "",
+                "Claude Code：",
+                f"cd {shlex.quote(str(root.resolve()))}",
+                claude_command,
+                "",
+                "新会话打开后输入：",
+                f"执行 {task_id}",
+                "",
+                "需要改模型或推理强度时，只修改对应的启动命令参数；任务口令保持不变。",
+            )
+        ),
         "stop_after_action": True,
         "runtime_persisted": bool(persisted.get("ok")),
         "reason": reason,
@@ -91,6 +196,7 @@ def prepare_codex_worker(
     discussion_session_id: str,
     *,
     authorize_launch: Callable[[Path, dict[str, Any], str, str], dict[str, Any]],
+    execution_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Prepare an authorized native Codex spawn; never create an Agent from a Hook."""
     canonical = canonical_task_id(task_id)
@@ -106,6 +212,20 @@ def prepare_codex_worker(
     report_path = str(task.get("run_report") or "")
     allowed_scope = list(task.get("allowed_scope") or [])
     validation_plan = list(task.get("validation_plan") or [])
+    requested_profile = (
+        dict(execution_profile) if isinstance(execution_profile, dict) else {}
+    )
+    host_spawn_options = {
+        key: value
+        for key, value in (
+            ("model", str(requested_profile.get("model") or "")),
+            (
+                "thinking",
+                str(requested_profile.get("reasoning_effort") or ""),
+            ),
+        )
+        if value
+    }
     prompt = "\n".join(
         (
             f"执行 {canonical} 任务",
@@ -114,6 +234,8 @@ def prepare_codex_worker(
             f"允许范围：{json.dumps(allowed_scope, ensure_ascii=False)}",
             f"验证计划：{json.dumps(validation_plan, ensure_ascii=False)}",
             f"Run Report：{report_path}",
+            f"执行配置：{json.dumps(requested_profile, ensure_ascii=False)}。"
+            "仅当当前 Codex 宿主确实支持时才覆盖；否则保持当前宿主默认模型与推理强度。",
             "等宿主用真实 thread ID 注册 launch_context 后，再取得绑定当前 Task、branch、worktree 的 Claim。",
             "不得创建更多 Formal Worker；完成时写结构化终态、Run Report 并释放 Claim。",
         )
@@ -131,6 +253,7 @@ def prepare_codex_worker(
                 "binding_status": "awaiting_thread_id",
                 "worker_availability": "starting",
                 "sync_status": "routing_worker",
+                "requested_execution_profile": requested_profile,
                 "last_observed_at": _utc_now(),
             }
         },
@@ -154,6 +277,8 @@ def prepare_codex_worker(
         "allowed_scope": allowed_scope,
         "validation_plan": validation_plan,
         "execution_mode": str(task.get("execution_mode") or "exclusive"),
+        "requested_execution_profile": requested_profile,
+        "host_spawn_options": host_spawn_options,
         "required_host_result": {
             "thread_or_session_id": "stable non-empty ID",
             "independent_context": True,
@@ -177,6 +302,8 @@ def register_codex_worker(
     controllable: bool = False,
     independent_context: bool = False,
     isolated_worktree: bool = False,
+    model: str = "",
+    reasoning_effort: str = "",
     authorize_launch: Callable[[Path, dict[str, Any], str, str], dict[str, Any]],
 ) -> dict[str, Any]:
     """Persist a Codex Worker only after the host returns a real inspectable ID."""
@@ -214,6 +341,11 @@ def register_codex_worker(
             "parallel_formal_worker_requires_independent_worktree",
         )
     now = _utc_now()
+    resolved_profile = {
+        key: value
+        for key, value in (("model", model.strip()), ("reasoning_effort", reasoning_effort.strip()))
+        if value
+    }
     handle = {
         "host": "codex",
         "container_kind": CODEX_AGENT_THREAD,
@@ -251,6 +383,10 @@ def register_codex_worker(
                 "controllable": True,
                 "independent_context": True,
                 "isolated_worktree": isolated_worktree,
+                "execution_profile": {
+                    "resolved": resolved_profile,
+                    "source": "host_spawn_result" if resolved_profile else "current_host_default",
+                },
             },
             "worker_runtime": {"worker_handle": handle},
         },
@@ -283,6 +419,10 @@ def register_codex_worker(
                 "binding_status": "awaiting_claim",
                 "worker_availability": "starting",
                 "sync_status": "waiting_for_claim",
+                "execution_profile": {
+                    "resolved": resolved_profile,
+                    "source": "host_spawn_result" if resolved_profile else "current_host_default",
+                },
                 "last_observed_at": now,
                 "worker_handle": handle,
             },
@@ -456,6 +596,14 @@ def codex_worker_main(
             args.task_id,
             args.discussion_session_id,
             authorize_launch=authorize_launch,
+            execution_profile={
+                key: value
+                for key, value in {
+                    "model": getattr(args, "model", ""),
+                    "reasoning_effort": getattr(args, "reasoning_effort", ""),
+                }.items()
+                if value
+            },
         )
     elif args.codex_worker_action == "register":
         payload = register_codex_worker(
@@ -470,6 +618,8 @@ def codex_worker_main(
             controllable=args.controllable,
             independent_context=args.independent_context,
             isolated_worktree=args.isolated_worktree,
+            model=getattr(args, "model", ""),
+            reasoning_effort=getattr(args, "reasoning_effort", ""),
             authorize_launch=authorize_launch,
         )
     elif args.codex_worker_action == "observe":
@@ -494,7 +644,7 @@ def codex_worker_main(
             else {"ok": False, "error": "invalid_task_id"}
         )
     if payload.get("fallback"):
-        print(payload["user_message"])
+        print(payload["manual_launch_instructions"])
         return 0
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if payload.get("ok") else 1
@@ -513,6 +663,8 @@ def main(
     prepare_parser = subparsers.add_parser("prepare")
     prepare_parser.add_argument("task_id")
     prepare_parser.add_argument("--discussion-session-id", required=True)
+    prepare_parser.add_argument("--model", default="")
+    prepare_parser.add_argument("--reasoning-effort", default="")
     register_parser = subparsers.add_parser("register")
     register_parser.add_argument("task_id")
     register_parser.add_argument("--discussion-session-id", required=True)
@@ -523,6 +675,8 @@ def main(
     register_parser.add_argument("--controllable", action="store_true")
     register_parser.add_argument("--independent-context", action="store_true")
     register_parser.add_argument("--isolated-worktree", action="store_true")
+    register_parser.add_argument("--model", default="")
+    register_parser.add_argument("--reasoning-effort", default="")
     observe_parser = subparsers.add_parser("observe")
     observe_parser.add_argument("--discussion-session-id", required=True)
     observe_parser.add_argument("--thread-id", required=True)

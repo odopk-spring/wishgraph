@@ -85,7 +85,7 @@ WishGraph 解决的不是“让 Agent 多读一些文档”，而是让不同阶
 WishGraph 会让当前宿主选择最合适的可检查 Worker：
 
 - 支持原生 Agent thread 或后台 session 时，创建独立 Worker 并保存真实 thread/session ID。
-- 当前宿主不支持或启动失败时，只输出一行 `执行 012b 任务`；你在新的执行窗口输入这句话即可。
+- 当前宿主不支持或启动失败时，输出一份精简的跨宿主交接：当前项目目录、Codex 与 Claude Code 各自可复制的启动命令和配置，以及最后一行 `执行 012b`。
 
 Worker 通过 Task 检查并取得 Claim 后才会修改代码。它不会读取无关 Task、全部历史报告或完整源码树。
 
@@ -166,9 +166,9 @@ Claude Code：
 
 | 宿主 | 首选 Worker | 无法原生创建时 | 不变的边界 |
 | --- | --- | --- | --- |
-| **Codex** | 当前界面支持时，使用可查看、可追踪、可控制的 Agent thread。 | 输出 `执行 <task-id> 任务`，由用户在独立执行窗口输入。 | 精确授权、Claim、scope、验证、Run Report 和 Integration。 |
-| **Claude Code CLI** | 能力与 Agent 定义通过检查时，在独立 Worktree 中使用受管 `claude --bg --agent wishgraph-worker` 后台 session。 | 只输出 `执行 <task-id> 任务`。 | 同上；`/tasks` 只用于查看后台工作，不创建 WishGraph Task。 |
-| **其他宿主** | 使用宿主真正可检查的独立 thread 或窗口。 | 使用通用适配器和一行执行命令。 | 宿主能力不足不会扩大 Discussion 的执行权限。 |
+| **Codex** | 当前界面支持时，使用可查看、可追踪、可控制的 Agent thread。 | 给出项目目录、Codex/Claude 启动命令和 Task 口令。 | 精确授权、Claim、scope、验证、Run Report 和 Integration。 |
+| **Claude Code CLI** | 能力与 Agent 定义通过检查时，在独立 Worktree 中使用受管 `claude --bg --agent wishgraph-worker` 后台 session。 | 给出同一份跨宿主交接。 | 同上；`/tasks` 只用于查看后台工作，不创建 WishGraph Task。 |
+| **其他宿主** | 使用宿主真正可检查的独立 thread 或窗口。 | 使用通用的跨宿主启动交接。 | 宿主能力不足不会扩大 Discussion 的执行权限。 |
 
 Python 3.9+ 是 WishGraph runtime 的要求，不代表你的业务项目必须使用 Python。
 

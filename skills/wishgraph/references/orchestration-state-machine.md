@@ -41,7 +41,7 @@ Examples include `进入讨论模式`, `回到 Discussion`, and `请刷新一下
 
 Task-scoped commands retain exact action and exact structured ID matching. Do not apply the low-risk politeness normalizer to `执行`, `继续执行`, `停止`, `重新执行`, `接管`, or their English forms. Read-only Task inspection also keeps exact ID matching so `012`, `012b`, and `012ba` cannot collide.
 
-When no exact command exists, produce no Hook event or authority. The Agent may ask what the user intended. For execution authority, it must request a canonical command such as `执行 012 任务`; it cannot convert a paraphrase into approval.
+When no exact command exists, produce no Hook event or authority. The Agent may ask what the user intended. The one exception is a pending, unique `approve_worker_launch`: a bounded contextual affirmative reply can consume that already-persisted transition. It cannot name a different Task, change scope, or give Discussion implementation authority.
 
 ## State Dimensions
 
@@ -101,12 +101,18 @@ Bind it to the exact Task, report, Revision, decision, or integration identifier
 Apply this priority:
 
 1. Parse explicit commands such as `执行 002`, `停止 002`, `重新执行 002`, `接管 002`, `查看 002`, or `查看 002 系列任务`.
-2. Interpret contextual replies such as `可以`, `开始吧`, `执行吧`, or `按这个做` only when exactly one current `expected_transition` exists.
+2. Interpret a bounded contextual affirmative reply only when exactly one current `expected_transition` exists. This includes common replies such as `行，就按推荐执行吧`, `没问题，开始执行`, or `Sounds good, go ahead`; reject questions, negations, conditions, scope changes, and competing Task references.
 3. Ask for the exact Task or action when more than one interpretation remains.
 
 Inspect, observe, status, and refresh are read-only. They do not consume `expected_transition` or grant Worker authority.
 
 Never produce an authorization result that allows Discussion to implement business code.
+
+### Optional Execution Profile
+
+Profile is a host-adapter preference, not an authority event. After an exact Task command, accept compact bilingual aliases such as `执行 012b terra 极高` or `execute 012b sonnet high`. During one pending authorization, accept the same profile after an affirmative reply, such as `批准，用 sonnet 高`.
+
+Before requesting authorization, Discussion recommends per Task from the user's quality, speed, cost, quota, and availability constraints plus Task complexity and risk. Persist grounded host-specific choices in the Task state's `worker_execution_profiles`; omit any host for which only its current default is known. Then display the current-host recommendation, for example: `将执行 012b 任务，建议 terra / 极高。回复“批准”使用本次建议，或回复“执行 012b sol 高”覆盖。` A plain approval or exact Task command without a profile uses that Task recommendation, falling back to the actual host default only when none exists. Reject unknown suffix text instead of silently turning it into authority. Never infer a profile from unrelated discussion text or translate a model between hosts.
 
 ## Task Identity
 
@@ -148,7 +154,7 @@ Events must come from structured user commands, persisted runtime facts, validat
 - Successful integration moves formal Tasks to `integrated`; human acceptance moves them to `reviewed`.
 - A Revision integrates without regressing an already integrated or reviewed parent Task.
 
-Do not persist `waiting_for_worker` until a real Worker exists and the runtime write succeeds. If host creation fails, persist `waiting_for_user_launch` and use the exact manual command.
+Do not persist `waiting_for_worker` until a real Worker exists and the runtime write succeeds. If host creation fails, persist `waiting_for_user_launch` and give a host-neutral handoff containing the exact project directory, copy-ready `codex` and `claude` startup commands with their resolved profiles, and the final `执行 <task-id>` line. Model selection happens in the startup command; the Task command remains stable.
 
 ## Host Action Boundary
 
@@ -156,8 +162,8 @@ Map semantic actions without changing authority:
 
 | Semantic action | Codex | Claude Code | Unsupported host |
 | --- | --- | --- | --- |
-| `launch_worker` | Prepare and create a native inspectable `wishgraph-worker` Agent thread, then persist its real ID | Ask the Host Adapter to use a native background session; never launch from a Hook | Output `执行 <task-id> 任务` |
-| launch failure | Output the same one-line command | Output the same one-line command | N/A |
+| `launch_worker` | Prepare and create a native inspectable `wishgraph-worker` Agent thread, then persist its real ID | Ask the Host Adapter to use a native background session; never launch from a Hook | Show the cross-host manual handoff |
+| launch failure | Show the cross-host manual handoff | Show the cross-host manual handoff | N/A |
 | `route_revision` | Send to an eligible inspectable Worker thread or create one | Use an eligible Worker route or output the exact Revision command | Output the exact Revision command |
 | `auto_integrate` | Enter current Discussion phase | Persist pending until Discussion resumes | Persist pending until Discussion resumes |
 | `decision_required` | Ask the material question | Ask the same material question | Ask the same material question |

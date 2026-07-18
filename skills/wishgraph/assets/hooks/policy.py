@@ -48,6 +48,7 @@ from workflow_state import (
     parse_report_status,
     parse_revision_state,
     parse_task_command,
+    parse_execution_profile_suffix,
     parse_task_state,
     parse_workflow_block,
     without_workflow_block,
@@ -948,6 +949,10 @@ def reduce_orchestration(
         return FlowPlan(accepted=True, next_action="read_status", task_id=command["task_id"])
     if command is not None and command.get("authorizes_execution"):
         requested = str(command.get("task_id") or "")
+        execution_profile = command.get("execution_profile")
+        execution_profile = (
+            dict(execution_profile) if isinstance(execution_profile, dict) else {}
+        )
         if task is None or task.task_id != requested:
             return FlowPlan(
                 accepted=False,
@@ -955,6 +960,9 @@ def reduce_orchestration(
                 task_id=requested,
                 denial_reason="exact_task_not_loaded",
             )
+        recommended = task.worker_execution_profiles.get(host_capability.host, {})
+        recommended = dict(recommended) if isinstance(recommended, dict) else {}
+        execution_profile = {**recommended, **execution_profile}
         if session.role == "neutral":
             if task.lifecycle != "approved" or not task.worker_authorized:
                 return FlowPlan(
@@ -977,8 +985,12 @@ def reduce_orchestration(
                             "wait_for_worker", task_id
                         ),
                     },
-                    "task": {"lifecycle": "running"},
+                    "task": {
+                        "lifecycle": "running",
+                        "worker_execution_profiles": task.worker_execution_profiles,
+                    },
                 },
+                work_payload={"execution_profile": execution_profile},
             )
         if session.role == "discussion":
             return FlowPlan(
@@ -995,8 +1007,13 @@ def reduce_orchestration(
                         "phase": "routing_worker",
                         "expected_transition": None,
                     },
-                    "task": {"lifecycle": "approved", "worker_authorized": True},
+                    "task": {
+                        "lifecycle": "approved",
+                        "worker_authorized": True,
+                        "worker_execution_profiles": task.worker_execution_profiles,
+                    },
                 },
+                work_payload={"execution_profile": execution_profile},
             )
 
     if is_contextual_approval(text):
@@ -1023,6 +1040,12 @@ def reduce_orchestration(
                     task_id=expected.task_id,
                     denial_reason="expected_worker_task_is_not_current",
                 )
+            execution_profile = parse_execution_profile_suffix(text)
+            recommended = task.worker_execution_profiles.get(
+                host_capability.host, {}
+            )
+            recommended = dict(recommended) if isinstance(recommended, dict) else {}
+            execution_profile = {**recommended, **execution_profile}
             return FlowPlan(
                 accepted=True,
                 next_action="launch_worker",
@@ -1034,8 +1057,13 @@ def reduce_orchestration(
                 ),
                 state_patch={
                     "session": {"phase": "routing_worker", "expected_transition": None},
-                    "task": {"lifecycle": "approved", "worker_authorized": True},
+                    "task": {
+                        "lifecycle": "approved",
+                        "worker_authorized": True,
+                        "worker_execution_profiles": task.worker_execution_profiles,
+                    },
                 },
+                work_payload={"execution_profile": execution_profile},
             )
         if expected.kind == "accept_result":
             if (

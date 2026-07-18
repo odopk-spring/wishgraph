@@ -94,6 +94,8 @@ accept_result(012, integration-012)
 
 “可以”“开始吧”“执行吧”只有在 transition 唯一且仍有效时才有意义。两个 Task 同时等待授权时，系统必须询问准确 ID。
 
+在刚刚询问某个 Task 是否启动的上下文中，普通确认也可以推进，例如“行，就按推荐执行吧”或“Sounds good, go ahead”。带有否定、条件、范围修改、问题或另一个 Task 的回复不会启动 Worker。
+
 ## 4. 命令识别边界
 
 低风险入口可以归一化大小写、空格、终止标点、引号和少量礼貌词，但仍只与有限 alias 做整句相等匹配。
@@ -109,6 +111,12 @@ accept_result(012, integration-012)
 重新执行 002 任务
 接管 002 任务
 ```
+
+执行命令后可选地附上紧凑的模型配置，例如 `执行 002 terra 极高`、`execute 002 sonnet high`。Discussion 会根据用户对质量、速度、成本、额度和可用模型的要求，以及本 Task 的复杂度和风险，形成这一次的建议；不会给所有用户固定同一组合。用户只回复“批准”或不附加配置时使用本 Task 建议；没有可靠建议才保留宿主当前默认。未知后缀不会被当成执行授权；属于另一宿主的模型名不会被擅自翻译。
+
+自动创建失败时，系统给出一份跨宿主交接：准确项目目录、Codex 与 Claude Code 各自可复制的启动命令、各自模型/推理强度，以及最后一行 `执行 002`。模型选择放在启动命令里，Task 口令保持稳定。
+
+Formal Worker 使用本地 Git 的 `HEAD` 作为独立 worktree 基线：只需要本地仓库至少有一个 commit，不需要 GitHub、`origin` 或任何 remote。没有首个 commit 时，系统会要求先确认并建立本地基线提交。
 
 `002`、`002b`、`002ba`、`002-r1` 和 `002-r10` 都是不同结构化 ID，不能按文件名前缀猜测。
 
@@ -140,7 +148,7 @@ codex-worker prepare
 -> Worker preflight 并取得 Claim
 ```
 
-Hook 不创建 Agent。`prepare` 成功不等于 Worker 已创建；真实 thread ID 注册前不得进入 `waiting_for_worker`。创建或注册失败时只输出 `执行 <task-id> 任务`。
+Hook 不创建 Agent。`prepare` 成功不等于 Worker 已创建；真实 thread ID 注册前不得进入 `waiting_for_worker`。创建或注册失败时输出精简的跨宿主启动交接。
 
 ### Claude Code CLI
 
@@ -148,7 +156,7 @@ Hook 不创建 Agent。`prepare` 成功不等于 Worker 已创建；真实 threa
 | --- | --- |
 | `background_session` | 运行等价于 `claude --bg --agent wishgraph-worker --worktree <unique> --settings <ephemeral-json> "执行 <task-id> 任务"` 的命令 |
 | `forked_subagent` | 只用于短时、低风险 Helper 检查 |
-| `manual_command_only` | 只输出 `执行 <task-id> 任务` |
+| `manual_command_only` | 输出项目目录、Codex/Claude 启动命令、配置和 Task 口令 |
 
 进入 `background_session` 需要：`--bg`、`agents --json`、`--worktree`、`--settings`、受管 Agent、隔离 worktree 可见的 `.wishgraph`，以及与当前 `HEAD` 一致的已授权 Task。Worktree 设置只对本次启动生效，不改写用户或项目设置；全局 Adapter 与 Agent 可以服务多个已启用项目，但每个项目仍须存在有效 `.wishgraph/config.json`。
 
@@ -166,7 +174,7 @@ claude --resume <full-session-id>
 
 ### 未知或不支持的宿主
 
-只输出一行命令，让用户在新的可检查执行会话中运行。Discussion 到此停止执行动作，不附带“我也可以直接修改”。
+只输出一份有界的启动交接，让用户任选 Codex 或 Claude Code，在新的可检查执行会话中运行。Discussion 到此停止执行动作，不附带“我也可以直接修改”。
 
 ## 7. Claim、worktree 与并行
 
@@ -262,7 +270,7 @@ WishGraph 能拦截受支持的原生写入工具、可识别的 shell 写入／
 4. Codex/Claude 只有保存真实 thread/session ID 后才进入 `waiting_for_worker`。
 5. Worker 没有 Claim 不能写业务代码或构建。
 6. Helper 和 Hidden Agent 不能取得 Worker Claim。
-7. 启动失败只输出一行执行命令，Discussion 不接管实现。
+7. 启动失败输出有界的跨宿主交接，Discussion 不接管实现。
 8. Worker 不能通过公开 session 命令或“开始讨论”把自己提升为 Discussion。
 9. Integration lease 必须消费 reducer 签发、精确绑定且尚未使用的 grant。
 10. Task、Report、Claim、branch 或 worktree 在 grant 后变化时，lease 获取失败关闭。

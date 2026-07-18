@@ -112,7 +112,7 @@ Discussion 一次只追问一个会改变结果的决定，并提供推荐默认
 | --- | --- |
 | 支持可检查 Agent thread 的 Codex 界面 | 宿主创建项目 `wishgraph-worker`；只有返回真实稳定 thread ID 后才记录成功。 |
 | 支持兼容后台 Agent 的 Claude Code CLI | Host Adapter 在独立 Worktree 中启动受管后台 Agent，只临时注入本次 Worktree 设置，并保存稳定 session ID。 |
-| 原生创建不可用或失败 | Discussion 只输出 `执行 012 任务`；你在新的可检查执行窗口输入这一行。 |
+| 原生创建不可用或失败 | Discussion 给出项目目录、Codex/Claude 启动命令、各自配置和 `执行 012`；任选一套复制即可。 |
 
 请求创建进程或 thread 不代表 Task 已经 `running`。Worker 必须通过准确 Task preflight，并取得绑定 session、branch、绝对 worktree、scope 和 validation plan 的 Claim。
 

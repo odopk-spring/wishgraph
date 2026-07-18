@@ -16,7 +16,9 @@ Use this reference for Formal Worker launch, host fallback, preflight, Claim/wor
 
 ## Authority And Visible Routing
 
-Discussion records one exact `approve_worker_launch(<task-id>)`. A unique contextual reply may authorize that transition; two eligible Tasks require an exact choice. Explicit `执行 <task-id> 任务` commands take priority but still require structured Task, dependency, branch, worktree, and Claim checks.
+Discussion records one exact `approve_worker_launch(<task-id>)`. A unique contextual affirmative reply may authorize that transition; two eligible Tasks require an exact choice. Accept ordinary confirmations such as `行，就按推荐执行吧` or `Sounds good, go ahead`, but never treat a question, negation, condition, scope change, or competing Task reference as approval. Explicit `执行 <task-id> 任务` commands take priority but still require structured Task, dependency, branch, worktree, and Claim checks.
+
+Execution profile is optional. Users may write `执行 012b terra 极高`, `execute 012b sonnet high`, or answer the pending authorization with `批准，用 sonnet 高`. Parse profile aliases only after an exact Task command or while one authorization transition is pending. A plain approval uses the current Task's grounded `worker_execution_profiles` recommendation; if that host has no recommendation, keep its actual current default. A valid current-host choice overrides matching recommended fields; an unknown suffix is not an execution command, and a model belonging to another host is not translated. Profile selection never grants authority or relaxes Claim, scope, validation, or Integration gates.
 
 Persist authority by moving the exact Task from `draft` to `approved` and setting `worker_creation_authorized: true`. Then enter `routing_worker`.
 
@@ -48,10 +50,12 @@ Use the project-scoped `.codex/agents/wishgraph-worker.toml` custom Agent in a u
 
 After authorization, the Host Adapter prepares the exact Task path, scope, validation, report path, and Claim requirements. The active Codex host starts `wishgraph-worker`, then registers the real returned thread ID. Keep the Discussion in `routing_worker` until that registration succeeds; only then enter `waiting_for_worker`. Observe completion only from structured host thread state plus durable Task, Run Report, and released Claim evidence.
 
-If creation or registration fails, enter `waiting_for_user_launch` and output exactly:
+If creation or registration fails, enter `waiting_for_user_launch` and give a host-neutral handoff instead of assuming which terminal the user will open next:
 
 ```text
-执行 <task-id> 任务
+cd "<project-root>"
+# start either claude or codex with the displayed model and effort flags
+执行 <task-id>
 ```
 
 ### Claude Code
@@ -62,11 +66,11 @@ Detect one host-only capability tier without changing the reducer or authority:
 | --- | --- |
 | `background_session` | After authorization, run the managed Claude background Agent in a unique Worktree and persist the returned Claude session ID. |
 | `forked_subagent` | Use only as a Helper for short, low-risk checks with no durable ownership; formal business work still uses the manual command. |
-| `manual_command_only` | Output exactly `执行 <task-id> 任务` and stop Discussion execution. |
+| `manual_command_only` | Give the same host-neutral `cd` + chosen-Agent + `执行 <task-id>` handoff and stop Discussion execution. |
 
 Require the managed `wishgraph-worker` Agent definition before background launch. Claude Code silently falls back to a default template when an Agent name is missing, so an absent or unrecognized definition is a launch failure, not permission to use the default Agent.
 
-The background Worker acquires its own Claim after Claude has placed it in its actual branch/worktree. Require the authorized Task record to match current `HEAD`. The Host Adapter adds a unique `--worktree` name and passes the minimal `baseRef: head` plus `.wishgraph` symlink contract through per-launch `--settings`; it does not overwrite global or project Claude settings and does not require a project `.claude/settings.json`. The managed Agent may come from the global Claude Agent directory while `.wishgraph/config.json` remains the explicit project activation gate. Persist the stable session ID and observed actual worktree before `waiting_for_worker`; otherwise stop the failed session and use the one-line manual fallback. Do not move the Task to `running` merely because `claude --bg` returned.
+The background Worker acquires its own Claim after Claude has placed it in its actual branch/worktree. Require the authorized Task record to match current `HEAD`. The Host Adapter adds a unique `--worktree` name and passes the minimal `baseRef: head` plus `.wishgraph` symlink contract through per-launch `--settings`; it does not overwrite global or project Claude settings and does not require a project `.claude/settings.json`. This needs a local Git repository with at least one local commit, but never requires GitHub, an `origin`, or any remote. The managed Agent may come from the global Claude Agent directory while `.wishgraph/config.json` remains the explicit project activation gate. Persist the stable session ID and observed actual worktree before `waiting_for_worker`; otherwise stop the failed session and use the host-neutral handoff. Do not move the Task to `running` merely because `claude --bg` returned.
 
 Refresh with `claude agents --json --all --cwd <project>`. Use only structured state plus the durable Task, Run Report, and released Claim to enter `integration_pending`; conversation text is never completion evidence. For the current CLI, open `claude agents --cwd <project>` for interactive inspection/control and use `claude --resume <full-session-id>` when conversation recovery is appropriate. A created session that fails Worktree or runtime verification is persisted as `manual_intervention_required`; WishGraph does not pretend an unsupported stop command succeeded. A failed, blocked, missing, or unknown session without complete durable evidence also remains manual rather than becoming a guessed terminal result.
 
@@ -74,7 +78,7 @@ Refresh with `claude agents --json --all --cwd <project>`. Use only structured s
 
 ### Unknown Hosts
 
-Require a new user-opened inspectable window. Output the same one-line command and stop. Do not print the full prompt or Task Spec and do not offer direct implementation.
+Require a new user-opened inspectable window. Output the same bounded cross-host startup handoff and stop. Do not print the full Task Spec and do not offer direct implementation.
 
 ### Neutral Entry
 
@@ -84,12 +88,13 @@ A neutral window receiving the exact command reads `CONVENTIONS.md`, `prompts/EX
 
 Before implementation:
 
-1. Read `CONVENTIONS.md`, `prompts/EXECUTION_AI.md`, and the exact Task or Revision record.
-2. Verify structured ID, lifecycle, Worker authority, dependencies, attempt, report path, allowed scope, and validation plan.
-3. Verify the intended branch and absolute worktree.
-4. Inspect active and stale Claims across the repository's Git common directory.
-5. Atomically acquire a Claim for the exact work unit.
-6. Persist the Worker session binding before moving the work to `running`.
+1. Verify one local `HEAD` commit exists for the worktree baseline. A remote is optional; a repository with no first commit must establish its intended local baseline before Formal Worker launch.
+2. Read `CONVENTIONS.md`, `prompts/EXECUTION_AI.md`, and the exact Task or Revision record.
+3. Verify structured ID, lifecycle, Worker authority, dependencies, attempt, report path, allowed scope, and validation plan.
+4. Verify the intended branch and absolute worktree.
+5. Inspect active and stale Claims across the repository's Git common directory.
+6. Atomically acquire a Claim for the exact work unit.
+7. Persist the Worker session binding before moving the work to `running`.
 
 Do not infer permission from a window title, chat history, branch name, or unstructured task prose.
 

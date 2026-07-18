@@ -85,7 +85,7 @@ Execute task 012b
 WishGraph lets the current host choose the best inspectable Worker it can genuinely provide:
 
 - If the host supports a native Agent thread or background session, it creates an independent Worker and saves the real thread/session ID.
-- If native creation is unavailable or fails, Discussion prints one line—`执行 012b 任务`—for you to enter in a new execution window.
+- If native creation is unavailable or fails, Discussion prints a compact cross-host handoff: the project directory, copy-ready Codex and Claude Code startup commands with their profiles, and the final `执行 012b` line.
 
 The Worker changes code only after exact Task preflight and Claim acquisition. It does not read unrelated Tasks, all historical reports, or the complete source tree.
 
@@ -166,9 +166,9 @@ You do not choose between a new window, background session, or subagent. WishGra
 
 | Host | Preferred Worker | Native creation unavailable | Boundaries that do not change |
 | --- | --- | --- | --- |
-| **Codex** | A user-visible, inspectable, controllable Agent thread when the current surface supports it. | Print `执行 <task-id> 任务` for a separate execution window. | Exact authorization, Claim, scope, validation, Run Report, and Integration. |
-| **Claude Code CLI** | A managed `claude --bg --agent wishgraph-worker` background session in a unique Worktree after capability and Agent checks pass. | Print only `执行 <task-id> 任务`. | Same boundaries; `/tasks` views background work and does not create a WishGraph Task. |
-| **Other hosts** | A genuinely inspectable independent thread or window. | Use the generic adapter and the one-line command. | Missing host capabilities never expand Discussion authority. |
+| **Codex** | A user-visible, inspectable, controllable Agent thread when the current surface supports it. | Show the project directory, Codex/Claude startup commands, and Task phrase. | Exact authorization, Claim, scope, validation, Run Report, and Integration. |
+| **Claude Code CLI** | A managed `claude --bg --agent wishgraph-worker` background session in a unique Worktree after capability and Agent checks pass. | Show the same cross-host handoff. | Same boundaries; `/tasks` views background work and does not create a WishGraph Task. |
+| **Other hosts** | A genuinely inspectable independent thread or window. | Use the generic cross-host handoff and Task phrase. | Missing host capabilities never expand Discussion authority. |
 
 Python 3.9+ is a WishGraph runtime requirement; your business project does not need to be written in Python.
 

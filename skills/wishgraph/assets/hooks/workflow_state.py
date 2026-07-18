@@ -40,6 +40,7 @@ EXPECTED_TRANSITIONS = {
     "rebind_worker",
 }
 CONTEXTUAL_APPROVALS = {
+    "批准",
     "可以",
     "开始吧",
     "执行吧",
@@ -50,6 +51,67 @@ CONTEXTUAL_APPROVALS = {
     "start",
     "proceed",
     "continue",
+    "approve",
+}
+CONTEXTUAL_APPROVAL_REJECTIONS = (
+    "不要",
+    "不执行",
+    "先别",
+    "稍后",
+    "等等",
+    "但是",
+    "不过",
+    "先讨论",
+    "不确定",
+    "don't",
+    "do not",
+    "not yet",
+    "wait",
+    "hold",
+    "but ",
+)
+EXECUTION_MODEL_ALIASES = {
+    "terra": "gpt-5.6-terra",
+    "gpt-5.6-terra": "gpt-5.6-terra",
+    "sol": "gpt-5.6-sol",
+    "gpt-5.6-sol": "gpt-5.6-sol",
+    "sonnet": "sonnet",
+    "opus": "opus",
+    "fable": "fable",
+}
+EXECUTION_EFFORT_ALIASES = {
+    "最低": "minimal",
+    "minimal": "minimal",
+    "低": "low",
+    "low": "low",
+    "中": "medium",
+    "medium": "medium",
+    "高": "high",
+    "high": "high",
+    "很高": "xhigh",
+    "极高": "xhigh",
+    "超高": "xhigh",
+    "xhigh": "xhigh",
+    "extra high": "xhigh",
+    "最高": "max",
+    "max": "max",
+    "极强": "ultra",
+    "ultra": "ultra",
+}
+EXECUTION_PROFILE_FILLERS = {
+    "用",
+    "使用",
+    "采用",
+    "模型",
+    "推理",
+    "强度",
+    "推理强度",
+    "use",
+    "using",
+    "with",
+    "model",
+    "reasoning",
+    "effort",
 }
 TASK_STATUS_ALIASES = {"pending": "draft", "done": "completed"}
 TASK_ID_RE = re.compile(r"^(?P<number>\d{3,})(?P<suffix>[a-z]*)$")
@@ -109,6 +171,7 @@ class TaskState:
     attempt: int = 1
     execution_mode: str = "exclusive"
     comparison_group: str = ""
+    worker_execution_profiles: dict[str, dict[str, str]] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     state_source: str = "legacy"
 
@@ -156,6 +219,7 @@ class TaskFlowState:
     attempt: int = 1
     worker_authorized: bool = False
     run_report: str = ""
+    worker_execution_profiles: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -297,8 +361,80 @@ class FlowPlan:
 
 
 def is_contextual_approval(text: str) -> bool:
-    """Return true for a short approval; meaning comes from expected_transition."""
-    return normalized_command_text(text) in CONTEXTUAL_APPROVALS
+    """Recognize a bounded, affirmative reply only inside an expected transition.
+
+    This deliberately accepts common conversational confirmations, but rejects
+    conditions, negations, and questions.  The caller still supplies the one
+    expected transition; this function never grants authority by itself.
+    """
+    candidate = normalized_command_text(text)
+    if not candidate or len(candidate) > 240:
+        return False
+    folded = re.sub(r"\s+", " ", candidate.casefold())
+    if any(token in folded for token in CONTEXTUAL_APPROVAL_REJECTIONS):
+        return False
+    if folded.endswith(("吗", "么", "?")):
+        return False
+    if re.search(r"\d{3,}[a-z]*", folded):
+        return False
+
+    remainder = re.sub(r"[，,、;；:：。.!！?？()（）]+", " ", folded)
+    approval_aliases = {
+        *CONTEXTUAL_APPROVALS,
+        "行",
+        "行啊",
+        "行呀",
+        "好",
+        "好的",
+        "没问题",
+        "同意",
+        "按推荐",
+        "按推荐执行",
+        "按推荐执行吧",
+        "按这个",
+        "按建议",
+        "开始执行",
+        "开始",
+        "执行",
+        "就",
+        "吧",
+        "sounds good",
+        "yes",
+        "ok",
+        "okay",
+        "sure",
+        "do it",
+    }
+    found_approval = False
+    for alias in sorted(approval_aliases, key=len, reverse=True):
+        pattern = (
+            rf"(?<![a-z]){re.escape(alias)}(?![a-z])"
+            if alias.isascii()
+            else re.escape(alias)
+        )
+        if re.search(pattern, remainder, re.IGNORECASE):
+            found_approval = True
+            remainder = re.sub(pattern, " ", remainder, flags=re.IGNORECASE)
+    remainder = _remove_execution_profile_words(remainder)
+    return found_approval and not re.sub(r"\s+", "", remainder)
+
+
+def _remove_execution_profile_words(text: str) -> str:
+    """Remove only known profile aliases and harmless connector words."""
+    remainder = text.casefold()
+    aliases = {
+        *EXECUTION_MODEL_ALIASES,
+        *EXECUTION_EFFORT_ALIASES,
+        *EXECUTION_PROFILE_FILLERS,
+    }
+    for alias in sorted(aliases, key=len, reverse=True):
+        pattern = (
+            rf"(?<![a-z0-9._-]){re.escape(alias)}(?![a-z0-9._-])"
+            if alias.isascii()
+            else re.escape(alias)
+        )
+        remainder = re.sub(pattern, " ", remainder, flags=re.IGNORECASE)
+    return re.sub(r"[，,、;；:：。.!！?？()（）/]+", " ", remainder)
 
 
 def orchestration_state_from_dict(value: dict[str, Any]) -> OrchestrationState:
@@ -353,6 +489,17 @@ def orchestration_state_from_dict(value: dict[str, Any]) -> OrchestrationState:
                 attempt=int(task_value.get("attempt") or 1),
                 worker_authorized=task_value.get("worker_authorized") is True,
                 run_report=str(task_value.get("run_report") or ""),
+                worker_execution_profiles={
+                    host: {
+                        key: str(item.get(key) or "").strip()
+                        for key in ("model", "reasoning_effort")
+                        if item.get(key)
+                    }
+                    for host, item in (
+                        task_value.get("worker_execution_profiles") or {}
+                    ).items()
+                    if host in {"codex", "claude"} and isinstance(item, dict)
+                },
             )
             if task_value is not None
             else None
@@ -602,6 +749,57 @@ def normalized_command_text(text: str) -> str:
     return candidate.strip("\"'“”‘’`").strip()
 
 
+def parse_execution_profile_suffix(text: str) -> dict[str, str]:
+    """Parse only known optional execution-profile aliases from a Task suffix.
+
+    Unknown, conflicting, or host-inapplicable words intentionally return an
+    empty mapping.  They must never stop Task routing or turn into a guessed
+    model selection; the Host Adapter keeps its current-host default instead.
+    """
+    candidate = text.casefold().strip()
+    if not candidate:
+        return {}
+    candidate = re.sub(r"[，,、;；:：()（）]+", " ", candidate)
+    candidate = re.sub(r"\s+", " ", candidate).strip()
+
+    models = {
+        canonical
+        for alias, canonical in EXECUTION_MODEL_ALIASES.items()
+        if re.search(rf"(?<![a-z0-9._-]){re.escape(alias)}(?![a-z0-9._-])", candidate)
+    }
+    effort_candidate = candidate
+    efforts: set[str] = set()
+    for alias, canonical in sorted(
+        EXECUTION_EFFORT_ALIASES.items(), key=lambda item: len(item[0]), reverse=True
+    ):
+        pattern = (
+            rf"(?<![a-z]){re.escape(alias)}(?![a-z])"
+            if alias.isascii()
+            else re.escape(alias)
+        )
+        if re.search(pattern, effort_candidate):
+            efforts.add(canonical)
+            effort_candidate = re.sub(pattern, " ", effort_candidate)
+    if len(models) > 1 or len(efforts) > 1:
+        return {}
+    profile: dict[str, str] = {}
+    if models:
+        profile["model"] = next(iter(models))
+    if efforts:
+        profile["reasoning_effort"] = next(iter(efforts))
+    return profile
+
+
+def execution_suffix_is_safe(text: str) -> bool:
+    """Reject a suffix that could negate or multiply an explicit execution command."""
+    candidate = text.casefold().strip()
+    if re.search(r"(?:和|and)\s*\d{3,}[a-z]*", candidate):
+        return False
+    if any(token in candidate for token in CONTEXTUAL_APPROVAL_REJECTIONS):
+        return False
+    return not re.sub(r"\s+", "", _remove_execution_profile_words(candidate))
+
+
 def parse_task_command(text: str) -> Optional[dict[str, Any]]:
     """Parse one exact natural-language Task command without fuzzy execution."""
     candidate = normalized_command_text(text)
@@ -627,29 +825,45 @@ def parse_task_command(text: str) -> Optional[dict[str, Any]]:
     )
     match = re.fullmatch(
         rf"(?P<action>{action_pattern})\s*(?P<task_id>\d{{3,}}[a-z]*)"
-        rf"(?:\s*(?:号\s*)?任务)?",
+        rf"(?:\s*(?:号\s*)?任务)?(?P<suffix>.*)",
         candidate,
     )
     if match:
         action = TASK_COMMANDS[match.group("action")]
-        return {
+        suffix = match.group("suffix") or ""
+        if action == "execute" and not execution_suffix_is_safe(suffix):
+            return None
+        result = {
             "action": action,
             "task_id": canonical_task_id(match.group("task_id")),
             "authorizes_execution": action in {"execute", "continue", "retry", "take_over"},
         }
+        if action == "execute":
+            profile = parse_execution_profile_suffix(suffix)
+            if profile:
+                result["execution_profile"] = profile
+        return result
 
     english = re.fullmatch(
         r"(?P<action>execute|continue|inspect|observe|stop|retry|take over)\s+"
-        r"(?:task\s+)?(?P<task_id>\d{3,}[a-z]*)",
+        r"(?:task\s+)?(?P<task_id>\d{3,}[a-z]*)(?P<suffix>.*)",
         candidate,
     )
     if english:
         action = english.group("action").replace(" ", "_")
-        return {
+        suffix = english.group("suffix") or ""
+        if action == "execute" and not execution_suffix_is_safe(suffix):
+            return None
+        result = {
             "action": action,
             "task_id": canonical_task_id(english.group("task_id")),
             "authorizes_execution": action in {"execute", "continue", "retry", "take_over"},
         }
+        if action == "execute":
+            profile = parse_execution_profile_suffix(suffix)
+            if profile:
+                result["execution_profile"] = profile
+        return result
     return None
 
 
@@ -1072,6 +1286,25 @@ def parse_task_state(task_path: str, content: str) -> TaskState:
         integration_policy = canonical_integration_policy(
             data.get("integration_route", data.get("integration_policy"))
         )
+        raw_profiles = data.get("worker_execution_profiles", {})
+        worker_execution_profiles: dict[str, dict[str, str]] = {}
+        if raw_profiles is not None and not isinstance(raw_profiles, dict):
+            errors.append("worker_execution_profiles must be an object")
+        elif isinstance(raw_profiles, dict):
+            for host, raw_profile in raw_profiles.items():
+                if host not in {"codex", "claude"}:
+                    errors.append("worker_execution_profiles supports only codex and claude")
+                    continue
+                if not isinstance(raw_profile, dict):
+                    errors.append(f"worker_execution_profiles.{host} must be an object")
+                    continue
+                profile = {
+                    key: str(raw_profile.get(key) or "").strip()
+                    for key in ("model", "reasoning_effort")
+                    if raw_profile.get(key)
+                }
+                if profile:
+                    worker_execution_profiles[host] = profile
         state_source = "structured"
     else:
         task_id = Path(task_path).stem
@@ -1094,6 +1327,7 @@ def parse_task_state(task_path: str, content: str) -> TaskState:
             parse_labeled_field(content, "Integration authorization", "集成授权")
             or "missing"
         )
+        worker_execution_profiles = {}
         state_source = "legacy"
 
     return TaskState(
@@ -1110,6 +1344,7 @@ def parse_task_state(task_path: str, content: str) -> TaskState:
         attempt=attempt,
         execution_mode=execution_mode,
         comparison_group=comparison_group,
+        worker_execution_profiles=worker_execution_profiles,
         errors=errors,
         state_source=state_source,
     )

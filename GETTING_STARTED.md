@@ -114,7 +114,7 @@ Authorization does not let Discussion implement the Task. It asks the current ho
 | --- | --- |
 | Codex surface with inspectable Agent threads | The host creates the project `wishgraph-worker`; WishGraph records success only after receiving a real stable thread ID. |
 | Claude Code CLI with compatible background-agent support | The Host Adapter starts the managed background Agent in a unique Worktree, injects only the per-launch Worktree settings, and records the stable session ID. |
-| Native creation unavailable or failed | Discussion prints only `执行 012 任务`; open a new inspectable execution window and enter that line. |
+| Native creation unavailable or failed | Discussion shows the project directory, Codex/Claude startup commands with their profiles, and `执行 012`; copy either host block. |
 
 The new Worker is not `running` merely because a process or thread was requested. It must pass exact Task preflight and acquire a Claim bound to its session, branch, absolute worktree, allowed scope, and validation plan.
 

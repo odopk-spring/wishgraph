@@ -119,6 +119,23 @@ FORMAL_WORKER_CONTAINERS = {
     CLAUDE_BACKGROUND_CONTAINER,
     MANUAL_WORKER_WINDOW,
 }
+CODEX_WORKER_MODELS = {"gpt-5.6-terra", "gpt-5.6-sol"}
+CODEX_WORKER_EFFORTS = {"minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
+CLAUDE_WORKER_MODELS = {"sonnet", "opus", "fable"}
+CLAUDE_WORKER_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
+MODEL_DISPLAY_NAMES = {
+    "gpt-5.6-terra": "terra",
+    "gpt-5.6-sol": "sol",
+}
+EFFORT_DISPLAY_NAMES = {
+    "minimal": "最低",
+    "low": "低",
+    "medium": "中",
+    "high": "高",
+    "xhigh": "极高",
+    "max": "最高",
+    "ultra": "极强",
+}
 NON_WORKER_CONTAINERS = {HELPER_SUBAGENT, HIDDEN_INTERNAL_AGENT}
 CODEX_RUNNING_STATES = {"starting", "running", "working", "waiting"}
 CODEX_TERMINAL_STATES = {"completed", "failed", "stopped", "cancelled"}
@@ -388,6 +405,9 @@ def map_flow_plan_to_host(
                 work_payload={
                     "task_id": plan.task_id,
                     "capability_detection_required": True,
+                    "execution_profile": dict(
+                        plan.work_payload.get("execution_profile") or {}
+                    ),
                 },
             )
         if capability.host == "codex":
@@ -400,6 +420,9 @@ def map_flow_plan_to_host(
                     "task_id": plan.task_id,
                     "agent_name": "wishgraph-worker",
                     "requires_real_thread_id": True,
+                    "execution_profile": dict(
+                        plan.work_payload.get("execution_profile") or {}
+                    ),
                 },
             )
         return HostAction(
@@ -536,6 +559,182 @@ def _claude_worker_settings_json() -> str:
         ensure_ascii=False,
         separators=(",", ":"),
     )
+
+
+def _execution_profile_command_suffix(profile: Any) -> str:
+    """Return safe optional CLI switches for a previously parsed profile."""
+    value = profile if isinstance(profile, dict) else {}
+    model = str(value.get("model") or "").strip()
+    effort = str(value.get("reasoning_effort") or "").strip()
+    parts: list[str] = []
+    if model:
+        parts.append(f"--model {shlex.quote(model)}")
+    if effort:
+        parts.append(f"--reasoning-effort {shlex.quote(effort)}")
+    return (" " + " ".join(parts)) if parts else ""
+
+
+def _resolve_execution_profile(config: Any, host: str, profile: Any) -> dict[str, Any]:
+    """Resolve a grounded recommendation without inventing a universal default."""
+    requested = profile if isinstance(profile, dict) else {}
+    requested_model = str(requested.get("model") or "").strip()
+    requested_effort = str(requested.get("reasoning_effort") or "").strip()
+    supported_efforts = CODEX_WORKER_EFFORTS if host == "codex" else CLAUDE_WORKER_EFFORTS
+    resolved: dict[str, str] = {}
+    ignored_fields: list[str] = []
+    if requested_model:
+        safe_model = bool(re.fullmatch(r"[A-Za-z0-9._:-]+", requested_model))
+        belongs_to_other_host = (
+            host == "codex"
+            and (
+                requested_model in CLAUDE_WORKER_MODELS
+                or requested_model.startswith("claude-")
+            )
+        ) or (
+            host == "claude"
+            and (
+                requested_model in CODEX_WORKER_MODELS
+                or requested_model.startswith("gpt-")
+            )
+        )
+        if safe_model and not belongs_to_other_host:
+            resolved["model"] = requested_model
+        else:
+            ignored_fields.append("model")
+    if requested_effort:
+        if requested_effort in supported_efforts:
+            resolved["reasoning_effort"] = requested_effort
+        else:
+            ignored_fields.append("reasoning_effort")
+    override_applied = bool(resolved)
+    return {
+        "requested": {
+            key: value
+            for key, value in (
+                ("model", requested_model),
+                ("reasoning_effort", requested_effort),
+            )
+            if value
+        },
+        "default": {},
+        "resolved": resolved,
+        "source": "requested_profile" if override_applied else "current_host_default",
+        "override_applied": override_applied,
+        "ignored_fields": ignored_fields,
+        "reason": "unsupported_override_fields" if ignored_fields else "",
+    }
+
+
+def _resolve_claude_execution_profile(
+    profile: Any, config: Any = None
+) -> dict[str, Any]:
+    return _resolve_execution_profile(config, "claude", profile)
+
+
+def _profile_display(profile: dict[str, str]) -> str:
+    if not profile:
+        return "当前默认配置"
+    raw_model = profile.get("model", "")
+    raw_effort = profile.get("reasoning_effort", "")
+    model = MODEL_DISPLAY_NAMES.get(raw_model, raw_model) or "当前默认模型"
+    effort = EFFORT_DISPLAY_NAMES.get(raw_effort, raw_effort) or "当前默认强度"
+    return f"{model} / {effort}"
+
+
+def _task_worker_execution_profiles(
+    root: Path, config: Any, task_id: str
+) -> dict[str, dict[str, str]]:
+    if not isinstance(config, dict):
+        return {}
+    try:
+        resolved = resolve_task(root, config, task_id)
+    except (OSError, ValueError):
+        return {}
+    task = resolved.get("task") if isinstance(resolved, dict) else None
+    profiles = task.get("worker_execution_profiles") if isinstance(task, dict) else None
+    return profiles if isinstance(profiles, dict) else {}
+
+
+def _manual_profile_for_host(
+    host: str,
+    task_profiles: dict[str, dict[str, str]],
+    explicit_profile: Any,
+) -> dict[str, str]:
+    recommended = task_profiles.get(host)
+    recommended = recommended if isinstance(recommended, dict) else {}
+    resolved = dict(_resolve_execution_profile({}, host, recommended)["resolved"])
+    explicit = _resolve_execution_profile({}, host, explicit_profile)["resolved"]
+    resolved.update(explicit)
+    return resolved
+
+
+def _manual_agent_command(host: str, profile: dict[str, str]) -> str:
+    command = [host]
+    if profile.get("model"):
+        command.extend(["--model", profile["model"]])
+    if profile.get("reasoning_effort"):
+        if host == "codex":
+            command.extend(
+                ["-c", f'model_reasoning_effort="{profile["reasoning_effort"]}"']
+            )
+        else:
+            command.extend(["--effort", profile["reasoning_effort"]])
+    return shlex.join(command)
+
+
+def _manual_launch_instructions(
+    root: Path,
+    task_id: str,
+    *,
+    config: Any = None,
+    execution_profile: Any = None,
+) -> str:
+    """Give two copy-ready host choices without assuming the next Agent."""
+    quoted_root = shlex.quote(str(root.resolve()))
+    task_profiles = _task_worker_execution_profiles(root, config, task_id)
+    codex_profile = _manual_profile_for_host(
+        "codex", task_profiles, execution_profile
+    )
+    claude_profile = _manual_profile_for_host(
+        "claude", task_profiles, execution_profile
+    )
+    codex_command = _manual_agent_command("codex", codex_profile)
+    claude_command = _manual_agent_command("claude", claude_profile)
+    return "\n".join(
+        (
+            "自动创建独立 Worker 失败。请任选一个 Agent 启动新会话：",
+            "",
+            f"本次建议：Codex {_profile_display(codex_profile)}；Claude Code {_profile_display(claude_profile)}。",
+            "",
+            "Codex：",
+            f"cd {quoted_root}",
+            codex_command,
+            "",
+            "Claude Code：",
+            f"cd {quoted_root}",
+            claude_command,
+            "",
+            "新会话打开后输入：",
+            f"执行 {task_id}",
+            "",
+            "需要改模型或推理强度时，只修改对应的启动命令参数；任务口令保持不变。",
+        )
+    )
+
+
+def _local_git_baseline(root: Path) -> dict[str, Any]:
+    """Check the local HEAD needed for isolated worktrees; a remote is optional."""
+    head = run_git(root, "rev-parse", "--verify", "HEAD", check=False)
+    if head.returncode == 0:
+        return {"ok": True, "head": head.stdout.decode("utf-8", errors="replace").strip()}
+    return {
+        "ok": False,
+        "error": "local_git_baseline_commit_required",
+        "message": (
+            "正式 Worker 需要一个本地 Git 基线提交来创建隔离 worktree；不需要 GitHub 或 remote。"
+            "请确认当前起点后创建首个本地 commit，再重新执行该任务。"
+        ),
+    }
 
 
 def _claude_worker_worktree_name(task_id: str) -> str:
@@ -729,8 +928,25 @@ def _manual_worker_fallback(
     reason: str,
     *,
     orphan_session_id: str = "",
+    execution_profile: Any = None,
 ) -> dict[str, Any]:
     message = f"执行 {task_id} 任务"
+    runtime = read_session_runtime(root, discussion_session_id) or {}
+    worker_runtime = (
+        runtime.get("worker_runtime")
+        if isinstance(runtime.get("worker_runtime"), dict)
+        else {}
+    )
+    saved_profile = worker_runtime.get("execution_profile")
+    if isinstance(saved_profile, dict):
+        saved_profile = saved_profile.get("requested") or saved_profile.get("resolved")
+    effective_profile = execution_profile or saved_profile or {}
+    manual_launch_instructions = _manual_launch_instructions(
+        root,
+        task_id,
+        config=load_config(root) or {},
+        execution_profile=effective_profile,
+    )
     orphaned = bool(orphan_session_id)
     recovery_command = (
         shlex.join(
@@ -801,6 +1017,7 @@ def _manual_worker_fallback(
         "fallback": True,
         "capability": capability.as_dict(),
         "user_message": message,
+        "manual_launch_instructions": manual_launch_instructions,
         "stop_after_action": True,
         "runtime_persisted": bool(persisted.get("ok")),
         "orphaned_background_session_id": orphan_session_id,
@@ -835,6 +1052,9 @@ def _authorized_execution_thread_launch(
     host_guard = current_host_execution_guard(root, config, current_host)
     if not host_guard.get("ok"):
         return host_guard
+    baseline = _local_git_baseline(root)
+    if not baseline.get("ok"):
+        return baseline
     preflight = execution_preflight(root, config, task_id, "execute")
     if not preflight.get("ok"):
         return {
@@ -894,6 +1114,8 @@ def prepare_codex_worker(
     config: dict[str, Any],
     task_id: str,
     discussion_session_id: str,
+    *,
+    execution_profile: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     return _codex_worker_provider().prepare_codex_worker(
         root,
@@ -901,6 +1123,7 @@ def prepare_codex_worker(
         task_id,
         discussion_session_id,
         authorize_launch=_authorize_codex_execution_thread_launch,
+        execution_profile=execution_profile,
     )
 
 
@@ -917,6 +1140,8 @@ def register_codex_worker(
     controllable: bool = False,
     independent_context: bool = False,
     isolated_worktree: bool = False,
+    model: str = "",
+    reasoning_effort: str = "",
 ) -> dict[str, Any]:
     return _codex_worker_provider().register_codex_worker(
         root,
@@ -930,6 +1155,8 @@ def register_codex_worker(
         controllable=controllable,
         independent_context=independent_context,
         isolated_worktree=isolated_worktree,
+        model=model,
+        reasoning_effort=reasoning_effort,
         authorize_launch=_authorize_codex_execution_thread_launch,
     )
 
@@ -958,6 +1185,7 @@ def launch_claude_worker(
     discussion_session_id: str,
     *,
     claude_executable: str = "claude",
+    execution_profile: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Launch one authorized Claude background Worker or return one-line fallback."""
     canonical = canonical_task_id(task_id)
@@ -980,9 +1208,12 @@ def launch_claude_worker(
             canonical,
             capability,
             capability.reason,
+            execution_profile=execution_profile,
         )
 
     executable = capability.claude_executable
+    profile_resolution = _resolve_claude_execution_profile(execution_profile, config)
+    resolved_profile = profile_resolution["resolved"]
     worktree_name = _claude_worker_worktree_name(canonical)
     launch_settings = _claude_worker_settings_json()
     command = [
@@ -990,6 +1221,16 @@ def launch_claude_worker(
         "--bg",
         "--agent",
         "wishgraph-worker",
+        *(
+            ["--model", str(resolved_profile["model"])]
+            if resolved_profile.get("model")
+            else []
+        ),
+        *(
+            ["--effort", str(resolved_profile["reasoning_effort"])]
+            if resolved_profile.get("reasoning_effort")
+            else []
+        ),
         "--worktree",
         worktree_name,
         "--settings",
@@ -1009,6 +1250,7 @@ def launch_claude_worker(
                 "launch_command": command,
                 "launch_worktree_name": worktree_name,
                 "launch_settings_source": "inline_ephemeral",
+                "execution_profile": profile_resolution,
                 "launch_branch": current_branch(root),
                 "launch_worktree": str(root.resolve()),
                 "claim_id": "",
@@ -1171,6 +1413,7 @@ def launch_claude_worker(
                     "controllable": True,
                     "independent_context": True,
                     "isolated_worktree": True,
+                    "execution_profile": profile_resolution,
                 },
                 "worker_runtime": {"worker_handle": worker_handle},
             },
@@ -1210,6 +1453,7 @@ def launch_claude_worker(
                 "launch_worktree": launch_worktree,
                 "launch_worktree_name": worktree_name,
                 "launch_settings_source": "inline_ephemeral",
+                "execution_profile": profile_resolution,
                 "claim_id": "",
                 "binding_status": "awaiting_claim",
                 "worker_availability": "starting",
@@ -1252,6 +1496,7 @@ def launch_claude_worker(
         "claude_short_id": short_id,
         "actual_command": shlex.join(command),
         "claim_status": "worker_must_acquire_on_start",
+        "execution_profile": profile_resolution,
         "stop_after_action": True,
     }
 
@@ -2384,15 +2629,37 @@ def user_prompt_submit_main(
         action = map_flow_plan_to_host(plan, capability)
         if plan.accepted and session_id and action.state_patch:
             apply_session_runtime_patch(root, session_id, action.state_patch)
+        requested_profile = action.work_payload.get("execution_profile")
+        profile_resolution = (
+            _resolve_execution_profile(config, host, requested_profile)
+            if host in {"codex", "claude"}
+            else {
+                "requested": requested_profile or {},
+                "resolved": requested_profile or {},
+                "source": "manual_host_selection",
+            }
+        )
+        resolved_profile = profile_resolution.get("resolved", {})
+        profile_suffix = _execution_profile_command_suffix(resolved_profile)
+        manual_launch_instructions = (
+            _manual_launch_instructions(
+                root,
+                plan.task_id,
+                config=config,
+                execution_profile=requested_profile,
+            )
+            if action.action == "show_manual_worker_command"
+            else ""
+        )
         host_adapter_command = (
             "python3 .wishgraph/hooks/memory_sync.py "
             f"claude-worker launch {plan.task_id} "
-            f"--discussion-session-id {session_id}"
+            f"--discussion-session-id {session_id}{profile_suffix}"
             if action.action == "launch_claude_background_worker"
             else (
                 "python3 .wishgraph/hooks/memory_sync.py "
                 f"codex-worker prepare {plan.task_id} "
-                f"--discussion-session-id {session_id}"
+                f"--discussion-session-id {session_id}{profile_suffix}"
                 if action.action == "launch_codex_agent_worker"
                 else ""
             )
@@ -2417,6 +2684,8 @@ def user_prompt_submit_main(
                                 "task_id": plan.task_id,
                                 "discussion_session_id": session_id,
                                 "host_adapter_command": host_adapter_command,
+                                "execution_profile": profile_resolution,
+                                "manual_launch_instructions": manual_launch_instructions,
                                 "launch_must_run_in_current_discussion": (
                                     action.action == "launch_claude_background_worker"
                                 ),
@@ -2591,6 +2860,9 @@ def user_prompt_submit_main(
                 "attempt": int(task_record.get("attempt") or 1),
                 "worker_authorized": task_record.get("worker_creation_authorized") is True,
                 "run_report": str(task_record.get("run_report") or ""),
+                "worker_execution_profiles": dict(
+                    task_record.get("worker_execution_profiles") or {}
+                ),
             }
             plan = reduce_orchestration(
                 orchestration_state_from_dict(transition_runtime),
@@ -2631,15 +2903,31 @@ def user_prompt_submit_main(
                     accepted = False
                     host_action = "no_action"
                     plan_payload["denial_reason"] = "authorization_runtime_persistence_failed"
+        requested_profile = (
+            plan_payload.get("work_payload", {}).get("execution_profile", {})
+            if isinstance(plan_payload.get("work_payload"), dict)
+            else {}
+        )
+        profile_resolution = (
+            _resolve_execution_profile(config, host, requested_profile)
+            if host in {"codex", "claude"}
+            else {
+                "requested": requested_profile,
+                "resolved": requested_profile,
+                "source": "manual_host_selection",
+            }
+        )
+        resolved_profile = profile_resolution.get("resolved", {})
+        profile_suffix = _execution_profile_command_suffix(resolved_profile)
         host_adapter_command = (
             "python3 .wishgraph/hooks/memory_sync.py "
             f"claude-worker launch {task_id} "
-            f"--discussion-session-id {session_id}"
+            f"--discussion-session-id {session_id}{profile_suffix}"
             if host_action == "launch_claude_background_worker"
             else (
                 "python3 .wishgraph/hooks/memory_sync.py "
                 f"codex-worker prepare {task_id} "
-                f"--discussion-session-id {session_id}"
+                f"--discussion-session-id {session_id}{profile_suffix}"
                 if host_action == "launch_codex_agent_worker"
                 else ""
             )
@@ -2653,8 +2941,19 @@ def user_prompt_submit_main(
             "worker_session_id": session_id,
             "discussion_session_id": session_id if role == "discussion" else "",
             "host_adapter_command": host_adapter_command,
+            "execution_profile": profile_resolution,
             "manual_command": (
                 f"执行 {task_id} 任务"
+                if host_action == "show_manual_worker_command"
+                else ""
+            ),
+            "manual_launch_instructions": (
+                _manual_launch_instructions(
+                    root,
+                    task_id,
+                    config=config,
+                    execution_profile=requested_profile,
+                )
                 if host_action == "show_manual_worker_command"
                 else ""
             ),
@@ -3555,6 +3854,7 @@ def task_specs(root: Path, config: dict[str, Any]) -> list[dict[str, Any]]:
                     "comparison_group": state.comparison_group or None,
                     "run_report": state.run_report,
                     "worker_creation_authorized": state.worker_creation_authorized,
+                    "worker_execution_profiles": state.worker_execution_profiles,
                     "errors": state.errors,
                     "allowed_scope": _markdown_scope_items(change_set),
                     "validation_plan": _markdown_list_items(validation),
@@ -4363,9 +4663,17 @@ def claude_worker_main(args: argparse.Namespace) -> int:
             args.task_id,
             args.discussion_session_id,
             claude_executable=args.claude_executable,
+            execution_profile={
+                key: value
+                for key, value in {
+                    "model": getattr(args, "model", ""),
+                    "reasoning_effort": getattr(args, "reasoning_effort", ""),
+                }.items()
+                if value
+            },
         )
         if payload.get("fallback"):
-            print(payload["user_message"])
+            print(payload["manual_launch_instructions"])
             return 0
     else:
         payload = refresh_claude_worker(
@@ -4432,6 +4740,8 @@ def main() -> int:
     claude_launch_parser.add_argument("task_id")
     claude_launch_parser.add_argument("--discussion-session-id", required=True)
     claude_launch_parser.add_argument("--claude-executable", default="claude")
+    claude_launch_parser.add_argument("--model", default="")
+    claude_launch_parser.add_argument("--reasoning-effort", default="")
     claude_refresh_parser = claude_worker_subparsers.add_parser("refresh")
     claude_refresh_parser.add_argument("--discussion-session-id", required=True)
     claude_refresh_parser.add_argument("--claude-executable", default="claude")

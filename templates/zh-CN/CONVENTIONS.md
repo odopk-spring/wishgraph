@@ -22,7 +22,7 @@
 - 用户要求在当前窗口直接修改也不能覆盖角色边界。
 - 向用户呈现已集成结果前，先读 `reports/PROJECT_STATUS.md`。
 - 讨论期间和用户 Review 后维护 `prompts/DISCUSSION_AI.md` 的精简动态交接，不要复制完整项目状态概览。
-- Task 就绪后进入 `awaiting_worker_authorization`，并设置唯一 `approve_worker_launch(<task-id>)` expected transition。短肯定回复只有在该 transition 唯一时有效。随后进入 `routing_worker`：请求当前 Codex 宿主创建用户可见、可检查的原生 `wishgraph-worker` Agent thread；Claude Code 只有在能力检查通过时才优先创建受管后台 Worker；未知宿主或创建失败时进入 `waiting_for_user_launch`，只输出 `执行 <task-id> 任务`。
+- Task 就绪后进入 `awaiting_worker_authorization`，并设置唯一 `approve_worker_launch(<task-id>)` expected transition。模型与推理强度必须根据用户约束、Task 复杂度、风险和已知可用性逐次推荐，不能硬编码通用组合；有依据的建议写入 `worker_execution_profiles`，没有建议的宿主使用真实默认。询问前展示当前宿主的本次建议；短肯定回复在 transition 唯一时使用该建议，准确执行命令可以覆盖。随后进入 `routing_worker`：请求当前 Codex 宿主创建用户可见、可检查的原生 `wishgraph-worker` Agent thread；Claude Code 只有在能力检查通过时才优先创建受管后台 Worker；未知宿主或创建失败时进入 `waiting_for_user_launch`，使用 Host Adapter 生成的跨宿主可复制交接。
 
 ### Worker 角色
 

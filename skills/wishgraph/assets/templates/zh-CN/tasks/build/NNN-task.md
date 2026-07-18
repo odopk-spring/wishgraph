@@ -4,7 +4,7 @@ Spec source: 链接或概述已批准需求。
 Dependencies: 列出依赖的前置任务、migration 或决策。
 Language mode: 默认遵循 `prompts/DISCUSSION_AI.md`，除非本任务明确覆盖。
 
-下面的 JSON 块是机器可读任务生命周期真相源。用户明确授权创建这个用户可见且可检查的 Worker thread 或窗口前，保持 `worker_creation_authorized` 为 false。`integration_route` 只描述未来由 Discussion 如何路由：安全任务使用 `auto_in_discussion`，高风险任务使用 `decision_required`；它不会给 Worker 集成权限。
+下面的 JSON 块是机器可读任务生命周期真相源。用户明确授权创建这个用户可见且可检查的 Worker thread 或窗口前，保持 `worker_creation_authorized` 为 false。`worker_execution_profiles` 只保存根据本 Task 和用户实际情况形成的 Codex/Claude 建议；没有可靠建议的宿主保持缺省并使用当前默认。`integration_route` 只描述未来由 Discussion 如何路由：安全任务使用 `auto_in_discussion`，高风险任务使用 `decision_required`；它不会给 Worker 集成权限。
 
 Task state 只记录 Task Lifecycle。Session Role、Flow Phase 与 `expected_transition` 保存在 Git common dir 的正交运行时状态中。
 
@@ -23,6 +23,7 @@ Task state 只记录 Task Lifecycle。Session Role、Flow Phase 与 `expected_tr
   "execution_mode": "exclusive",
   "comparison_group": null,
   "run_report": "reports/runs/001-attempt-1.md",
+  "worker_execution_profiles": {},
   "worker_creation_authorized": false,
   "integration_route": "auto_in_discussion"
 }
