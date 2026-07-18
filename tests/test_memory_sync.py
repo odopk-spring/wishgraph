@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import concurrent.futures
+import errno
 import hashlib
 import importlib.util
 import json
@@ -12,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from datetime import datetime
 from unittest import mock
@@ -1823,7 +1825,17 @@ class MemorySyncTests(unittest.TestCase):
             self.assertTrue(observed["ok"], observed)
 
     def tearDown(self) -> None:
-        self.tempdir.cleanup()
+        # Python 3.9 on Linux can observe a transient ENOTEMPTY while removing
+        # a Git directory whose final lock/log entry has just disappeared.
+        # Retry only that race; every other cleanup failure remains visible.
+        for attempt in range(5):
+            try:
+                self.tempdir.cleanup()
+                return
+            except OSError as error:
+                if error.errno != errno.ENOTEMPTY or attempt == 4:
+                    raise
+                time.sleep(0.02 * (attempt + 1))
 
     def git(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
