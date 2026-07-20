@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fnmatch
 import json
 import re
 import shlex
@@ -17,6 +16,7 @@ from git_state import (
     inspect_claims,
     inspect_integration_lease,
     load_config,
+    matches_repo_glob,
     read_session_runtime,
     read_version,
 )
@@ -120,23 +120,31 @@ def _path_operation(
     if not paths:
         return "business_write", ""
     relative_paths = [_relative_tool_path(root, path) for path in paths]
+    configured_paths = config["paths"]
     managed_shared = {
-        config["paths"]["prd"],
-        config["paths"]["architecture"],
-        config["paths"]["codemap"],
-        config["paths"]["conventions"],
-        config["paths"]["discussion_prompt"],
-        config["paths"]["execution_prompt"],
-        config["paths"]["integration_prompt"],
-        config["paths"]["project_status"],
+        str(configured_paths.get(name) or "")
+        for name in (
+            "prd",
+            "architecture",
+            "codemap",
+            "conventions",
+            "discussion_prompt",
+            "execution_prompt",
+            "integration_prompt",
+            "project_status",
+        )
     }
+    managed_shared.discard("")
     if all(path in managed_shared for path in relative_paths):
         return "shared_state_write", ""
     task_globs = configured_task_globs(config)
-    if all(any(fnmatch.fnmatch(path, glob) for glob in task_globs) for path in relative_paths):
+    if all(
+        any(matches_repo_glob(path, glob) for glob in task_globs)
+        for path in relative_paths
+    ):
         return "governance_write", "task_paths:" + "\n".join(relative_paths)
     revision_glob = configured_revision_glob(config)
-    if all(fnmatch.fnmatch(path, revision_glob) for path in relative_paths):
+    if all(matches_repo_glob(path, revision_glob) for path in relative_paths):
         return "governance_write", "revision_paths:" + "\n".join(relative_paths)
     return "business_write", "business_paths:" + "\n".join(relative_paths)
 

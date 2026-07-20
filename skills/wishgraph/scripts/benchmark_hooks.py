@@ -128,10 +128,10 @@ def setup_fixture(base: Path) -> tuple[Path, Path]:
         agent_path,
     )
 
-    task_path = root / "tasks" / "build" / "012-hook-benchmark.md"
+    task_path = root / "tasks" / "012-hook-benchmark.md"
     task_path.parent.mkdir(parents=True)
     task_path.write_text(task_spec(), encoding="utf-8")
-    dispatch_task = root / "tasks" / "build" / "013-dispatch-benchmark.md"
+    dispatch_task = root / "tasks" / "013-dispatch-benchmark.md"
     dispatch_task.write_text(
         task_spec()
         .replace("# 012 -", "# 013 -")

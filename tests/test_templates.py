@@ -81,9 +81,6 @@ class TemplateMirrorTests(unittest.TestCase):
         pairs = [
             ("CODEMAP.md", "CODEMAP.md"),
             ("CONVENTIONS.md", "CONVENTIONS.md"),
-            ("prompts/DISCUSSION_AI.md", "DISCUSSION_AI.md"),
-            ("prompts/EXECUTION_AI.md", "EXECUTION_AI.md"),
-            ("prompts/INTEGRATION_AI.md", "INTEGRATION_AI.md"),
             ("reports/PROJECT_STATUS.md", "PROJECT_STATUS.md"),
             ("reports/RUN_REPORT.md", "RUN_REPORT.md"),
             ("tasks/revisions/TASK_REVISION.md", "TASK_REVISION.md"),
@@ -102,9 +99,6 @@ class TemplateMirrorTests(unittest.TestCase):
         pairs = [
             ("CODEMAP.md", "CODEMAP.md"),
             ("CONVENTIONS.md", "CONVENTIONS.md"),
-            ("prompts/DISCUSSION_AI.md", "prompts/DISCUSSION_AI.md"),
-            ("prompts/EXECUTION_AI.md", "prompts/EXECUTION_AI.md"),
-            ("prompts/INTEGRATION_AI.md", "prompts/INTEGRATION_AI.md"),
             ("reports/PROJECT_STATUS.md", "reports/PROJECT_STATUS.md"),
             ("reports/RUN_REPORT.md", "reports/RUN_REPORT.md"),
             (
@@ -147,6 +141,17 @@ class TemplateMirrorTests(unittest.TestCase):
             (ROOT / "skills" / "wishgraph" / "assets" / "templates" / "DEV_REPORT.md").exists()
         )
 
+        guide = (ROOT / "templates" / "README.md").read_text(encoding="utf-8")
+        bootstrap = (
+            ROOT / "skills" / "wishgraph" / "references" / "project-bootstrap.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("tasks/*.md", bootstrap)
+        self.assertIn("does not create project-level prompt files", guide)
+        self.assertIn("does not restrict user-owned root files", guide)
+        self.assertNotIn("prompts/DISCUSSION_AI.md", bootstrap)
+        self.assertIn("Generate `reports/runs/<work-unit-id>-attempt-N.md` only when needed", bootstrap)
+        self.assertFalse(any((ROOT / "templates" / "prompts").glob("*.md")))
+
     def test_project_documents_have_single_responsibilities(self) -> None:
         prd = (ROOT / "templates" / "PRD.md").read_text(encoding="utf-8")
         codemap = (ROOT / "templates" / "CODEMAP.md").read_text(encoding="utf-8")
@@ -156,15 +161,11 @@ class TemplateMirrorTests(unittest.TestCase):
         status = (ROOT / "templates" / "reports" / "PROJECT_STATUS.md").read_text(
             encoding="utf-8"
         )
-        discussion = (ROOT / "templates" / "prompts" / "DISCUSSION_AI.md").read_text(
-            encoding="utf-8"
-        )
         self.assertNotIn("Current Progress", prd)
         self.assertIn("Verified / Unverified", codemap)
         self.assertNotIn("## Roles", conventions)
         self.assertNotIn("Orchestration Snapshot", status)
         self.assertNotIn("Shared Memory Impact", status)
-        self.assertNotIn("wishgraph:state", discussion)
         self.assertIn("only user-readable dynamic project snapshot", status)
 
         bootstrap = (

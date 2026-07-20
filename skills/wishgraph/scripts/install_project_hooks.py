@@ -629,9 +629,7 @@ def doctor_report(target: Path, selected_host: Optional[str] = None) -> dict[str
         adapter["execution"] = host_execution_diagnosis(
             target, host, expected_runtime_version
         )
-    governance_ready = (target / "reports" / "PROJECT_STATUS.md").is_file() and (
-        target / "prompts" / "DISCUSSION_AI.md"
-    ).is_file()
+    governance_ready = (target / "reports" / "PROJECT_STATUS.md").is_file()
 
     if config_state == "missing":
         next_action = "use_wishgraph"
@@ -838,10 +836,23 @@ def migrate_project_config(
     config = deep_merge(default_config, existing_config)
     config["version"] = default_config["version"]
     config["runtime_version"] = default_config["runtime_version"]
+    existing_paths = existing_config.get("paths", {})
+    retired_prompt_paths = {
+        str(existing_paths.get(name) or "")
+        for name in ("discussion_prompt", "execution_prompt", "integration_prompt")
+    } | {
+        "prompts/DISCUSSION_AI.md",
+        "prompts/EXECUTION_AI.md",
+        "prompts/INTEGRATION_AI.md",
+    }
     config["required_impact_rows"] = list(
         dict.fromkeys(
             list(default_config.get("required_impact_rows", []))
-            + list(existing_config.get("required_impact_rows", []))
+            + [
+                path
+                for path in existing_config.get("required_impact_rows", [])
+                if path not in retired_prompt_paths
+            ]
         )
     )
     if required_hosts is not None:

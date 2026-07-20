@@ -47,10 +47,10 @@ Windows PowerShell：
 ```
 
 - Discussion 只读取精简交接、当前 Project Status 和 active state；其他文档按需打开。
-- Worker 只读取准确 Task 或 Revision、`prompts/EXECUTION_AI.md`、必要状态和 scope 内源码。
+- Worker 只读取准确 Task 或 Revision、必要的 Project Status 小节和 scope 内源码；稳定 Worker 规则由已安装的 Adapter 与 Skill 提供。
 - Integration 只读取本次报告和确实受到影响的共享文件。
 
-在另一个 Claude Code 窗口继续时，不需要输出或复制 `prompts/DISCUSSION_AI.md`。打开同一项目后输入“开始讨论”。从 Codex 切换过来时，先确认 Claude 已列入 `required_hosts`，必要时安装或修复 Adapter，重开会话后再使用同一入口。
+在另一个 Claude Code 窗口继续时，打开同一项目后输入“开始讨论”；WishGraph 会从 Project Status 和 Git common runtime state 恢复。从 Codex 切换过来时，先确认 Claude 已列入 `required_hosts`，必要时安装或修复 Adapter，重开会话后再使用同一入口。
 
 ## Worker 怎样启动
 

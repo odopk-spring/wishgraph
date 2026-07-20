@@ -143,7 +143,7 @@ New sessions are neutral and silent unless recovery, pending integration, failur
 
 In a continuously running discussion window, say: `Refresh WishGraph project state and present the latest integrated results.`
 
-Business-code work runs in a claimed Worker. Formal Tasks use `tasks/build/*.md`; local corrections use `tasks/revisions/*.md`; reports require structured state blocks.
+Business-code work runs in a claimed Worker. Formal Tasks use `tasks/*.md`; local corrections use `tasks/revisions/*.md`; reports require structured state blocks.
 
 ## Direct checks
 

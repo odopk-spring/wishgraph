@@ -136,8 +136,10 @@ For a safe completed Revision:
 1. Discussion acquires the minimum Integration lease bound to its session, integration ID, base branch/worktree, parent Task, Revision, and Revision Run Report.
 2. Merge/cherry-pick without committing.
 3. Run the targeted or necessary combined validation.
-4. Update Project Status and other shared memory only when the visible project truth changed; otherwise record concrete `N/A`.
+4. Rewrite Project Status for this integration. Update other shared memory only when durable project truth changed; otherwise record concrete `N/A` in the Run Report.
 5. Create the integration commit, mark the Revision `integrated`, release the lease, and present the result.
+
+A Revision cannot enter `integrated` unless its Run Report is listed in the Project Status written by the same integration change.
 
 Do not regress a parent Task already marked `integrated` or `reviewed`. Do not ask `是否开始集成？`.
 

@@ -1,6 +1,73 @@
 from tests.wishgraph_test_support import *  # noqa: F401,F403
 
 class IntegrationStatusTests(MemorySyncTestCase):
+    def test_integrated_revision_requires_same_change_project_status_writeback(self) -> None:
+        self.config = json.loads(
+            (HOOK_ASSETS / "config.json").read_text(encoding="utf-8")
+        )
+        self.write(
+            ".wishgraph/config.json",
+            json.dumps(self.config, ensure_ascii=False, indent=2) + "\n",
+        )
+        self.write(
+            "tasks/060-parent.md",
+            self.structured_task(
+                "060-parent",
+                status="completed",
+                worker_authorized=True,
+            ),
+        )
+        self.git("add", ".wishgraph/config.json", "tasks/060-parent.md")
+        self.git("commit", "-m", "add completed parent task")
+
+        revision_path = "tasks/revisions/060-r1.md"
+        report_path = "reports/runs/060-r1-attempt-1.md"
+        revision_state = {
+            "schema_version": 1,
+            "kind": "revision",
+            "revision_id": "060-r1",
+            "parent_task_id": "060",
+            "status": "integrated",
+            "user_request": "Apply the bounded correction.",
+            "allowed_scope": ["src/revision.py"],
+            "validation_plan": ["focused unit test"],
+            "run_report": report_path,
+            "worker_creation_authorized": True,
+        }
+        self.write(
+            revision_path,
+            "# 060-r1\n\n<!-- wishgraph:revision-state:start -->\n```json\n"
+            + json.dumps(revision_state, indent=2)
+            + "\n```\n<!-- wishgraph:revision-state:end -->\n",
+        )
+        self.write("src/revision.py", "VALUE = 'corrected'\n")
+        self.write(
+            report_path,
+            self.structured_run_report(
+                "060-r1-attempt-1",
+                task_id="060",
+                revision_id="060-r1",
+                change_class="revision",
+                changed_paths=["src/revision.py"],
+            ),
+        )
+
+        missing_writeback = memory_sync.check_sync(
+            self.root, self.config, "worktree"
+        )
+        self.assertFalse(missing_writeback.ok)
+        self.assertTrue(
+            any(
+                "must update reports/PROJECT_STATUS.md in the same change" in error
+                for error in missing_writeback.errors
+            ),
+            missing_writeback.errors,
+        )
+
+        self.write("reports/PROJECT_STATUS.md", self.overview([report_path]))
+        complete = memory_sync.check_sync(self.root, self.config, "worktree")
+        self.assertTrue(complete.ok, complete.errors)
+
     def test_integration_lease_allows_closeout_but_not_new_business_implementation(self) -> None:
         transition = self.prepare_safe_integration(
             "002", "discussion-closeout", "integration-closeout"

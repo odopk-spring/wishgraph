@@ -41,7 +41,7 @@ Create only a separate user-visible and inspectable Worker thread or window. A n
 <task-id> · <short title> · WG Worker
 ```
 
-Give the Worker the repository, exact durable record, `prompts/EXECUTION_AI.md`, branch/worktree requirement, Claim protocol, validation, immutable Run Report path, shared-state restriction, and atomic-commit requirement.
+Give the Worker the repository, exact durable record, branch/worktree requirement, Claim protocol, validation, immutable Run Report path, shared-state restriction, and atomic-commit requirement. Stable Worker rules come from the installed Skill and Host Adapter rather than a project prompt file.
 
 After real creation, store the returned thread/window reference, enter `waiting_for_worker`, and stop Discussion execution actions. If runtime persistence fails, revoke the new Claim or record launch failure; never report an intended Worker as running.
 
@@ -97,14 +97,14 @@ Require a new user-opened inspectable window. Output the same bounded cross-host
 
 An ordinary neutral window receiving an exact `执行 <task-id> 任务` command becomes the Formal Worker container for that Task. It resolves only the exact Task and dependencies, atomically creates the authorized Run, then acquires the Claim in the current session. It does not create a second background Worker. Before Claim success it remains `starting/awaiting_claim` and cannot write or build. A Discussion receiving the same command keeps its Discussion role and routes an independent Worker.
 
-A Worker container enters `worker` only after native registration, explicit rebind, or exact neutral current-window authorization identifies it and Claim acquisition succeeds. It reads `prompts/EXECUTION_AI.md` and the exact Task, performs preflight, and acquires the exact Claim before the canonical Run becomes `running`. A neutral session without that exact Run cannot use an approved-looking Task as permission.
+A Worker container enters `worker` only after native registration, explicit rebind, or exact neutral current-window authorization identifies it and Claim acquisition succeeds. It reads the exact Task or Revision, performs preflight, and acquires the exact Claim before the canonical Run becomes `running`. A neutral session without that exact Run cannot use an approved-looking Task as permission.
 
 ## Entry Preflight
 
 Before implementation:
 
 1. Verify one local `HEAD` commit exists for the worktree baseline. A remote is optional; a repository with no first commit must establish its intended local baseline before Formal Worker launch.
-2. Read `CONVENTIONS.md`, `prompts/EXECUTION_AI.md`, and the exact Task or Revision record.
+2. Read `CONVENTIONS.md` when present and relevant, then the exact Task or Revision record.
 3. Verify structured ID, authorized Run, dependencies, attempt, report path, allowed scope, and validation plan.
 4. Verify the intended branch and absolute worktree.
 5. Inspect active and stale Claims across the repository's Git common directory.

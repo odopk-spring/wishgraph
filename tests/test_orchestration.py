@@ -672,7 +672,7 @@ class WorkerReuseRevisionSpecTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
             subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
-            task_path = root / "tasks/build/012-table-scope.md"
+            task_path = root / "tasks/012-table-scope.md"
             task_path.parent.mkdir(parents=True)
             task_path.write_text(
                 (ROOT / "templates/tasks/build/EXAMPLE-good-task.md").read_text(
@@ -919,12 +919,11 @@ class WorkerReuseRevisionSpecTests(unittest.TestCase):
                 integration_id="integration-012-r1",
                 revision_id="012-r1",
                 report_id="reports/runs/012-r1-attempt-1.md",
-                project_status_updated=True,
             ),
             self.capability(),
         )
         self.assertEqual(plan.state_patch["revision"]["status"], "integrated")
-        self.assertTrue(plan.state_patch["revision"]["project_status_updated"])
+        self.assertNotIn("project_status_updated", plan.state_patch["revision"])
         self.assertNotIn("是否开始集成", plan.user_message)
 
     def test_revision_integration_preserves_reviewed_parent_lifecycle(self) -> None:
@@ -972,7 +971,7 @@ class WorkerReuseRevisionSpecTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
             (root / ".wishgraph").mkdir()
             shutil.copy2(HOOK_ASSETS / "config.json", root / ".wishgraph/config.json")
-            task_path = root / "tasks/build/012-parent.md"
+            task_path = root / "tasks/012-parent.md"
             task_path.parent.mkdir(parents=True)
             task_path.write_text(
                 "<!-- wishgraph:task-state:start -->\n```json\n"

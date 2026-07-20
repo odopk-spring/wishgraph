@@ -36,8 +36,8 @@ Then ask one decision at a time. Each question must include a recommended defaul
 
 ## Role-Specific Read Scope
 
-- Discussion starts from `prompts/DISCUSSION_AI.md`, `reports/PROJECT_STATUS.md`, and current active state. Open other governance files only for the current question.
-- A Worker reads only `prompts/EXECUTION_AI.md`, its exact Task or Revision, necessary current-state sections, and source files inside its allowed scope.
+- Discussion starts from `reports/PROJECT_STATUS.md` and current active state. Open other governance files only for the current question.
+- A Worker reads only its exact Task or Revision, necessary Project Status sections, and source files inside its allowed scope. Stable rules come from this Adapter and the installed Skill.
 - Integration reads only selected reports, their exact records, and affected shared-memory files.
 - Never scan unrelated Tasks, historical reports, or the complete source tree by default.
 
@@ -48,12 +48,8 @@ Create or update:
 - `PRD.md`: product goals, users, scope, non-goals, roadmap, current decisions.
 - `ARCHITECTURE.md`: dependency boundaries, data flow, ownership, risk notes.
 - `CODEMAP.md`: feature-to-file map, contracts, validation surfaces, debug entry points.
-- `CONVENTIONS.md`: collaboration rules, validation order, git rule, memory update rule.
-- `prompts/DISCUSSION_AI.md`: current planning prompt and handoff state.
-- `prompts/EXECUTION_AI.md`: stable execution prompt.
-- `prompts/INTEGRATION_AI.md`: stable integration prompt and shared-state single-writer rules.
-- `tasks/build/*.md`: visible, self-contained execution Task specs; do not infer hidden or alternate Task directories.
-- `reports/RUN_REPORT.md`: worker-report template.
+- `CONVENTIONS.md`: project-specific build, test, coding, permission, and Git rules; do not copy WishGraph runtime protocol.
+- `tasks/*.md`: visible, self-contained execution Task specs; do not infer hidden or alternate Task directories.
 - `reports/runs/*.md`: immutable worker execution evidence.
 - `reports/PROJECT_STATUS.md`: current integrated Project Status and next recommendation.
 
@@ -72,7 +68,7 @@ Create or update:
 
 ## Worker Role
 
-- Read `prompts/EXECUTION_AI.md` and the assigned task file.
+- Read the assigned Task or Revision file.
 - Implement only the approved task.
 - Keep the patch minimal and reversible.
 - Run validation listed in the task.
@@ -85,7 +81,7 @@ Create or update:
 
 - Merge workers from separate branches or worktrees with `--no-commit`.
 - Read all new run reports and update affected shared project memory.
-- Rewrite `reports/PROJECT_STATUS.md` as the current snapshot, then refresh the concise dynamic handoff in `prompts/DISCUSSION_AI.md`.
+- Rewrite `reports/PROJECT_STATUS.md` as the current snapshot in the same integration commit.
 - Move absorbed structured tasks to `integrated`; discussion moves them to `reviewed` only after human acceptance.
 - New windows are neutral. Default SessionStart is safety-only; load Discussion state only after an explicit “Start discussion”, and use explicit refresh in a running window.
 - Every Worker terminal event enters `integration_pending`. Safe sequential and mechanically proven `parallel_independent` results integrate automatically while Discussion holds a bound Integration lease; risk, conflict, blocking, competition, or ambiguity becomes one concrete decision or blocked state.

@@ -234,7 +234,7 @@ def prepare_codex_worker(
         (
             f"执行 {canonical} 任务",
             "你是 Formal WishGraph Worker，不是 Discussion、Integration 或 Helper。",
-            f"只读取 prompts/EXECUTION_AI.md、{task_path}、必要项目状态和按需 Reference。",
+            f"只读取 {task_path}、必要的 Project Status 小节和按需 Reference。",
             f"允许范围：{json.dumps(allowed_scope, ensure_ascii=False)}",
             f"验证计划：{json.dumps(validation_plan, ensure_ascii=False)}",
             f"Run Report：{report_path}",

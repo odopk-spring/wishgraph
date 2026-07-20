@@ -2,7 +2,7 @@
 
 Spec source: Link or summarize the approved requirement.
 Dependencies: List required prior tasks, migrations, or decisions.
-Language mode: Follow `prompts/DISCUSSION_AI.md` unless this task explicitly overrides it.
+Language mode: Follow the current project language unless this task explicitly overrides it.
 
 The JSON block is the machine-readable task lifecycle source. Keep `worker_creation_authorized` false until the user explicitly authorizes this user-visible and inspectable Worker thread or window. `worker_execution_profiles` stores only grounded, per-Task Codex or Claude recommendations; leave a host absent to use its current default. `integration_route` describes future Discussion routing only: safe work uses `auto_in_discussion`; high-risk work uses `decision_required`. It never grants the Worker Integration authority.
 

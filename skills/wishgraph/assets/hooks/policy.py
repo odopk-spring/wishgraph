@@ -19,6 +19,7 @@ from git_state import (
     inspect_claims,
     latest_execution_run,
     matches_any,
+    matches_repo_glob,
     project_status_candidates,
     read_head_version,
     read_ref_version,
@@ -911,7 +912,6 @@ def reduce_orchestration(
                 "parent_task_id": task_id,
                 "status": "integrated",
                 "run_report": str(data.get("report_id") or task.run_report),
-                "project_status_updated": data.get("project_status_updated") is True,
             }
         return FlowPlan(
             accepted=True,
@@ -1873,16 +1873,21 @@ def integration_state(
 
 
 def is_substantive(path: str, config: dict[str, Any]) -> bool:
+    paths = config["paths"]
     stateful = {
-        config["paths"]["prd"],
-        config["paths"]["architecture"],
-        config["paths"]["codemap"],
-        config["paths"]["conventions"],
-        config["paths"]["execution_prompt"],
+        str(paths.get(name) or "")
+        for name in (
+            "prd",
+            "architecture",
+            "codemap",
+            "conventions",
+            "execution_prompt",
+        )
     }
+    stateful.discard("")
     if path in stateful or any(
-        fnmatch.fnmatch(path, pattern) for pattern in configured_task_globs(config)
-    ) or fnmatch.fnmatch(path, configured_revision_glob(config)):
+        matches_repo_glob(path, pattern) for pattern in configured_task_globs(config)
+    ) or matches_repo_glob(path, configured_revision_glob(config)):
         return True
     return Path(path).suffix.lower() not in TEXT_ONLY_SUFFIXES
 
@@ -2358,6 +2363,16 @@ def validate_revision_spec(
             result.errors.append(
                 f"{revision_path} status {state.status} requires run report {state.run_report or '(missing)'}"
             )
+    if state.status == "integrated" and state.run_report:
+        overview_path = resolve_project_status_path(root, config, scope)
+        overview = read_version(root, overview_path, scope) or ""
+        if state.run_report not in integrated_report_paths(
+            overview, config["paths"]["run_report_glob"]
+        ):
+            result.errors.append(
+                f"{revision_path} status integrated requires {state.run_report} "
+                f"to be listed in {overview_path}"
+            )
     return state
 
 
@@ -2417,12 +2432,12 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
     task_globs = configured_task_globs(config)
     revision_glob = configured_revision_glob(config)
     for status, old_path, new_path in path_statuses:
-        if status == "D" and fnmatch.fnmatch(old_path, revision_glob):
+        if status == "D" and matches_repo_glob(old_path, revision_glob):
             result.errors.append(
                 f"Task Revision records cannot be deleted: {old_path}; preserve the audit record"
             )
             continue
-        if status.startswith("R") and new_path is not None and fnmatch.fnmatch(
+        if status.startswith("R") and new_path is not None and matches_repo_glob(
             old_path, revision_glob
         ):
             result.errors.append(
@@ -2430,7 +2445,7 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
             )
             continue
         if status == "D" and any(
-            fnmatch.fnmatch(old_path, pattern) for pattern in task_globs
+            matches_repo_glob(old_path, pattern) for pattern in task_globs
         ):
             previous_content = read_head_version(root, old_path)
             if previous_content is not None:
@@ -2441,7 +2456,7 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
             continue
         if not status.startswith("R") or new_path is None:
             continue
-        if not any(fnmatch.fnmatch(old_path, pattern) for pattern in task_globs):
+        if not any(matches_repo_glob(old_path, pattern) for pattern in task_globs):
             continue
         previous_content = read_head_version(root, old_path)
         if previous_content is None:
@@ -2478,11 +2493,11 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
     task_paths = sorted(
         path
         for path in changed
-        if any(fnmatch.fnmatch(path, pattern) for pattern in configured_task_globs(config))
+        if any(matches_repo_glob(path, pattern) for pattern in configured_task_globs(config))
         and not Path(path).name.startswith(("EXAMPLE-", "NNN-"))
     )
     revision_paths = sorted(
-        path for path in changed if fnmatch.fnmatch(path, revision_glob)
+        path for path in changed if matches_repo_glob(path, revision_glob)
     )
     validated_tasks: dict[str, TaskState] = {}
     for task_path in task_paths:
@@ -2494,6 +2509,13 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
         state = validate_revision_spec(root, config, scope, revision_path, result)
         if state is not None:
             validated_revisions[revision_path] = state
+    enters_integration = any(
+        state.status == "integrated" for state in validated_tasks.values()
+    ) or any(state.status == "integrated" for state in validated_revisions.values())
+    if enters_integration and overview_path not in changed:
+        result.errors.append(
+            f"Task and Revision integration must update {overview_path} in the same change"
+        )
     lifecycle_paths = set(task_paths) | set(revision_paths)
     revision_routing_only = bool(revision_paths) and all(
         state.status in {"pending", "running"}

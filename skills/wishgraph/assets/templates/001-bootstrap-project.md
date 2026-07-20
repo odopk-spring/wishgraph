@@ -44,11 +44,8 @@ Create the first durable project frame before feature implementation. This Task 
 | `PRD.md` | Product frame and roadmap | Record target users, goals, non-goals, current decisions, first slice, and acceptance standards. |
 | `ARCHITECTURE.md` | Initial architecture | Record planned structure, dependency boundaries, data flow, and risk notes. |
 | `CODEMAP.md` | Initial map | Record planned or existing files, feature areas, contracts, probes, and debugging entry points. |
-| `CONVENTIONS.md` | Collaboration rules | Record Discussion/Worker roles, the Discussion-local Integration phase, validation order, external-memory update rules, and the Git rule. |
-| `prompts/DISCUSSION_AI.md` | Current handoff | Store the current discussion state, open decisions, and next likely task. |
-| `prompts/EXECUTION_AI.md` | Worker handoff | Store the stable prompt for Worker windows. |
-| `prompts/INTEGRATION_AI.md` | Integration phase prompt | Store the lease-bound Discussion-local Integration rules and pending-resumption behavior. |
-| `tasks/build/002-first-slice.md` | First implementation task | Write the first bounded implementation task after PRD approval. |
+| `CONVENTIONS.md` | Project engineering rules | Record only project-specific build, test, coding, permission, and Git conventions. |
+| `tasks/002-first-slice.md` | First implementation task | Write the first bounded implementation task after PRD approval. |
 | `reports/runs/001-bootstrap-project.md` | Bootstrap run report | Record created files, assumptions, validation, and shared-memory proposals. |
 | `reports/PROJECT_STATUS.md` | Initial Project Status | Summarize the bootstrap as the first current integration snapshot. |
 | `.wishgraph/` and host hook config | Optional closeout enforcement | When the owner requests hooks, install them in `warn` mode without replacing existing hook groups. |
@@ -71,12 +68,11 @@ Create the first durable project frame before feature implementation. This Task 
 
 - [ ] Governance files exist and are self-consistent.
 - [ ] `PRD.md` has target user, goals, non-goals, first slice, and acceptance standards.
-- [ ] `prompts/DISCUSSION_AI.md` can be copied into a new discussion window.
-- [ ] `prompts/EXECUTION_AI.md` plus `tasks/build/002-first-slice.md` can be handed off to a user-visible and inspectable Worker thread or window.
-- [ ] Discussion prompt explains the first task's work type, why it is sequential or parallel, the exact worker launch steps, and when integration needs user confirmation.
+- [ ] `tasks/002-first-slice.md` can be handed off directly to a user-visible and inspectable Worker thread or window.
+- [ ] The Task explains its work type, why it is sequential or parallel, and when integration needs user confirmation.
 - [ ] `reports/runs/001-bootstrap-project.md` records what was created and what remains unknown.
 - [ ] `reports/PROJECT_STATUS.md` lists the bootstrap run report and summarizes the initial integrated state.
-- [ ] `prompts/DISCUSSION_AI.md` records the project language mode.
+- [ ] The Task or Project Status records any delivery-specific language requirement.
 - [ ] If hooks were requested, `.wishgraph/config.json` uses `warn` initially and the direct worktree check runs.
 - [ ] One atomic commit created unless the user explicitly says not to commit.
 

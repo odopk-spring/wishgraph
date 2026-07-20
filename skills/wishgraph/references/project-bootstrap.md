@@ -29,7 +29,7 @@ The first usable entry should stay human-visible and small: add a short WishGrap
 
 ## Language Mode
 
-Record the primary language and whether bilingual output is required in `prompts/DISCUSSION_AI.md`. Follow the user's language by default. For bilingual output, write important prompts, decisions, summaries, and Task explanations Chinese-first, then English.
+Record the primary language and any bilingual requirement in the current Task or Project Status when it affects delivery. Follow the user's language by default. For bilingual output, write important decisions, summaries, and Task explanations Chinese-first, then English.
 
 Never translate file paths, commands, code identifiers, symbols, routes, package names, environment variables, or literal API names. Avoid duplicating long context in two languages; use short paired summaries.
 
@@ -92,28 +92,26 @@ PRD.md
 ARCHITECTURE.md
 CODEMAP.md
 CONVENTIONS.md
-prompts/DISCUSSION_AI.md
-prompts/EXECUTION_AI.md
-prompts/INTEGRATION_AI.md
-tasks/build/001-bootstrap-project.md
+tasks/001-bootstrap-project.md
 tasks/revisions/                 # create only when first needed
 reports/PROJECT_STATUS.md
-reports/RUN_REPORT.md
 reports/runs/
 ```
 
+These are WishGraph defaults, not a root-directory allowlist. Preserve user-owned files such as `AGENTS.md`, `CLAUDE.md`, framework configuration, and any native project layout. WishGraph constrains only the files it creates.
+
 For an existing project, create runtime artifacts lazily:
 
-1. Immediately add only the missing Discussion/Worker entry prompts and current `reports/PROJECT_STATUS.md` snapshot needed to enter the loop.
+1. Immediately add only the current `reports/PROJECT_STATUS.md` snapshot needed to enter the loop.
 2. Reuse native product, architecture, code-map, conventions, Task, and validation sources when they are authoritative; record their paths in Task context instead of cloning their contents.
-3. Create `tasks/build/`, `tasks/revisions/`, report templates, and `reports/runs/` only when the first corresponding work unit is approved.
+3. Create `tasks/`, `tasks/revisions/`, and `reports/runs/` only when the first corresponding work unit needs them. Do not copy a Run Report placeholder into the project.
 4. Coalesce additional feedback into a pending or running Revision instead of allocating another Revision file. Allocate a new Revision only after the prior one is terminal and integrated.
 
 Native-lite must preserve the same Claim, role, validation, closeout, and semantic-sync gates. It reduces duplicate files; it does not weaken governance.
 
 Native-lite readiness belongs to the current Task, not to a global documentation score. A Task is ready when its intended result, scope and Do Not Do boundary, real code anchors, executable validation, permission/risk boundary, and blocking unknowns are explicit. The goal is reliable facts for this Task, not perfect documentation for the whole project.
 
-Keep both role prompts stable and put work-specific instructions in Tasks or Revisions. Current user-readable state belongs only in `reports/PROJECT_STATUS.md`.
+Stable role rules come from the installed Skill and Host Adapter. Put work-specific instructions in Tasks or Revisions. Current user-readable state belongs only in `reports/PROJECT_STATUS.md`; do not create project-level prompt files.
 
 ## Template Mapping
 
@@ -125,26 +123,23 @@ Use root assets for English/language-neutral projects and `zh-CN` mirrors for Ch
 | Architecture | `assets/templates/ARCHITECTURE.md` | `assets/templates/zh-CN/ARCHITECTURE.md` | `ARCHITECTURE.md` |
 | Code map | `assets/templates/CODEMAP.md` | `assets/templates/zh-CN/CODEMAP.md` | `CODEMAP.md` |
 | Conventions | `assets/templates/CONVENTIONS.md` | `assets/templates/zh-CN/CONVENTIONS.md` | `CONVENTIONS.md` |
-| Discussion | `assets/templates/DISCUSSION_AI.md` | `assets/templates/zh-CN/prompts/DISCUSSION_AI.md` | `prompts/DISCUSSION_AI.md` |
-| Worker | `assets/templates/EXECUTION_AI.md` | `assets/templates/zh-CN/prompts/EXECUTION_AI.md` | `prompts/EXECUTION_AI.md` |
-| Integration | `assets/templates/INTEGRATION_AI.md` | `assets/templates/zh-CN/prompts/INTEGRATION_AI.md` | `prompts/INTEGRATION_AI.md` |
-| Bootstrap Task | `assets/templates/001-bootstrap-project.md` | `assets/templates/zh-CN/tasks/build/001-bootstrap-project.md` | `tasks/build/001-bootstrap-project.md` |
-| Formal Task | `assets/templates/NNN-task.md` | `assets/templates/zh-CN/tasks/build/NNN-task.md` | `tasks/build/NNN-short-slug.md` |
+| Bootstrap Task | `assets/templates/001-bootstrap-project.md` | `assets/templates/zh-CN/tasks/build/001-bootstrap-project.md` | `tasks/001-bootstrap-project.md` |
+| Formal Task | `assets/templates/NNN-task.md` | `assets/templates/zh-CN/tasks/build/NNN-task.md` | `tasks/NNN-short-slug.md` |
 | Revision | `assets/templates/TASK_REVISION.md` | `assets/templates/zh-CN/tasks/revisions/TASK_REVISION.md` | `tasks/revisions/NNN-rN.md` |
 | Project status | `assets/templates/PROJECT_STATUS.md` | `assets/templates/zh-CN/reports/PROJECT_STATUS.md` | `reports/PROJECT_STATUS.md` |
-| Run report | `assets/templates/RUN_REPORT.md` | `assets/templates/zh-CN/reports/RUN_REPORT.md` | `reports/RUN_REPORT.md` |
+| Run report source | `assets/templates/RUN_REPORT.md` | `assets/templates/zh-CN/reports/RUN_REPORT.md` | Generate `reports/runs/<work-unit-id>-attempt-N.md` only when needed |
 
 Adapt placeholders to repository facts. Do not inject creator-specific private content, social drafts, or source-project domain rules.
 
 ## Existing-Project Adoption
 
 1. Identify authoritative product and architecture files.
-2. Add only missing state and role files.
+2. Add only the missing state files required by the current Task.
 3. Create one bounded Task and unique Run Report path.
 4. Install Hooks in `warn` and complete one closeout.
 5. Move to `enforce` only when the worktree and project state are clean.
 
-Use `tasks/build/*.md` for formal Tasks. Do not infer hidden or alternate Task directories.
+Use `tasks/*.md` for formal Tasks and `tasks/revisions/*.md` for Revisions. Do not infer hidden or alternate Task directories.
 
 ## Cross-Window And Cross-Host Continuation
 
@@ -169,10 +164,4 @@ Stop grilling and prepare Worker authorization only when the first Task has conc
 
 ## Discussion-Window Migration
 
-When the user asks to migrate or copy the Discussion:
-
-1. Refresh current project facts in `reports/PROJECT_STATUS.md`; keep the role prompt stable.
-2. Output the full prompt in a fenced code block.
-3. Prepend one short copy instruction.
-
-Do not replace the copyable prompt with a summary unless the user requests one.
+When the user asks to continue the Discussion elsewhere, first refresh current project facts in `reports/PROJECT_STATUS.md`. The new supported window opens the same Git project and says `开始讨论` / `Start discussion`; do not create or copy a project-level prompt.

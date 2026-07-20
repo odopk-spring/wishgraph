@@ -36,8 +36,8 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 
 ## 按角色读取
 
-- Discussion 从 `prompts/DISCUSSION_AI.md`、`reports/PROJECT_STATUS.md` 和当前 active state 开始；其他治理文件只在当前问题需要时打开。
-- Worker 只读 `prompts/EXECUTION_AI.md`、准确 Task 或 Revision、必要的当前状态小节，以及允许范围内的源码。
+- Discussion 从 `reports/PROJECT_STATUS.md` 和当前 active state 开始；其他治理文件只在当前问题需要时打开。
+- Worker 只读准确 Task 或 Revision、必要的 Project Status 小节，以及允许范围内的源码；稳定规则由 Adapter 和已安装 Skill 提供。
 - Integration 只读被选中的报告、对应记录和受影响的共享记忆文件。
 - 默认不得扫描无关 Task、历史报告或完整源码树。
 
@@ -48,12 +48,8 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - `PRD.md`：产品目标、用户、范围、非目标、路线图、当前决策。
 - `ARCHITECTURE.md`：依赖边界、数据流、所有权、风险说明。
 - `CODEMAP.md`：功能到文件地图、合约、验证面、调试入口。
-- `CONVENTIONS.md`：协作规则、验证顺序、git 规则、记忆更新规则。
-- `prompts/DISCUSSION_AI.md`：当前规划提示词和交接状态。
-- `prompts/EXECUTION_AI.md`：稳定执行提示词。
-- `prompts/INTEGRATION_AI.md`：稳定集成提示词和共享状态单写者规则。
-- `tasks/build/*.md`：可见的自包含执行 Task 规格；不猜测隐藏或其他 Task 目录。
-- `reports/RUN_REPORT.md`：Worker 报告模板。
+- `CONVENTIONS.md`：项目特有的构建、测试、编码、权限和 Git 规则；不复制 WishGraph 运行协议。
+- `tasks/*.md`：可见的自包含执行 Task 规格；不猜测隐藏或其他 Task 目录。
 - `reports/runs/*.md`：不可变 Worker 执行证据。
 - `reports/PROJECT_STATUS.md`：当前已集成的项目状态概览和下一步建议。
 
@@ -72,7 +68,7 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 
 ## Worker 角色
 
-- 读取 `prompts/EXECUTION_AI.md` 和指定任务文件。
+- 读取指定的 Task 或 Revision 文件。
 - 只实现已批准任务。
 - 保持 patch 最小、可回滚。
 - 运行任务列出的验证。
@@ -85,7 +81,7 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 
 - 从独立 branch 或 worktree 使用 `--no-commit` 合并 Worker。
 - 读取全部新增执行报告并更新受影响共享项目记忆。
-- 把 `reports/PROJECT_STATUS.md` 重写为当前快照，再刷新 `prompts/DISCUSSION_AI.md` 的精简动态交接。
+- 在同一个集成提交中把 `reports/PROJECT_STATUS.md` 重写为当前快照。
 - 把已吸收的结构化任务改为 `integrated`；只有用户接受结果后，讨论窗口才改为 `reviewed`。
 - 新窗口默认中立。默认 SessionStart 只做安全检查；用户明确说“开始讨论”后才加载讨论状态，持续运行窗口使用显式刷新。
 - 每个 Worker terminal 事件都进入 `integration_pending`。安全串行和机械检查证明独立的 `parallel_independent` 结果由持有绑定 Integration lease 的 Discussion 自动集成；风险、冲突、阻塞、竞争或歧义只形成具体决策或阻塞状态。

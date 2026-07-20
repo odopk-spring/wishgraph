@@ -1595,9 +1595,8 @@ def hook_prompt_text(payload: dict[str, Any]) -> str:
 
 
 def governance_ready(root: Path, config: dict[str, Any]) -> bool:
-    paths = config["paths"]
     status_path = resolve_project_status_path(root, config)
-    return (root / status_path).is_file() and (root / paths["discussion_prompt"]).is_file()
+    return (root / status_path).is_file()
 
 
 def _complete_task_runtime_patch(
@@ -2670,7 +2669,6 @@ def integration_plan_main(host_capability: str) -> int:
         "host_capability": host_capability,
         "host_action": host_action,
         "creates_visible_integration_window": False,
-        "integration_prompt": config["paths"]["integration_prompt"],
         "ready_reports": state["selected_reports"] or state["ready_reports"],
         "status": state,
     }

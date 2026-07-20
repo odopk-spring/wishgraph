@@ -124,12 +124,13 @@ Discussion 一次只追问一个会改变结果的决定，并提供推荐默认
 
 ## Worker 会读取什么
 
-普通 Worker 从下面四类内容开始：
+普通 Worker 从下面三类内容开始：
 
-1. `prompts/EXECUTION_AI.md`。
-2. 自己的准确 Task 或 Revision。
-3. 最小必要的 Project Status 小节。
-4. 允许范围真正需要的源码。
+1. 自己的准确 Task 或 Revision。
+2. 最小必要的 Project Status 小节。
+3. 允许范围真正需要的源码。
+
+稳定角色规则来自已安装的 Skill 和 Host Adapter，因此 WishGraph 不会添加项目级 Prompt 文件。
 
 它默认不读取无关 Task、历史 Run Report 或完整源码树。如果实现需要 Task 没有授权的公共 API、schema、持久化、依赖、权限、安全、隐私或新产品决定，Worker 会停止并把问题交回 Discussion。
 

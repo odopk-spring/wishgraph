@@ -128,10 +128,11 @@ The global Claude Adapter and Worker Agent may serve every explicitly enabled pr
 
 A normal Worker starts with:
 
-1. `prompts/EXECUTION_AI.md`.
-2. Its exact Task or Revision.
-3. The smallest necessary Project Status section.
-4. Source files required by its allowed scope.
+1. Its exact Task or Revision.
+2. The smallest necessary Project Status section.
+3. Source files required by its allowed scope.
+
+Stable role rules come from the installed Skill and Host Adapter, so WishGraph does not add project-level prompt files.
 
 It does not load unrelated Tasks, historical Run Reports, or the entire source tree by default. If the Task requires a public API, schema, persistence, dependency, permission, security, privacy, or new product decision that was not authorized, the Worker stops and returns the decision to Discussion.
 

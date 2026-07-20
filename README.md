@@ -234,12 +234,14 @@ WishGraph is a **v0.1 public beta**. Automated tests cover installation, state t
 | `ARCHITECTURE.md` | Structure: modules, dependencies, data flow, and boundaries. |
 | `CODEMAP.md` | Address book: where features, state, storage, and tests live. |
 | `CONVENTIONS.md` | Working rules: collaboration, validation, Git, and state writeback. |
-| `tasks/build/*.md` | Formal Tasks with scope, non-goals, validation, and rollback boundaries. |
+| `tasks/*.md` | Formal Tasks with scope, non-goals, validation, and rollback boundaries. |
 | `tasks/revisions/*.md` | Lightweight, low-risk corrections. |
 | `reports/runs/*.md` | Immutable Worker execution and validation evidence. |
 | `reports/PROJECT_STATUS.md` | Current dashboard: latest result, risk, active work, and next action. |
 
 Existing projects do not need to create every file mechanically. WishGraph reuses native documents that already own the same truth.
+
+WishGraph creates only these named documents and directories. It does not police the rest of the repository root: user-owned files such as `AGENTS.md`, `CLAUDE.md`, framework configuration, and native project folders remain untouched. Project-level prompts and a blank Run Report template are not copied into user projects.
 
 Current releases do not infer pre-release `.tasks/build/`, `reports/DEV_REPORT.md`, retired field aliases, or configuration without `required_hosts`. If Doctor finds one, explicitly reactivate the project or regenerate the affected structured record instead of preserving two truth formats.
 

@@ -44,11 +44,8 @@ Task state 只记录 Task Lifecycle。Session Role、Flow Phase 与 `expected_tr
 | `PRD.md` | Product frame and roadmap | 记录目标用户、目标、非目标、当前决策、首个薄切片和验收标准。 |
 | `ARCHITECTURE.md` | Initial architecture | 记录计划结构、依赖边界、数据流和风险备注。 |
 | `CODEMAP.md` | Initial map | 记录计划或现有文件、功能区域、合约、probe 和调试入口。 |
-| `CONVENTIONS.md` | Collaboration rules | 记录 Discussion / Worker 角色、Discussion-local Integration 阶段、验证顺序、外置记忆更新规则和 Git 规则。 |
-| `prompts/DISCUSSION_AI.md` | Current handoff | 保存当前讨论状态、开放决策和下一个可能任务。 |
-| `prompts/EXECUTION_AI.md` | Worker handoff | 保存 Worker 窗口的稳定提示词。 |
-| `prompts/INTEGRATION_AI.md` | Integration phase prompt | 保存 lease 约束的 Discussion-local Integration 规则和 pending 恢复行为。 |
-| `tasks/build/002-first-slice.md` | First implementation task | PRD 批准后写首个有边界的实现任务。 |
+| `CONVENTIONS.md` | Project engineering rules | 只记录项目特有的构建、测试、编码、权限和 Git 约定。 |
+| `tasks/002-first-slice.md` | First implementation task | PRD 批准后写首个有边界的实现任务。 |
 | `reports/runs/001-bootstrap-project.md` | Bootstrap run report | 记录创建文件、假设、验证和共享记忆建议。 |
 | `reports/PROJECT_STATUS.md` | 初始项目状态概览 | 把 bootstrap 汇总为第一份当前集成快照。 |
 | `.wishgraph/` 和宿主 hook 配置 | 可选收尾强制 | Owner 要求 hooks 时，以 `warn` 模式安装，且不替换现有 hook groups。 |
@@ -71,12 +68,11 @@ Task state 只记录 Task Lifecycle。Session Role、Flow Phase 与 `expected_tr
 
 - [ ] 治理文件存在并且彼此一致。
 - [ ] `PRD.md` 包含目标用户、目标、非目标、首个薄切片和验收标准。
-- [ ] `prompts/DISCUSSION_AI.md` 可复制到新讨论窗口。
-- [ ] `prompts/EXECUTION_AI.md` 加 `tasks/build/002-first-slice.md` 可交接给用户可见且可检查的 Worker thread 或窗口。
-- [ ] 讨论提示词解释首个任务的工作类型、为什么串行或并行、准确 Worker 启动步骤，以及何时需要用户确认集成。
+- [ ] `tasks/002-first-slice.md` 可直接交接给用户可见且可检查的 Worker thread 或窗口。
+- [ ] Task 解释其工作类型、为什么串行或并行，以及何时需要用户确认集成。
 - [ ] `reports/runs/001-bootstrap-project.md` 记录创建内容和未知项。
 - [ ] `reports/PROJECT_STATUS.md` 列出 bootstrap 单次执行报告并汇总初始集成状态。
-- [ ] `prompts/DISCUSSION_AI.md` 记录项目语言模式。
+- [ ] Task 或 Project Status 记录与交付有关的语言要求。
 - [ ] 如果要求 hooks，`.wishgraph/config.json` 初始使用 `warn`，且直接 worktree 检查可以运行。
 - [ ] 除非用户明确说不提交，否则创建一个原子 commit。
 

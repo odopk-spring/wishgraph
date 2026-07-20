@@ -123,7 +123,7 @@ Key settings include:
 - Project Status size limits and the explicit Discussion context size limit.
 - `orchestration_gate_enabled` and host-dependent read-gate mode.
 
-WishGraph reads `tasks/build/*.md`, `tasks/revisions/*.md`, and `reports/PROJECT_STATUS.md`. Task, Revision, Run Report, and Project Status records require their structured state blocks. `paths.run_report_template` allocates one portable repository-relative report path when a work unit is authorized; `paths.run_report_glob` validates it. The defaults remain `reports/runs/{work_unit_id}-attempt-{attempt}.md` and `reports/runs/*.md`. Pre-release hidden Task paths, `reports/DEV_REPORT.md`, old field aliases, and configuration without `required_hosts` are intentionally not inferred. Reactivate the project or regenerate the affected record instead of maintaining two truth formats.
+WishGraph reads `tasks/*.md`, `tasks/revisions/*.md`, and `reports/PROJECT_STATUS.md`. Task, Revision, Run Report, and Project Status records require their structured state blocks. `paths.run_report_template` allocates one portable repository-relative report path when a work unit is authorized; `paths.run_report_glob` validates it. The defaults remain `reports/runs/{work_unit_id}-attempt-{attempt}.md` and `reports/runs/*.md`. Pre-release hidden Task paths, `reports/DEV_REPORT.md`, old field aliases, and configuration without `required_hosts` are intentionally not inferred. Reactivate the project or regenerate the affected record instead of maintaining two truth formats.
 
 ## Commands
 

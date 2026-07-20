@@ -50,9 +50,7 @@ PRD.md
 ARCHITECTURE.md
 CODEMAP.md
 CONVENTIONS.md
-prompts/DISCUSSION_AI.md
-prompts/EXECUTION_AI.md
-tasks/build/001-bootstrap-project.md
+tasks/001-bootstrap-project.md
 reports/PROJECT_STATUS.md
 ```
 
@@ -93,13 +91,9 @@ Acts as the lookup table:
 | Progress | Track current and furthest positions | Navigation bugs need causal tracing |
 | Reports | Store execution evidence | Future agents need validation history |
 
-### prompts/DISCUSSION_AI.md
+### Project Status and role rules
 
-Provides the stable Discussion role entry. Current planning facts stay in Project Status; a new window opens the same project and says `Start discussion` without copying a full prompt.
-
-### prompts/EXECUTION_AI.md
-
-Stays stable. It tells a Worker how to start, what files to read, and how to close a Task. Task-specific requirements belong in `tasks/build/*.md`, not in this prompt.
+Current planning facts stay in Project Status. A new window opens the same project and says `Start discussion`; stable Discussion and Worker rules come from the installed Skill and Host Adapter rather than project-level prompt files.
 
 ## Foreground Discussion, Explicit Worker, Temporary Integration
 
@@ -110,7 +104,7 @@ Human idea
 -> Discussion AI classifies sequential / parallel_batch / high_risk
 -> Human approves task boundary and explicitly authorizes the named Worker task(s)
 -> Discussion AI creates and configures user-visible Worker task(s)
--> Worker reads EXECUTION_AI.md plus the Task file
+-> Worker reads the exact Task file plus the smallest necessary project state
 -> Worker implements only that Task
 -> Worker validates, writes one immutable Run Report, and commits
 -> Discussion-local Integration applies approved results and shared-memory updates
@@ -124,7 +118,7 @@ Discussion controls direction and recommends serial or parallel work. After expl
 After bootstrap, a first real task might be:
 
 ```text
-tasks/build/002-import-local-text.md
+tasks/002-import-local-text.md
 ```
 
 A good task spec should include:

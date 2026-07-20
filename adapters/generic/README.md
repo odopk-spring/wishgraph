@@ -44,11 +44,9 @@ PRD.md
 ARCHITECTURE.md
 CODEMAP.md
 CONVENTIONS.md
-prompts/DISCUSSION_AI.md
-prompts/EXECUTION_AI.md
-tasks/build/*.md
+tasks/*.md
+tasks/revisions/*.md
 reports/PROJECT_STATUS.md
-reports/RUN_REPORT.md
 reports/runs/<work-unit-id>.md
 ```
 

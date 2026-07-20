@@ -1,6 +1,6 @@
 {
   "version": 12,
-  "runtime_version": 27,
+  "runtime_version": 28,
   "mode": "enforce",
   "required_hosts": [
     "codex",
@@ -11,15 +11,12 @@
     "architecture": "ARCHITECTURE.md",
     "codemap": "CODEMAP.md",
     "conventions": "CONVENTIONS.md",
-    "discussion_prompt": "prompts/DISCUSSION_AI.md",
-    "execution_prompt": "prompts/EXECUTION_AI.md",
-    "integration_prompt": "prompts/INTEGRATION_AI.md",
     "project_status": "reports/PROJECT_STATUS.md",
     "run_report_glob": "reports/runs/*.md",
     "run_report_template": "reports/runs/{work_unit_id}-attempt-{attempt}.md",
-    "task_glob": "tasks/build/*.md",
+    "task_glob": "tasks/*.md",
     "task_globs": [
-      "tasks/build/*.md"
+      "tasks/*.md"
     ],
     "revision_glob": "tasks/revisions/*.md"
   },

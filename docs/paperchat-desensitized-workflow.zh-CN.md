@@ -50,9 +50,7 @@ PRD.md
 ARCHITECTURE.md
 CODEMAP.md
 CONVENTIONS.md
-prompts/DISCUSSION_AI.md
-prompts/EXECUTION_AI.md
-tasks/build/001-bootstrap-project.md
+tasks/001-bootstrap-project.md
 reports/PROJECT_STATUS.md
 ```
 
@@ -93,13 +91,9 @@ reports/PROJECT_STATUS.md
 | Progress | 记录当前位置和最远位置 | 导航 bug 需要因果追踪 |
 | Reports | 保存执行证据 | 未来 agent 需要验证历史 |
 
-### prompts/DISCUSSION_AI.md
+### Project Status 与角色规则
 
-保存当前规划状态。换窗口继续前，讨论 AI 更新这里的精简交接；新窗口打开同一项目后输入“开始讨论”，无需复制完整提示词。
-
-### prompts/EXECUTION_AI.md
-
-保持稳定。它告诉 Worker 如何启动、读哪些文件、如何收尾。具体任务要求属于 `tasks/build/*.md`，不属于这个提示词。
+当前规划事实保存在 Project Status。新窗口打开同一项目后输入“开始讨论”；稳定的 Discussion 和 Worker 规则来自已安装的 Skill 与 Host Adapter，不再写入项目级 Prompt 文件。
 
 ## 前台讨论、显式 Worker、临时集成
 
@@ -110,7 +104,7 @@ Human idea
 -> Discussion AI classifies sequential / parallel_batch / high_risk
 -> Human approves task boundary and explicitly authorizes the named Worker task(s)
 -> Discussion AI creates and configures user-visible Worker task(s)
--> Worker reads EXECUTION_AI.md plus the Task file
+-> Worker reads the exact Task file plus the smallest necessary project state
 -> Worker implements only that Task
 -> Worker validates, writes one immutable Run Report, and commits
 -> Discussion-local Integration applies approved results and shared-memory updates
@@ -124,7 +118,7 @@ Discussion 控制方向并推荐串行或并行；人类明确授权后，当前
 Bootstrap 后，第一个真实任务可能是：
 
 ```text
-tasks/build/002-import-local-text.md
+tasks/002-import-local-text.md
 ```
 
 好的任务规格应该包含：

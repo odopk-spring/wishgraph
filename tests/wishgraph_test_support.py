@@ -61,7 +61,22 @@ class MemorySyncTestCase(unittest.TestCase):
         self.git("config", "user.name", "WishGraph Tests")
 
         (self.root / ".wishgraph" / "hooks").mkdir(parents=True)
-        shutil.copy2(HOOK_ASSETS / "config.json", self.root / ".wishgraph" / "config.json")
+        fixture_config = json.loads(
+            (HOOK_ASSETS / "config.json").read_text(encoding="utf-8")
+        )
+        fixture_config["paths"].update(
+            {
+                "discussion_prompt": "prompts/DISCUSSION_AI.md",
+                "execution_prompt": "prompts/EXECUTION_AI.md",
+                "integration_prompt": "prompts/INTEGRATION_AI.md",
+                "task_glob": "tasks/build/*.md",
+                "task_globs": ["tasks/build/*.md"],
+            }
+        )
+        (self.root / ".wishgraph" / "config.json").write_text(
+            json.dumps(fixture_config, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
         for runtime_name in (
             "memory_sync.py",
             "git_state.py",

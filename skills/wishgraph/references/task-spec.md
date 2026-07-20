@@ -1,6 +1,6 @@
 # Formal Task Specification
 
-Use this reference when creating, reviewing, or splitting `tasks/build/NNN-short-slug.md`.
+Use this reference when creating, reviewing, or splitting `tasks/NNN-short-slug.md`.
 
 ## Contents
 

@@ -17,10 +17,10 @@ Use WishGraph as the project governance layer for AI-assisted development.
 
 ## Role-Specific Read Scope
 
-- **Discussion entry:** read the concise dynamic block in `prompts/DISCUSSION_AI.md`, `reports/PROJECT_STATUS.md`, and the compact active status. Open `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, `CONVENTIONS.md`, or one Task only when the current question needs them.
-- **Worker:** read `prompts/EXECUTION_AI.md`, the exact assigned Task or Revision, the smallest necessary Project Status sections, and only References or source files required by its scope. Do not scan unrelated Tasks, historical reports, or the complete source tree.
+- **Discussion entry:** read `reports/PROJECT_STATUS.md` and the compact active status. Open `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, `CONVENTIONS.md`, or one Task only when the current question needs them.
+- **Worker:** read the exact assigned Task or Revision, the smallest necessary Project Status sections, and only References or source files required by its scope. Do not scan unrelated Tasks, historical reports, or the complete source tree.
 - **Integration:** read only the selected Run Reports, their Task/Revision records, and shared-memory files affected by those reports.
-- Formal Tasks use `tasks/build/*.md`; do not infer hidden or alternate Task directories.
+- Formal Tasks use `tasks/*.md`; do not infer hidden or alternate Task directories.
 
 ## Collaboration Rules
 
@@ -29,7 +29,7 @@ Use WishGraph as the project governance layer for AI-assisted development.
 - Execution sessions implement only the approved task spec.
 - Keep task specs self-contained; do not rely on chat history.
 - Worker sessions use separate branches or worktrees, create one immutable `reports/runs/<work-unit-id>.md`, and record Integrate or N/A proposals without editing shared memory.
-- Discussion-local Integration uses a bound lease, merges with `--no-commit`, rewrites `reports/PROJECT_STATUS.md` as the current snapshot, updates affected shared memory, and then refreshes the concise dynamic handoff in `prompts/DISCUSSION_AI.md`.
+- Discussion-local Integration uses a bound lease, merges with `--no-commit`, rewrites `reports/PROJECT_STATUS.md` as the current snapshot, and updates affected shared memory in the same integration commit.
 - Worker creation requires an explicit human command. In Discussion, prefer the managed native background Worker in a unique Worktree; in an ordinary neutral window, the current inspectable session binds itself after Claim acquisition and does not create another Worker. The Host Adapter adds per-launch `--worktree` and `--settings` mechanics without rewriting user configuration. Use a forked subagent only for short low-risk checks. If native launch is unavailable or fails, print the project directory, copy-ready Codex/Claude startup commands, and the final `执行 <task-id> 任务` line, then stop; Discussion never implements as fallback.
 - Route a lightweight Revision to an eligible bound Worker when the host can inspect and steer it; otherwise create an eligible Worker route or print the exact Revision handoff. A reused Worker must release its old Claim and acquire the Revision's new scope/validation binding first.
 - Route exact execute/stop/retry/takeover and explicit competitive commands through structured Task IDs and Git-common-dir Claims. Contextual approvals are valid only for one unique `expected_transition`.

@@ -47,10 +47,10 @@ Refresh project status
 ```
 
 - Discussion reads the concise handoff, current Project Status, and active state; it opens other documents only when needed.
-- A Worker reads the exact Task or Revision, `prompts/EXECUTION_AI.md`, necessary state, and source inside scope.
+- A Worker reads the exact Task or Revision, necessary Project Status sections, and source inside scope. Stable Worker rules come from the installed Adapter and Skill.
 - Integration reads this run's reports and only the shared files they actually affect.
 
-Continuing in another Claude Code window does not require printing or copying `prompts/DISCUSSION_AI.md`. Open the same project and say `Start discussion`. When arriving from Codex, confirm Claude is selected in `required_hosts`, install or repair its Adapter if needed, reopen the session, then use the same entry.
+To continue in another Claude Code window, open the same project and say `Start discussion`; WishGraph resumes from Project Status and Git-common runtime state. When arriving from Codex, confirm Claude is selected in `required_hosts`, install or repair its Adapter if needed, reopen the session, then use the same entry.
 
 ## How Worker launch works
 

@@ -29,7 +29,7 @@ Use durable files:
 - `CODEMAP.md` for navigation.
 - `CONVENTIONS.md` for collaboration rules.
 - `ARCHITECTURE.md` for boundaries.
-- `tasks/build/*.md` for visible executable specs.
+- `tasks/*.md` for visible executable specs.
 - `reports/PROJECT_STATUS.md` for the current integrated Project Status.
 
 ## The Human Must Review The Right Layer

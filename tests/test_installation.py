@@ -294,7 +294,7 @@ class InstallerTests(unittest.TestCase):
 
             with mock.patch.object(installer_module, "ASSET_ROOT", asset_root):
                 manifest = installer_module.bundled_runtime_manifest()
-                self.assertEqual(manifest["runtime_version"], 27)
+                self.assertEqual(manifest["runtime_version"], 28)
 
                 policy_path = asset_root / "policy.py"
                 policy_path.write_bytes(policy_path.read_bytes() + b"# changed\r\n")
@@ -388,7 +388,7 @@ class InstallerTests(unittest.TestCase):
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["state"], "confirmed_recently")
             self.assertEqual(execution["last_event"], "session-start")
-            self.assertEqual(execution["observed_runtime_version"], 27)
+            self.assertEqual(execution["observed_runtime_version"], 28)
             self.assertTrue(payload["host_execution_confirmed"])
             self.assertEqual(payload["next_action"], "bootstrap_project_memory")
 
@@ -554,12 +554,12 @@ class InstallerTests(unittest.TestCase):
             payload = json.loads(upgraded.stdout)
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["after"]["state"], "current")
-            self.assertEqual(payload["after"]["installed_runtime_version"], 27)
+            self.assertEqual(payload["after"]["installed_runtime_version"], 28)
             config = json.loads(
                 (root / ".wishgraph" / "config.json").read_text(encoding="utf-8")
             )
             self.assertEqual(config["mode"], "enforce")
-            self.assertEqual(config["runtime_version"], 27)
+            self.assertEqual(config["runtime_version"], 28)
 
     def test_safe_upgrade_replaces_only_a_bundled_known_old_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -833,7 +833,11 @@ class InstallerTests(unittest.TestCase):
                     {
                         "version": 1,
                         "mode": "enforce",
-                        "required_impact_rows": ["PRD.md"],
+                        "required_impact_rows": [
+                            "PRD.md",
+                            "prompts/DISCUSSION_AI.md",
+                            "CUSTOM.md",
+                        ],
                     }
                 ),
                 encoding="utf-8",
@@ -895,7 +899,7 @@ class InstallerTests(unittest.TestCase):
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["version"], 12)
-            self.assertEqual(config["runtime_version"], 27)
+            self.assertEqual(config["runtime_version"], 28)
             self.assertTrue(
                 (root / ".wishgraph" / "hooks" / "runtime-manifest.json").is_file()
             )
@@ -916,11 +920,14 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(
                 config["paths"]["project_status"], "reports/PROJECT_STATUS.md"
             )
-            self.assertEqual(config["paths"]["task_glob"], "tasks/build/*.md")
+            self.assertEqual(config["paths"]["task_glob"], "tasks/*.md")
             self.assertEqual(
                 config["paths"]["task_globs"],
-                ["tasks/build/*.md"],
+                ["tasks/*.md"],
             )
+            self.assertNotIn("discussion_prompt", config["paths"])
+            self.assertNotIn("execution_prompt", config["paths"])
+            self.assertNotIn("integration_prompt", config["paths"])
             self.assertEqual(
                 config["paths"]["revision_glob"], "tasks/revisions/*.md"
             )
@@ -931,7 +938,13 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(config["read_gate_mode"], "host_dependent")
             self.assertEqual(
                 config["required_impact_rows"],
-                ["PRD.md", "ARCHITECTURE.md", "CODEMAP.md", "CONVENTIONS.md"],
+                [
+                    "PRD.md",
+                    "ARCHITECTURE.md",
+                    "CODEMAP.md",
+                    "CONVENTIONS.md",
+                    "CUSTOM.md",
+                ],
             )
 
             second = subprocess.run(
@@ -1252,23 +1265,16 @@ class OneCommandInstallerTests(unittest.TestCase):
         self.assertIn("选择", installation)
         self.assertIn("已安装 Python", installation)
 
-    def test_discussion_prompt_guides_workers_and_work_classification(self) -> None:
-        prompt = (ROOT / "templates" / "prompts" / "DISCUSSION_AI.md").read_text(
-            encoding="utf-8"
-        )
-        for expected in (
-            "## Fast Path",
-            "independent Worker",
-            "approve_worker_launch",
-            "Do not expose Claim IDs",
-            "Do not preload exception References",
-            "Revision Fast Path",
-            "Discussion-local phase",
-            "Rewrite `reports/PROJECT_STATUS.md` as the current snapshot",
-        ):
-            with self.subTest(expected=expected):
-                self.assertIn(expected, prompt)
-        self.assertNotIn("## Work Classification", prompt)
+    def test_role_rules_live_in_skill_and_adapters(self) -> None:
+        worker = (
+            ROOT / "skills" / "wishgraph" / "references" / "worker-execution.md"
+        ).read_text(encoding="utf-8")
+        bootstrap = (
+            ROOT / "skills" / "wishgraph" / "references" / "project-bootstrap.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Stable role rules come from the installed Skill", bootstrap)
+        self.assertIn("exact Task or Revision", worker)
+        self.assertFalse(any((ROOT / "templates" / "prompts").glob("*.md")))
 
     def test_worker_launch_protocol_requires_visible_human_authorized_tasks(self) -> None:
         reference = (
@@ -1277,9 +1283,6 @@ class OneCommandInstallerTests(unittest.TestCase):
             / "wishgraph"
             / "references"
             / "worker-execution.md"
-        ).read_text(encoding="utf-8")
-        chinese_prompt = (
-            ROOT / "templates" / "zh-CN" / "prompts" / "DISCUSSION_AI.md"
         ).read_text(encoding="utf-8")
         for expected in (
             "approve_worker_launch",
@@ -1291,35 +1294,14 @@ class OneCommandInstallerTests(unittest.TestCase):
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, reference)
-        for expected in (
-            "默认 Fast Path",
-            "approve_worker_launch",
-            "不要默认运行完整 status 扫描",
-            "普通路径不展示 Claim ID",
-            "不要“以防万一”预读异常 Reference",
-            "安全 Revision 自动集成",
-        ):
-            with self.subTest(expected=expected):
-                self.assertIn(expected, chinese_prompt)
 
-    def test_integration_prompt_is_discussion_local_and_lease_bound(self) -> None:
-        discussion = (
-            ROOT / "templates" / "prompts" / "DISCUSSION_AI.md"
+    def test_integration_rules_are_discussion_local_and_lease_bound(self) -> None:
+        revisions = (
+            ROOT / "skills" / "wishgraph" / "references" / "task-revisions.md"
         ).read_text(encoding="utf-8")
-        integration = (
-            ROOT / "templates" / "prompts" / "INTEGRATION_AI.md"
-        ).read_text(encoding="utf-8")
-        self.assertIn("Integration is an automatic Discussion-local phase", discussion)
-        self.assertIn("Ask the user only about a concrete unresolved", discussion)
-        self.assertIn("Integration lease", integration)
-        self.assertIn("Do not create a new Integration window", integration)
-        self.assertIn("task-state", integration)
-        self.assertIn("from `draft` or `approved` directly to `integrated`", integration)
-        self.assertIn(
-            "from `draft` or `approved` directly to `integrated`", integration
-        )
-        self.assertNotIn("silently launch a temporary Integrator", discussion)
-        self.assertNotIn("end this temporary agent", integration)
+        self.assertIn("Integration lease", revisions)
+        self.assertIn("same integration change", revisions)
+        self.assertIn("Project Status", revisions)
 
     def test_hooks_are_not_semantic_reviewers_or_agent_launchers(self) -> None:
         runtime = (HOOK_ASSETS / "memory_sync.py").read_text(encoding="utf-8")

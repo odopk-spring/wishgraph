@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": 12,
-    "runtime_version": 27,
+    "runtime_version": 28,
     "mode": "enforce",
     "required_hosts": ["codex", "claude"],
     "paths": {
@@ -25,14 +25,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "architecture": "ARCHITECTURE.md",
         "codemap": "CODEMAP.md",
         "conventions": "CONVENTIONS.md",
-        "discussion_prompt": "prompts/DISCUSSION_AI.md",
-        "execution_prompt": "prompts/EXECUTION_AI.md",
-        "integration_prompt": "prompts/INTEGRATION_AI.md",
         "project_status": "reports/PROJECT_STATUS.md",
         "run_report_glob": "reports/runs/*.md",
         "run_report_template": "reports/runs/{work_unit_id}-attempt-{attempt}.md",
-        "task_glob": "tasks/build/*.md",
-        "task_globs": ["tasks/build/*.md"],
+        "task_glob": "tasks/*.md",
+        "task_globs": ["tasks/*.md"],
         "revision_glob": "tasks/revisions/*.md",
     },
     "required_impact_rows": [
@@ -1592,6 +1589,11 @@ def configured_task_globs(config: dict[str, Any]) -> list[str]:
 def configured_revision_glob(config: dict[str, Any]) -> str:
     value = config.get("paths", {}).get("revision_glob")
     return value if isinstance(value, str) and value else "tasks/revisions/*.md"
+
+
+def matches_repo_glob(path: str, pattern: str) -> bool:
+    """Match one repository path without letting `*` cross directory boundaries."""
+    return PurePosixPath(path).match(pattern)
 
 
 def task_paths_for_id(
