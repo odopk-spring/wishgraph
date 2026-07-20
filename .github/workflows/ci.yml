@@ -23,7 +23,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Run tests
-        run: python -m unittest tests.test_memory_sync
+        run: python -m unittest discover
       - name: Compile hook runtime
         run: python -m py_compile skills/wishgraph/assets/hooks/*.py skills/wishgraph/scripts/install_project_hooks.py
       - name: Check shell installer syntax
@@ -40,7 +40,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Verify fresh-session Chinese Hook I/O
-        run: python -m unittest tests.test_memory_sync.MemorySyncTests.test_hook_cli_normalizes_legacy_stdio_to_utf8
+        run: python -m unittest tests.test_integration_status.IntegrationStatusTests.test_hook_cli_normalizes_legacy_stdio_to_utf8
       - name: Install from the checked-out revision
         shell: pwsh
         run: |
