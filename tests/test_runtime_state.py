@@ -175,6 +175,10 @@ class RuntimeStateTests(MemorySyncTestCase):
         terminal_run = memory_sync.latest_execution_run(self.root, task_id, attempt=1)
         assert terminal_run is not None
         result_commit = terminal_run["result"]["commit"]
+        self.assertEqual(terminal_run["base_commit"], base_commit)
+        self.assertEqual(
+            self.git("rev-parse", f"{result_commit}^").stdout.strip(), base_commit
+        )
         self.assertFalse((self.root / report_path).exists())
 
         context = memory_sync.consume_discussion_notification_context(
@@ -805,6 +809,12 @@ class RuntimeStateTests(MemorySyncTestCase):
                         **report_options,
                     ),
                 )
+                self.git(
+                    "add",
+                    f"tasks/build/{task_id}-notification.md",
+                    report_path,
+                )
+                self.git("commit", "-qm", f"terminal evidence {task_id}")
                 claim = {
                     "claim_id": f"claim-{task_id}",
                     "task_id": task_id,
@@ -949,6 +959,232 @@ class RuntimeStateTests(MemorySyncTestCase):
         claim = memory_sync.inspect_claims(self.root, "029g")[0]
         self.assertEqual(claim["lease_status"], "active")
         self.assertEqual(memory_sync.inspect_worker_notifications(self.root), [])
+
+    def test_claim_release_rejects_report_not_present_in_result_commit(self) -> None:
+        task_id = "029h"
+        task_path = f"tasks/build/{task_id}-uncommitted-report.md"
+        report_path = f"reports/runs/{task_id}-attempt-1.md"
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="approved",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.git("add", task_path)
+        self.git("commit", "-qm", "prepare uncommitted report task")
+        acquired = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "acquire",
+                task_id,
+                "--worker-id",
+                "worker-029h",
+                "--session-id",
+                "worker-029h",
+                "--host",
+                "codex",
+            ],
+            cwd=self.root,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        claim_id = json.loads(acquired.stdout)["claim"]["claim_id"]
+        self.write(
+            report_path,
+            self.structured_run_report(f"{task_id}-attempt-1", task_id=task_id),
+        )
+        self.git("add", report_path)
+        released = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "release",
+                claim_id,
+                "--session-id",
+                "worker-029h",
+            ],
+            cwd=self.root,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(released.returncode, 1)
+        payload = json.loads(released.stdout)
+        self.assertEqual(
+            payload["detail"]["error"], "terminal_run_report_not_committed"
+        )
+        claim = memory_sync.inspect_claims(self.root, task_id)[0]
+        self.assertEqual(claim["lease_status"], "active")
+
+    def test_claim_release_rejects_multi_commit_worker_result(self) -> None:
+        task_id = "029j"
+        task_path = f"tasks/build/{task_id}-multi-commit.md"
+        report_path = f"reports/runs/{task_id}-attempt-1.md"
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="approved",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.git("add", task_path)
+        self.git("commit", "-qm", "prepare multi commit task")
+        acquired = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "acquire",
+                task_id,
+                "--worker-id",
+                "worker-029j",
+                "--session-id",
+                "worker-029j",
+                "--host",
+                "codex",
+            ],
+            cwd=self.root,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        claim_id = json.loads(acquired.stdout)["claim"]["claim_id"]
+        self.write("src/multi_commit.py", "print('first commit')\n")
+        self.git("add", "src/multi_commit.py")
+        self.git("commit", "-qm", "worker implementation commit")
+        self.write(
+            report_path,
+            self.structured_run_report(
+                f"{task_id}-attempt-1",
+                task_id=task_id,
+                changed_paths=["src/multi_commit.py"],
+            ),
+        )
+        self.git("add", report_path)
+        self.git("commit", "-qm", "worker report commit")
+        released = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "release",
+                claim_id,
+                "--session-id",
+                "worker-029j",
+            ],
+            cwd=self.root,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(released.returncode, 1)
+        payload = json.loads(released.stdout)
+        self.assertEqual(
+            payload["detail"]["error"], "terminal_result_commit_not_based_on_run"
+        )
+        claim = memory_sync.inspect_claims(self.root, task_id)[0]
+        self.assertEqual(claim["lease_status"], "active")
+
+    def test_claim_release_rejects_uncommitted_business_changes(self) -> None:
+        task_id = "029k"
+        task_path = f"tasks/build/{task_id}-dirty-worker.md"
+        report_path = f"reports/runs/{task_id}-attempt-1.md"
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="approved",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.git("add", task_path)
+        self.git("commit", "-qm", "prepare dirty worker task")
+        acquired = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "acquire",
+                task_id,
+                "--worker-id",
+                "worker-029k",
+                "--session-id",
+                "worker-029k",
+                "--host",
+                "codex",
+            ],
+            cwd=self.root,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        claim_id = json.loads(acquired.stdout)["claim"]["claim_id"]
+        self.write("src/dirty_worker.py", "print('committed')\n")
+        self.write(
+            report_path,
+            self.structured_run_report(
+                f"{task_id}-attempt-1",
+                task_id=task_id,
+                changed_paths=["src/dirty_worker.py"],
+            ),
+        )
+        self.git("add", "src/dirty_worker.py", report_path)
+        self.git("commit", "-qm", "complete dirty worker result")
+        self.write("src/left_behind.py", "print('uncommitted')\n")
+        released = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "release",
+                claim_id,
+                "--session-id",
+                "worker-029k",
+            ],
+            cwd=self.root,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(released.returncode, 1)
+        payload = json.loads(released.stdout)
+        self.assertEqual(payload["detail"]["error"], "terminal_worktree_not_clean")
+        claim = memory_sync.inspect_claims(self.root, task_id)[0]
+        self.assertEqual(claim["lease_status"], "active")
+
+    def test_run_report_path_template_is_portable_and_configurable(self) -> None:
+        config = json.loads(json.dumps(self.config))
+        config["paths"]["run_report_glob"] = "evidence/runs/*.md"
+        config["paths"]["run_report_template"] = (
+            "evidence\\runs\\{work_unit_id}-try-{attempt}.md"
+        )
+        self.assertEqual(
+            memory_sync.allocate_run_report_path(config, "012-r1", 2),
+            "evidence/runs/012-r1-try-2.md",
+        )
+        with self.assertRaises(ValueError):
+            memory_sync.canonical_repo_path("C:\\outside\\report.md")
+        with self.assertRaises(ValueError):
+            memory_sync.canonical_repo_path("reports/../outside.md")
 
     def test_stop_hook_blocks_worker_until_active_claim_is_closed_out(self) -> None:
         acquired = memory_sync.acquire_claim(
@@ -1734,6 +1970,7 @@ class RuntimeStateTests(MemorySyncTestCase):
         )
         self.assertFalse(memory_sync.inspect_claims(self.root, task_id))
 
+    @unittest.skipIf(os.name == "nt", "fixture requires POSIX executable scripts")
     def test_fake_claude_launch_and_claim_bind_real_managed_worker(self) -> None:
         task_id = "058"
         discussion_id = "discussion-058"

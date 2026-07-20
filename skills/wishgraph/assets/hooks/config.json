@@ -1,6 +1,6 @@
 {
   "version": 12,
-  "runtime_version": 25,
+  "runtime_version": 26,
   "mode": "enforce",
   "required_hosts": [
     "codex",
@@ -16,6 +16,7 @@
     "integration_prompt": "prompts/INTEGRATION_AI.md",
     "project_status": "reports/PROJECT_STATUS.md",
     "run_report_glob": "reports/runs/*.md",
+    "run_report_template": "reports/runs/{work_unit_id}-attempt-{attempt}.md",
     "task_glob": "tasks/build/*.md",
     "task_globs": [
       "tasks/build/*.md"

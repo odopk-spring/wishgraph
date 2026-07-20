@@ -22,9 +22,11 @@ from git_state import (
     HOST_OBSERVATION_EVENTS,
     RUNTIME_ID_RE,
     apply_session_runtime_patch,
+    allocate_run_report_path,
     acquire_claim,
     acquire_integration_lease,
     canonical_runtime_id,
+    canonical_repo_path,
     configured_revision_glob,
     configured_task_globs,
     current_branch,
@@ -52,6 +54,7 @@ from git_state import (
     update_claim,
     update_execution_run,
     update_integration_lease,
+    worktree_is_clean,
     write_session_runtime,
 )
 from policy import (
@@ -1131,7 +1134,13 @@ def project_session_context(
     return text
 
 
-def format_failure(result: CheckResult, scope: str) -> str:
+def format_failure(
+    result: CheckResult, scope: str, config: Optional[dict[str, Any]] = None
+) -> str:
+    paths = (config or {}).get("paths", {})
+    report_glob = paths.get("run_report_glob", "reports/runs/*.md")
+    project_status = paths.get("project_status", "reports/PROJECT_STATUS.md")
+    discussion_prompt = paths.get("discussion_prompt", "prompts/DISCUSSION_AI.md")
     lines = [f"WishGraph external-memory sync failed ({scope}).", ""]
     lines.extend(f"- {error}" for error in result.errors)
     if result.trigger_paths:
@@ -1145,11 +1154,11 @@ def format_failure(result: CheckResult, scope: str) -> str:
             "Execution truth: an exact command creates one canonical Run; Claim acquisition",
             "moves that Run to running, and Claim release records its terminal evidence.",
             "Workers do not rewrite Task files merely to mirror transient progress.",
-            "Worker: create one new immutable reports/runs/<work-unit-id>.md,",
+            f"Worker: create one new immutable report matching {report_glob},",
             "record work type, readiness, safety fields, validation, and Integrate or N/A,",
             "and do not edit shared state or start other agents.",
-            "Integration: merge with --no-commit, rewrite reports/PROJECT_STATUS.md and",
-            "prompts/DISCUSSION_AI.md, record integration kind and authorization, then",
+            f"Integration: merge with --no-commit, rewrite {project_status} and",
+            f"{discussion_prompt}, record integration kind and authorization, then",
             "record Updated or N/A for shared memory. Parallel/high-risk work needs user confirmation.",
             "Local corrections require a Task Revision; other work requires a formal Task.",
         ]
@@ -1204,10 +1213,11 @@ def enqueue_terminal_notification_from_claim(
         work_type = task_state.work_type
         execution_mode = task_state.execution_mode
         integration_policy = task_state.integration_policy
-    run_report = str(work.get("run_report") or "")
-    if not run_report:
+    try:
+        run_report = canonical_repo_path(work.get("run_report"))
+    except ValueError:
         return {"ok": False, "error": "terminal_evidence_incomplete"}
-    report_content = read_version(root, run_report, "worktree")
+    worktree_report_content = read_version(root, run_report, "worktree")
     existing_run = latest_execution_run(
         root, task_id, attempt=int(claim.get("attempt") or 1)
     )
@@ -1221,10 +1231,34 @@ def enqueue_terminal_notification_from_claim(
             result_commit = commit_result.stdout.decode(
                 "utf-8", errors="replace"
             ).strip()
-    if report_content is None and result_commit:
-        report_content = read_ref_version(root, result_commit, run_report)
+    if not result_commit:
+        return {"ok": False, "error": "terminal_result_commit_missing"}
+    report_content = read_ref_version(root, result_commit, run_report)
     if report_content is None:
-        return {"ok": False, "error": "terminal_run_report_missing"}
+        return {"ok": False, "error": "terminal_run_report_not_committed"}
+    if (
+        worktree_report_content is not None
+        and worktree_report_content.replace("\r\n", "\n").replace("\r", "\n")
+        != report_content.replace("\r\n", "\n").replace("\r", "\n")
+    ):
+        return {"ok": False, "error": "terminal_run_report_differs_from_commit"}
+    if not worktree_is_clean(root):
+        return {"ok": False, "error": "terminal_worktree_not_clean"}
+    parents_result = run_git(
+        root, "rev-list", "--parents", "-n", "1", result_commit, check=False
+    )
+    commit_parts = parents_result.stdout.decode(
+        "utf-8", errors="replace"
+    ).strip().split()
+    if parents_result.returncode != 0 or len(commit_parts) != 2:
+        return {"ok": False, "error": "terminal_result_commit_must_be_atomic"}
+    result_parent = commit_parts[1]
+    recorded_base_commit = str(
+        (existing_run or {}).get("base_commit") or claim.get("base_commit") or ""
+    )
+    if recorded_base_commit and recorded_base_commit != result_parent:
+        return {"ok": False, "error": "terminal_result_commit_not_based_on_run"}
+    base_commit = recorded_base_commit or result_parent
     report = report_state(run_report, report_content)
     lifecycle = {
         "completed": "completed",
@@ -1269,7 +1303,7 @@ def enqueue_terminal_notification_from_claim(
                 "phase": terminal_phase,
                 "task_path": str(work.get("task_path") or ""),
                 "run_report": run_report,
-                "base_commit": result_commit,
+                "base_commit": base_commit,
                 "claim_id": str(claim.get("claim_id") or ""),
                 "worker": {
                     "host": str(claim.get("agent_platform") or "unknown"),
@@ -1864,6 +1898,7 @@ def user_prompt_submit_main(
             orchestration_state_from_dict(runtime),
             UserEvent(kind="user_message", data={"text": text}),
             capability,
+            config,
         )
         action = map_flow_plan_to_host(plan, capability)
         accepted = plan.accepted
@@ -2170,6 +2205,7 @@ def user_prompt_submit_main(
                     orchestration_state_from_dict(transition_runtime),
                     UserEvent(kind="user_message", data={"text": text}),
                     capability,
+                    config,
                 )
                 mapped = map_flow_plan_to_host(plan, capability)
                 accepted = plan.accepted
@@ -2490,7 +2526,7 @@ def hook_main(event: str, host: str = "unknown") -> int:
             if staged_probe.returncode != 0:
                 result = check_sync(root, config, "staged")
         if result is not None and not result.ok:
-            reason = format_failure(result, "staged")
+            reason = format_failure(result, "staged", config)
             if config.get("mode") == "warn":
                 emit(
                     {
@@ -2582,7 +2618,7 @@ def hook_main(event: str, host: str = "unknown") -> int:
         else:
             emit({})
         return 0
-    reason = format_failure(result, "worktree")
+    reason = format_failure(result, "worktree", config)
 
     if event == "session-start":
         context_parts = []
@@ -2632,11 +2668,11 @@ def check_main(scope: str) -> int:
     if config.get("mode") == "warn":
         print(
             "WishGraph external-memory sync: WARNING "
-            f"({scope}; warn mode does not block)\n\n{format_failure(result, scope)}",
+            f"({scope}; warn mode does not block)\n\n{format_failure(result, scope, config)}",
             file=sys.stderr,
         )
         return 0
-    print(format_failure(result, scope), file=sys.stderr)
+    print(format_failure(result, scope, config), file=sys.stderr)
     return 1
 
 
@@ -2816,7 +2852,10 @@ def _integration_transition_selection(
     raw_reports = data.get("reports")
     if not isinstance(raw_reports, list) or not raw_reports:
         raw_reports = [expected.get("report_id") or task_runtime.get("run_report")]
-    reports = [str(value or "").replace("\\", "/") for value in raw_reports]
+    try:
+        reports = [canonical_repo_path(value) for value in raw_reports]
+    except ValueError:
+        return {"ok": False, "error": "invalid_integration_report_path"}
     if any(not value for value in reports) or len(reports) != len(task_ids):
         return {"ok": False, "error": "integration_task_report_cardinality_mismatch"}
     integration_id = str(data.get("integration_id") or expected.get("integration_id") or "")
@@ -2905,23 +2944,29 @@ def _integration_transition_selection(
             ((execution_run or {}).get("result") or {}).get("commit") or ""
         )
         if not result_commit:
-            branch_result = run_git(
-                root,
-                "rev-parse",
-                str(released_claim.get("branch") or "HEAD"),
-                check=False,
-            )
-            if branch_result.returncode == 0:
-                result_commit = branch_result.stdout.decode(
-                    "utf-8", errors="replace"
-                ).strip()
+            return {"ok": False, "error": "canonical_execution_run_incomplete"}
+        base_commit = str((execution_run or {}).get("base_commit") or "")
+        parents_result = run_git(
+            root, "rev-list", "--parents", "-n", "1", result_commit, check=False
+        ) if result_commit else None
+        commit_parts = (
+            parents_result.stdout.decode("utf-8", errors="replace").strip().split()
+            if parents_result is not None
+            else []
+        )
+        if (
+            not base_commit
+            or parents_result is None
+            or parents_result.returncode != 0
+            or len(commit_parts) != 2
+            or commit_parts[1] != base_commit
+        ):
+            return {"ok": False, "error": "integration_result_commit_not_atomic"}
         report_content = (
             read_ref_version(root, result_commit, report_path)
             if result_commit
             else None
         )
-        if report_content is None:
-            report_content = read_version(root, report_path, "worktree")
         if report_content is None:
             return {"ok": False, "error": "integration_run_report_missing"}
         parsed_report = report_state(report_path, report_content)
@@ -2974,6 +3019,7 @@ def transition_session_runtime(
         orchestration_state_from_dict(runtime),
         UserEvent(kind=event_kind, data=reducer_data),
         host_capability_for(str((runtime.get("session") or {}).get("host") or "unknown")),
+        config,
     )
     if not plan.accepted:
         return {
@@ -3689,7 +3735,9 @@ def competitive_plan_main(task_id: str, candidate_count: int) -> int:
                                 "execution_mode": "competitive",
                                 "comparison_group": number,
                                 "attempt": 1,
-                                "run_report": f"reports/runs/{candidate_id}-attempt-1.md",
+                                "run_report": allocate_run_report_path(
+                                    config, candidate_id, 1
+                                ),
                             }
                         )
                     payload = {

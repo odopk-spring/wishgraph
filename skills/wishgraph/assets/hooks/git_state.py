@@ -11,13 +11,13 @@ import socket
 import subprocess
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Optional
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": 12,
-    "runtime_version": 25,
+    "runtime_version": 26,
     "mode": "enforce",
     "required_hosts": ["codex", "claude"],
     "paths": {
@@ -30,6 +30,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "integration_prompt": "prompts/INTEGRATION_AI.md",
         "project_status": "reports/PROJECT_STATUS.md",
         "run_report_glob": "reports/runs/*.md",
+        "run_report_template": "reports/runs/{work_unit_id}-attempt-{attempt}.md",
         "task_glob": "tasks/build/*.md",
         "task_globs": ["tasks/build/*.md"],
         "revision_glob": "tasks/revisions/*.md",
@@ -332,6 +333,12 @@ def acquire_claim(
 
         claim_id = uuid.uuid4().hex
         now = utc_now()
+        base_commit_result = run_git(root, "rev-parse", "HEAD", check=False)
+        base_commit = (
+            base_commit_result.stdout.decode("utf-8", errors="replace").strip()
+            if base_commit_result.returncode == 0
+            else ""
+        )
         claim = {
             "schema_version": 1,
             "kind": "worker_claim",
@@ -344,6 +351,7 @@ def acquire_claim(
             "worker_id": worker_id,
             "branch": bound_branch,
             "worktree": bound_worktree,
+            "base_commit": base_commit,
             "started_at": now,
             "updated_at": now,
             "lease_status": "active",
@@ -1529,7 +1537,53 @@ def load_config(root: Path) -> Optional[dict[str, Any]]:
         raise ValueError(
             "session_start_context_mode must be safety_only, discussion_summary, or off"
         )
+    try:
+        allocate_run_report_path(config, "001", 1)
+    except ValueError as exc:
+        raise ValueError(f"invalid run report path configuration: {exc}") from exc
     return config
+
+
+def canonical_repo_path(value: Any) -> str:
+    """Return one portable repository-relative path or fail closed."""
+    raw = str(value or "").strip().replace("\\", "/")
+    if (
+        not raw
+        or raw.startswith(("/", "//"))
+        or re.match(r"^[A-Za-z]:", raw)
+        or "\x00" in raw
+    ):
+        raise ValueError("path must be repository-relative")
+    if any(part in {"", ".", ".."} for part in raw.split("/")):
+        raise ValueError("path must not contain empty, dot, or parent segments")
+    path = PurePosixPath(raw)
+    if path.parts and path.parts[0].lower() == ".git":
+        raise ValueError("path must not target .git")
+    return path.as_posix()
+
+
+def allocate_run_report_path(
+    config: dict[str, Any], work_unit_id: str, attempt: int
+) -> str:
+    """Allocate a Run Report once from project configuration."""
+    template = config.get("paths", {}).get(
+        "run_report_template", "reports/runs/{work_unit_id}-attempt-{attempt}.md"
+    )
+    if not isinstance(template, str) or not template:
+        raise ValueError("paths.run_report_template must be a non-empty string")
+    try:
+        value = template.format(work_unit_id=work_unit_id, attempt=int(attempt))
+    except (KeyError, ValueError) as exc:
+        raise ValueError(
+            "paths.run_report_template supports only {work_unit_id} and {attempt}"
+        ) from exc
+    path = canonical_repo_path(value)
+    report_glob = str(
+        config.get("paths", {}).get("run_report_glob") or "reports/runs/*.md"
+    )
+    if not fnmatch.fnmatch(path, report_glob):
+        raise ValueError("allocated path must match paths.run_report_glob")
+    return path
 
 
 def configured_task_globs(config: dict[str, Any]) -> list[str]:

@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from git_state import (
+    allocate_run_report_path,
+    canonical_repo_path,
     changed_path_statuses,
     changed_paths,
     configured_revision_glob,
@@ -243,6 +245,7 @@ def reduce_orchestration(
     current_state: OrchestrationState,
     user_event: UserEvent,
     host_capability: HostCapability,
+    config: Optional[dict[str, Any]] = None,
 ) -> FlowPlan:
     """Purely reduce orchestration state and one event to a unique next action."""
     session = current_state.session
@@ -379,7 +382,7 @@ def reduce_orchestration(
             )
         run_report = str(
             data.get("run_report")
-            or f"reports/runs/{revision_id}-attempt-1.md"
+            or allocate_run_report_path(config or {"paths": {}}, revision_id, 1)
         )
         payload["revision_id"] = revision_id
         payload["run_report"] = run_report
@@ -1492,11 +1495,7 @@ def integration_state(
             for path in changed_paths(root, "worktree")
             if fnmatch.fnmatch(path, report_glob)
         )
-    reports = (
-        report_contents_across_refs(root, config)
-        if view == "full" and task_filter is None
-        else report_contents_for_paths_across_refs(root, config, candidate_reports)
-    )
+    reports: dict[str, str] = {}
     run_by_report: dict[str, dict[str, Any]] = {}
     for task in selected_tasks:
         run = latest_execution_run(root, task.task_id, attempt=task.attempt)
@@ -1510,6 +1509,14 @@ def integration_state(
             exact_content = read_ref_version(root, result_commit, report_path)
             if exact_content is not None:
                 reports[report_path] = exact_content
+    if view == "full" and task_filter is None:
+        fallback_reports = report_contents_across_refs(root, config)
+    else:
+        fallback_reports = report_contents_for_paths_across_refs(
+            root, config, candidate_reports - reports.keys()
+        )
+    for report_path, content in fallback_reports.items():
+        reports.setdefault(report_path, content)
     prefix = config["paths"]["run_report_glob"].split("*", 1)[0].rstrip("/")
     settled = (
         report_paths_in_ref(root, "HEAD", prefix)
@@ -2156,12 +2163,18 @@ def validate_task_spec(
     state = task_state(task_path, content)
     for error in state.errors:
         result.errors.append(f"{task_path} {error}")
-    if state.run_report and not fnmatch.fnmatch(
-        state.run_report, config["paths"]["run_report_glob"]
-    ):
-        result.errors.append(
-            f"{task_path} run_report must match {config['paths']['run_report_glob']}"
-        )
+    if state.run_report:
+        try:
+            canonical_report = canonical_repo_path(state.run_report)
+        except ValueError:
+            result.errors.append(f"{task_path} run_report must be repository-relative")
+        else:
+            if not fnmatch.fnmatch(
+                canonical_report, config["paths"]["run_report_glob"]
+            ):
+                result.errors.append(
+                    f"{task_path} run_report must match {config['paths']['run_report_glob']}"
+                )
     known_task_ids = {
         item.task_id for item in all_task_states(root, config, scope) if item.task_id
     }
@@ -2345,12 +2358,18 @@ def validate_revision_spec(
         result.errors.append(
             f"{revision_path} parent Task must be completed, integrated, or reviewed"
         )
-    if state.run_report and not fnmatch.fnmatch(
-        state.run_report, config["paths"]["run_report_glob"]
-    ):
-        result.errors.append(
-            f"{revision_path} run_report must match {config['paths']['run_report_glob']}"
-        )
+    if state.run_report:
+        try:
+            canonical_report = canonical_repo_path(state.run_report)
+        except ValueError:
+            result.errors.append(f"{revision_path} run_report must be repository-relative")
+        else:
+            if not fnmatch.fnmatch(
+                canonical_report, config["paths"]["run_report_glob"]
+            ):
+                result.errors.append(
+                    f"{revision_path} run_report must match {config['paths']['run_report_glob']}"
+                )
     previous_content = read_head_version(root, revision_path)
     if previous_content is not None:
         previous = revision_state(revision_path, previous_content)

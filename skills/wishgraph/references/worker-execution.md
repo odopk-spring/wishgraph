@@ -159,8 +159,8 @@ For every execution unit:
 1. Run prescribed build, test, lint, manual, and WishGraph checks.
 2. Create exactly one new immutable `reports/runs/<work-unit>-attempt-N.md`.
 3. Record files changed, behavior, validation evidence, scope check, conflicts, material decisions, risks, and shared-memory impact.
-4. Create one bounded atomic commit unless the user explicitly forbids it.
-5. Release the Claim only after durable commit and report evidence exist; release advances the canonical Run to its terminal outcome.
+4. Create one bounded atomic commit unless the user explicitly forbids it. The commit must be a direct child of the Run's immutable `base_commit` and must contain the Run Report at the Task-allocated repository-relative path.
+5. Release the Claim only after the runtime can read that exact report from `result_commit:report_path`; release advances the canonical Run to its terminal outcome. A report visible only in the Worker worktree is not durable evidence.
 6. Let Claim release write one idempotent pending notification under the Git common directory. `Stop` / `TaskCompleted` may retry the same notification key, but cannot create a duplicate.
 7. End the Worker. Do not wait for, poll, or directly contact Discussion.
 

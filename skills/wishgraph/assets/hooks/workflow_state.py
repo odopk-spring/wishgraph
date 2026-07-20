@@ -1182,7 +1182,7 @@ def parse_revision_state(revision_path: str, content: str) -> RevisionState:
     validation_plan = string_list(data.get("validation_plan"))
     if not validation_plan:
         errors.append("validation_plan must contain at least one targeted check")
-    run_report = normalize_cell(str(data.get("run_report") or ""))
+    run_report = normalize_cell(str(data.get("run_report") or "")).replace("\\", "/")
     worker_authorized = data.get("worker_creation_authorized") is True
     if data.get("worker_creation_authorized") is not True:
         errors.append("worker_creation_authorized must be true for a routed revision")
@@ -1240,7 +1240,7 @@ def parse_task_state(task_path: str, content: str) -> TaskState:
     status = normalized_string(data.get("status"))
     work_type = normalized_string(data.get("work_type"))
     batch_id = normalized_string(data.get("batch_id"), "n/a")
-    run_report = normalize_cell(str(data.get("run_report", "")))
+    run_report = normalize_cell(str(data.get("run_report", ""))).replace("\\", "/")
     worker_authorized_value = data.get("worker_creation_authorized")
     worker_authorized = worker_authorized_value is True
     if not isinstance(worker_authorized_value, bool):

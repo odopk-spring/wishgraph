@@ -761,6 +761,26 @@ class WorkerReuseRevisionSpecTests(unittest.TestCase):
         self.assertEqual(stored.parent_task_id, "012")
         self.assertLessEqual(len(stored.allowed_scope), 3)
 
+    def test_revision_report_path_uses_project_template(self) -> None:
+        config = {
+            "paths": {
+                "run_report_glob": "evidence/*.md",
+                "run_report_template": "evidence/{work_unit_id}-run-{attempt}.md",
+            }
+        }
+        plan = memory_sync.reduce_orchestration(
+            self.state(task_id="012", lifecycle="completed", expected_kind=None),
+            self.event(
+                "user_requested_revision", **self.revision_data(next_revision_number=2)
+            ),
+            self.capability(create_worker=True),
+            config,
+        )
+        self.assertEqual(plan.revision_id, "012-r2")
+        self.assertEqual(
+            plan.work_payload["run_report"], "evidence/012-r2-run-1.md"
+        )
+
     def test_revision_reuses_only_the_exact_parent_worker(self) -> None:
         exact = memory_sync.reduce_orchestration(
             self.state(

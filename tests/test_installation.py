@@ -294,7 +294,7 @@ class InstallerTests(unittest.TestCase):
 
             with mock.patch.object(installer_module, "ASSET_ROOT", asset_root):
                 manifest = installer_module.bundled_runtime_manifest()
-                self.assertEqual(manifest["runtime_version"], 25)
+                self.assertEqual(manifest["runtime_version"], 26)
 
                 policy_path = asset_root / "policy.py"
                 policy_path.write_bytes(policy_path.read_bytes() + b"# changed\r\n")
@@ -388,7 +388,7 @@ class InstallerTests(unittest.TestCase):
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["state"], "confirmed_recently")
             self.assertEqual(execution["last_event"], "session-start")
-            self.assertEqual(execution["observed_runtime_version"], 25)
+            self.assertEqual(execution["observed_runtime_version"], 26)
             self.assertTrue(payload["host_execution_confirmed"])
             self.assertEqual(payload["next_action"], "bootstrap_project_memory")
 
@@ -554,12 +554,12 @@ class InstallerTests(unittest.TestCase):
             payload = json.loads(upgraded.stdout)
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["after"]["state"], "current")
-            self.assertEqual(payload["after"]["installed_runtime_version"], 25)
+            self.assertEqual(payload["after"]["installed_runtime_version"], 26)
             config = json.loads(
                 (root / ".wishgraph" / "config.json").read_text(encoding="utf-8")
             )
             self.assertEqual(config["mode"], "enforce")
-            self.assertEqual(config["runtime_version"], 25)
+            self.assertEqual(config["runtime_version"], 26)
 
     def test_safe_upgrade_replaces_only_a_bundled_known_old_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -895,7 +895,7 @@ class InstallerTests(unittest.TestCase):
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["version"], 12)
-            self.assertEqual(config["runtime_version"], 25)
+            self.assertEqual(config["runtime_version"], 26)
             self.assertTrue(
                 (root / ".wishgraph" / "hooks" / "runtime-manifest.json").is_file()
             )
@@ -910,6 +910,10 @@ class InstallerTests(unittest.TestCase):
                 config["python_executable"], str(Path(sys.executable).resolve())
             )
             self.assertEqual(config["paths"]["run_report_glob"], "reports/runs/*.md")
+            self.assertEqual(
+                config["paths"]["run_report_template"],
+                "reports/runs/{work_unit_id}-attempt-{attempt}.md",
+            )
             self.assertEqual(
                 config["paths"]["project_status"], "reports/PROJECT_STATUS.md"
             )
@@ -970,6 +974,7 @@ class OneCommandInstallerTests(unittest.TestCase):
         self.assertIn('$env:PYTHONUTF8 = "1"', content)
         self.assertIn('$env:PYTHONIOENCODING = "utf-8"', content)
 
+    @unittest.skipUnless(shutil.which("bash"), "bash is required")
     def test_check_mode_reports_cost_without_installing(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -998,6 +1003,7 @@ class OneCommandInstallerTests(unittest.TestCase):
             self.assertFalse((root / "codex-home").exists())
             self.assertFalse((project / ".wishgraph").exists())
 
+    @unittest.skipUnless(shutil.which("bash"), "bash is required")
     def test_missing_python_reports_guidance_without_writing(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -1028,6 +1034,7 @@ class OneCommandInstallerTests(unittest.TestCase):
             self.assertFalse((root / "codex-home").exists())
             self.assertFalse((project / ".wishgraph").exists())
 
+    @unittest.skipUnless(shutil.which("bash"), "bash is required")
     def test_missing_dependencies_are_guided_one_at_a_time(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -1052,6 +1059,7 @@ class OneCommandInstallerTests(unittest.TestCase):
             self.assertNotIn("Python 3.9", process.stderr)
             self.assertIn("Nothing was installed", process.stderr)
 
+    @unittest.skipUnless(shutil.which("bash"), "bash is required")
     def test_fresh_install_can_setup_current_project_in_one_command(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -1104,6 +1112,7 @@ class OneCommandInstallerTests(unittest.TestCase):
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["required_hosts"], ["codex", "claude"])
 
+    @unittest.skipUnless(shutil.which("bash"), "bash is required")
     def test_setup_project_reuses_installed_skill_and_defaults_to_warn(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -1152,6 +1161,7 @@ class OneCommandInstallerTests(unittest.TestCase):
             self.assertEqual(config["mode"], "enforce")
             self.assertTrue((project / ".git" / "hooks" / "pre-commit").exists())
 
+    @unittest.skipUnless(shutil.which("bash"), "bash is required")
     def test_claude_user_install_adds_managed_global_worker_agent(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -1198,6 +1208,7 @@ class OneCommandInstallerTests(unittest.TestCase):
                 agent.read_text(encoding="utf-8"),
             )
 
+    @unittest.skipUnless(shutil.which("bash"), "bash is required")
     def test_strict_requires_project_setup(self) -> None:
         process = subprocess.run(
             ["bash", str(TOP_LEVEL_INSTALLER), "codex", "--strict"],

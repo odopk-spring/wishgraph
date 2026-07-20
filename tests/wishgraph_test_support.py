@@ -483,6 +483,8 @@ class MemorySyncTestCase(unittest.TestCase):
             host="codex",
             report_path=report_path,
         )
+        original_branch = self.git("branch", "--show-current").stdout.strip()
+        self.git("checkout", "-qb", f"worker-{task_id}")
         claimed = memory_sync.acquire_claim(
             self.root,
             task_id,
@@ -509,32 +511,7 @@ class MemorySyncTestCase(unittest.TestCase):
             },
         )
         self.assertTrue(running["ok"], running)
-        self.write(
-            task_path,
-            self.execution_ready_task(
-                task_id,
-                status="approved",
-                worker_authorized=True,
-                run_report=report_path,
-            ),
-        )
-        terminal = memory_sync.update_execution_run(
-            self.root,
-            task_id=task_id,
-            attempt=1,
-            patch={
-                "phase": "succeeded",
-                "result": {
-                    "terminal_state": "completed",
-                    "commit": execution_run["base_commit"],
-                    "report": report_path,
-                    "risk_outcome": "safe",
-                    "reason": "safe",
-                    "observed_at": "2026-07-18T00:00:01Z",
-                },
-            },
-        )
-        self.assertTrue(terminal["ok"], terminal)
+        self.write("src/app.py", f"print('worker {task_id}')\n")
         self.write(
             report_path,
             self.structured_run_report(
@@ -543,6 +520,26 @@ class MemorySyncTestCase(unittest.TestCase):
                 changed_paths=["src/app.py"],
             ),
         )
+        self.git("add", "src/app.py", report_path)
+        self.git("commit", "-qm", f"worker result {task_id}")
+        result_commit = self.git("rev-parse", "HEAD").stdout.strip()
+        terminal = memory_sync.update_execution_run(
+            self.root,
+            task_id=task_id,
+            attempt=1,
+            patch={
+                "phase": "succeeded",
+                "result": {
+                    "terminal_state": "completed",
+                    "commit": result_commit,
+                    "report": report_path,
+                    "risk_outcome": "safe",
+                    "reason": "safe",
+                    "observed_at": "2026-07-18T00:00:01Z",
+                },
+            },
+        )
+        self.assertTrue(terminal["ok"], terminal)
         released = memory_sync.update_claim(
             self.root,
             claimed["claim"]["claim_id"],
@@ -551,6 +548,7 @@ class MemorySyncTestCase(unittest.TestCase):
             worktree=claimed["claim"]["worktree"],
         )
         self.assertTrue(released["ok"], released)
+        self.git("checkout", "-q", original_branch)
         runtime = memory_sync.write_session_runtime(
             self.root,
             discussion_session_id,
