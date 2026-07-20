@@ -50,7 +50,7 @@ Claude Code：
 & ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
 ```
 
-安装器会先检查 Git、Python 和仓库根目录，并把执行安装的 Agent（`current_host`）与项目要支持的宿主（`required_hosts`）分开。默认原子安装 Codex 与 Claude Code 两端适配器，同时保留无关 Hooks。默认 `warn` 模式只报告流程问题，不阻止结束或提交。
+安装器会先检查 Git、Python 和仓库根目录，并把执行安装的 Agent（`current_host`）与项目要支持的宿主（`required_hosts`）分开。默认原子安装 Codex 与 Claude Code 两端适配器，同时保留无关 Hooks。默认 `warn` 是安静的建议模式：普通流程问题静默且不阻止，权限和状态完整性底线仍然阻止。
 
 明确只用单端时，可添加 `--project-hosts codex` 或 `--project-hosts claude`（PowerShell：`-ProjectHosts codex|claude`）。另一端不算缺失，但普通会话也不受保护。Agent 引导安装时会询问同样的三种选择，不会根据当前 Agent 静默决定。
 
@@ -175,13 +175,13 @@ Discussion 一次只追问一个会改变结果的决定，并提供推荐默认
 
 WishGraph 默认使用 native-lite：
 
-- 已经有产品说明，就不再创建竞争性的 `PRD.md`。
-- 已有架构、代码地图、规范、Issue、Task 或测试事实源时继续复用。
-- 只在缺少时补充精简 `reports/PROJECT_STATUS.md` 和 Discussion/Worker 入口状态。
+- 已经有产品说明时，先核验当前 Task 涉及的关键路径、符号、命令和明显冲突，再决定复用，不创建竞争性的 `PRD.md`。
+- 已有架构、代码地图、规范、Issue、Task 或测试事实源能支持当前 Task 时继续复用，并把未知内容写入该 Task。
+- 只在缺少时补充精简 `reports/PROJECT_STATUS.md` 和稳定的 Discussion/Worker 入口提示词。
 - Task、Revision 和 Run Report 目录在首次需要时创建。
 - 当前状态保持为重写后的快照，历史留在不可变报告和 Git 中。
 
-标准文件名是默认方案，不是要求已有项目复制一套文档。
+标准文件名是默认方案，不是要求已有项目复制一套文档。native-lite 不创建文档注册表或持久信任评分。
 
 预发布时期的 `.tasks/build/`、`reports/DEV_REPORT.md`、旧字段别名和缺失 `required_hosts` 的配置不再自动迁移。Doctor 发现这些格式时，明确重新启用项目或重新生成结构化记录即可。
 

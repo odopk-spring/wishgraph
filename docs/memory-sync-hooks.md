@@ -125,12 +125,11 @@ Worker reports use `Integrate` or `N/A` and do not edit shared project memory:
 |---|---|---|
 | `PRD.md` | N/A | User-visible behavior did not change |
 | `CODEMAP.md` | Integrate | New source anchor must enter the project map |
-| `prompts/DISCUSSION_AI.md` | Integrate | Present the completed result after merge |
 ```
 
-The Discussion-local Integration phase holds a bound lease, merges Worker commits with `--no-commit`, reads all new Run Reports, updates affected shared memory, rewrites `reports/PROJECT_STATUS.md` as the current snapshot, and then refreshes the concise dynamic handoff in `prompts/DISCUSSION_AI.md`. Project Status lists only reports absorbed by this integration and uses Updated or N/A rows.
+The Discussion-local Integration phase holds a bound lease, merges Worker commits with `--no-commit`, reads all new Run Reports, updates affected shared memory, and rewrites `reports/PROJECT_STATUS.md` as the only user-readable dynamic snapshot. Project Status lists only reports absorbed by this integration; the Integration checker compares Run Report proposals directly with the integration diff instead of requiring a duplicate impact table.
 
-Default size controls keep the snapshot usable: Project Status is limited to 160 lines and 12,000 characters, the discussion dynamic block to 30 lines, and optional compatibility-mode SessionStart context to 2,000 characters. If either Project Status limit is exceeded, `warn` reports the need to compress without blocking, while `enforce` blocks integration completion and commit. Move historical detail to Run Reports and Git history; never remove unresolved risks, conflicts, or pending decisions just to meet the limit.
+Default size controls keep the snapshot usable: Project Status is limited to 160 lines and 12,000 characters, and explicit Discussion context to 2,000 characters. If either Project Status limit is exceeded, `warn` stays silent and non-blocking while `enforce` blocks integration completion and commit; explicit status checks still show the full diagnosis. Move historical detail to Run Reports and Git history; never remove unresolved risks, conflicts, or pending decisions just to meet the limit.
 
 WishGraph requires one configured `reports/PROJECT_STATUS.md` truth source. Pre-release `paths.dev_report`, `reports/DEV_REPORT.md`, hidden Task paths, and missing `required_hosts` are not inferred; reactivate the project or regenerate the affected structured record.
 
@@ -140,7 +139,7 @@ Worker creation always requires an explicit human command. For Codex, the adapte
 
 Neither launch path makes a Run `running` from intent or prose. Codex requires a real registered thread ID; Claude requires a stable saved session ID; both still require exact preflight and Claim before business work. Terminal host state alone is insufficient for Integration without canonical Run evidence, the exact immutable report, result commit, and released Claim.
 
-New sessions are neutral. With the default `session_start_context_mode: safety_only`, hooks emit context only when they find safety or synchronization issues; they do not load the discussion prompt or activate a role. Say `Start discussion` to load Discussion state in the current visible window, or `Refresh WishGraph project state and present the latest integrated results` to refresh an active discussion. `discussion_summary` remains an explicit advanced opt-in, not an inferred migration mode.
+New sessions are neutral and silent unless recovery, pending integration, failure recovery, or a user decision needs attention. Hooks do not load the discussion prompt or activate a role. Say `Start discussion` to load current Project Status in the visible window, or `Refresh WishGraph project state and present the latest integrated results` to refresh an active discussion.
 
 In a continuously running discussion window, say: `Refresh WishGraph project state and present the latest integrated results.`
 
@@ -156,7 +155,7 @@ python3 .wishgraph/hooks/memory_sync.py status --task 012
 python3 .wishgraph/hooks/memory_sync.py status --full
 ```
 
-The default status command emits a compact active view and resolves only current candidate report paths on visible refs. `--task` selects one exact Task; `--full` is the explicit historical scan. Status commands do not create a project queue or mutate semantic state; the separate Git-common notification inbox is written only by verified Worker closeout. Discussion entry and refresh use the active view; SessionStart includes it only when `discussion_summary` is explicitly selected.
+The default status command emits a compact active view and resolves only current candidate report paths on visible refs. `--task` selects one exact Task; `--full` is the explicit historical scan. Status commands do not create a project queue or mutate semantic state; the separate Git-common notification inbox is written only by verified Worker closeout. Discussion entry and refresh use the active view; SessionStart does not inject it.
 
 It also emits `auto_integration_eligible` and one of `nothing_to_integrate`, `wait_for_worker`, `auto_integrate`, `await_user_confirmation`, `discuss_blocker`, or `compare_candidates` as `next_action`. These are internal routing fields; normal users should see only Discussion and explicit Worker windows.
 

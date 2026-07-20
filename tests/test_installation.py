@@ -294,7 +294,7 @@ class InstallerTests(unittest.TestCase):
 
             with mock.patch.object(installer_module, "ASSET_ROOT", asset_root):
                 manifest = installer_module.bundled_runtime_manifest()
-                self.assertEqual(manifest["runtime_version"], 26)
+                self.assertEqual(manifest["runtime_version"], 27)
 
                 policy_path = asset_root / "policy.py"
                 policy_path.write_bytes(policy_path.read_bytes() + b"# changed\r\n")
@@ -388,7 +388,7 @@ class InstallerTests(unittest.TestCase):
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["state"], "confirmed_recently")
             self.assertEqual(execution["last_event"], "session-start")
-            self.assertEqual(execution["observed_runtime_version"], 26)
+            self.assertEqual(execution["observed_runtime_version"], 27)
             self.assertTrue(payload["host_execution_confirmed"])
             self.assertEqual(payload["next_action"], "bootstrap_project_memory")
 
@@ -554,12 +554,12 @@ class InstallerTests(unittest.TestCase):
             payload = json.loads(upgraded.stdout)
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["after"]["state"], "current")
-            self.assertEqual(payload["after"]["installed_runtime_version"], 26)
+            self.assertEqual(payload["after"]["installed_runtime_version"], 27)
             config = json.loads(
                 (root / ".wishgraph" / "config.json").read_text(encoding="utf-8")
             )
             self.assertEqual(config["mode"], "enforce")
-            self.assertEqual(config["runtime_version"], 26)
+            self.assertEqual(config["runtime_version"], 27)
 
     def test_safe_upgrade_replaces_only_a_bundled_known_old_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -895,7 +895,7 @@ class InstallerTests(unittest.TestCase):
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["version"], 12)
-            self.assertEqual(config["runtime_version"], 26)
+            self.assertEqual(config["runtime_version"], 27)
             self.assertTrue(
                 (root / ".wishgraph" / "hooks" / "runtime-manifest.json").is_file()
             )
@@ -905,7 +905,6 @@ class InstallerTests(unittest.TestCase):
                 'name = "wishgraph-worker"',
                 codex_agent.read_text(encoding="utf-8"),
             )
-            self.assertEqual(config["session_start_context_mode"], "safety_only")
             self.assertEqual(
                 config["python_executable"], str(Path(sys.executable).resolve())
             )
@@ -928,10 +927,12 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue(config["scan_worker_refs_for_status"])
             self.assertEqual(config["project_status_max_lines"], 160)
             self.assertEqual(config["project_status_max_chars"], 12000)
-            self.assertEqual(config["discussion_dynamic_max_lines"], 30)
             self.assertTrue(config["orchestration_gate_enabled"])
             self.assertEqual(config["read_gate_mode"], "host_dependent")
-            self.assertIn("prompts/INTEGRATION_AI.md", config["required_impact_rows"])
+            self.assertEqual(
+                config["required_impact_rows"],
+                ["PRD.md", "ARCHITECTURE.md", "CODEMAP.md", "CONVENTIONS.md"],
+            )
 
             second = subprocess.run(
                 [

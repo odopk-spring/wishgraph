@@ -90,13 +90,10 @@ Workers do not edit shared project memory. Use exactly `Integrate` when the Disc
 
 | File | Result | Reason |
 |---|---|---|
-| `PRD.md` | Integrate / N/A | Product behavior, scope, roadmap, progress, or why no change is needed |
+| `PRD.md` | Integrate / N/A | Stable product behavior, scope, goals, or why no change is needed |
 | `ARCHITECTURE.md` | Integrate / N/A | Dependency, ownership, data-flow impact, or why none |
 | `CODEMAP.md` | Integrate / N/A | File, symbol, contract, status, probe impact, or why none |
-| `CONVENTIONS.md` | Integrate / N/A | Workflow-rule impact, or why none |
-| `prompts/DISCUSSION_AI.md` | Integrate / N/A | Result Discussion-local Integration should expose to Discussion, or why none |
-| `prompts/EXECUTION_AI.md` | Integrate / N/A | Stable execution-rule impact, or why none |
-| `prompts/INTEGRATION_AI.md` | Integrate / N/A | Stable integration-rule impact, or why none |
+| `CONVENTIONS.md` | Integrate / N/A | Project-specific engineering-rule impact, or why none |
 
 ## Integration Notes
 

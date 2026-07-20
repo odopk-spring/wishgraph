@@ -50,7 +50,7 @@ WishGraph 解决的不是“让 Agent 多读一些文档”，而是让不同阶
 
 默认读取范围也很小：
 
-- Discussion 从精简交接、`reports/PROJECT_STATUS.md` 和 active state 开始。
+- Discussion 从 `reports/PROJECT_STATUS.md`、待处理通知和下一步真正需要的 active runtime 事实开始。
 - Worker 只读自己的 Task 或 Revision、执行规则、必要状态和允许范围内的源码。
 - Integration 只读本次报告以及确实受到影响的共享文件。
 
@@ -148,7 +148,7 @@ Claude Code：
 
 如果只想保护一个宿主，添加 `--project-hosts codex` 或 `--project-hosts claude`（PowerShell：`-ProjectHosts codex|claude`）。选择会保存为 `required_hosts`；未选择的宿主既不算安装失败，也不受 WishGraph 保护。
 
-默认 `warn` 模式只提醒，不阻止结束或提交。跑通一次完整流程后，再按需使用 `--strict`（PowerShell 为 `-Strict`）开启严格门禁。
+默认 `warn` 是安静的建议模式：普通文档和闭环问题静默且不阻止，权限和状态完整性底线仍然阻止。跑通一次完整流程后，再按需使用 `--strict`（PowerShell 为 `-Strict`）开启严格门禁。
 
 如果你希望由 Agent 引导安装，也可以在 Codex 中先用 `$skill-installer` 安装本仓库的 `skills/wishgraph`，或在 Claude Code 安装后运行 `/wishgraph`，然后说：
 

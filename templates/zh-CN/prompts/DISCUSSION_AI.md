@@ -2,7 +2,7 @@
 
 只有项目已经明确启用 WishGraph 后才使用本提示词。启用后窗口仍是 neutral；用户输入“开始讨论”才进入 Discussion。Discussion 输入准确的“执行 NNN 任务”会派发独立 Worker；普通 neutral 窗口输入时直接绑定当前窗口为 Worker，不进入本提示词。
 
-本文件只保存精简交接。异常机制留在 WishGraph References，不放进默认上下文。
+本文件是稳定的角色入口。当前项目事实只保存在 `reports/PROJECT_STATUS.md`，机器协调状态保存在 Git common runtime。异常机制留在 WishGraph References。
 
 ---
 
@@ -26,9 +26,8 @@
 
 明确进入 Discussion 时只读：
 
-1. 本文件的动态状态块；
-2. `reports/PROJECT_STATUS.md` 当前结构化区块；
-3. runtime 已经提供的未读 Worker 提醒。
+1. `reports/PROJECT_STATUS.md` 当前结构化区块；
+2. runtime 已经提供的未读 Worker 提醒。
 
 不要默认运行完整 status 扫描，不要预读 PRD、架构、CODEMAP、conventions、全部 Task、历史报告或完整源码树。当前问题确实需要时，只打开最小的准确文件或章节。
 
@@ -86,30 +85,11 @@ NNN 已交给独立 Worker 执行。
 - 主要语言：
 - 双语输出：否
 
-## 当前讨论交接
+## 项目上下文来源
 
-<!-- wishgraph:state:start -->
-
-- 最新 integration ID：
-- 当前重点：
-- 待呈现结果：
-- 待用户决定：
-- 下一步建议：
-- 详情：`reports/PROJECT_STATUS.md`
-
-<!-- wishgraph:state:end -->
-
-## 当前大纲
-
-- 现在：
-- 下一步：
-- 以后：
-
-## 开放决定
-
-| 决定 | 为什么重要 | 推荐默认值 | 状态 |
-|---|---|---|---|
-| 示例 | 影响行为 | 方案 A | Open |
+- 从 `reports/PROJECT_STATUS.md` 读取当前结果、事实、验证、风险、待决定事项和推荐下一步。
+- 只有当前讨论需要时，才从权威产品来源读取产品目标和未决产品问题。
+- 不在本提示词中维护第二份当前状态摘要。
 
 ## 结果呈现
 

@@ -811,10 +811,6 @@ class ClaimAndHookTests(MemorySyncTestCase):
                 task_id, status="reviewed", worker_authorized=True
             ),
         )
-        self.write(
-            "prompts/DISCUSSION_AI.md",
-            self.discussion("reviewed/022b-reviewed"),
-        )
         result = memory_sync.check_sync(self.root, self.config, "worktree")
         self.assertTrue(result.ok, result.errors)
 
@@ -897,7 +893,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
         self.write("src/app.py", "print('changed')\n")
         self.write(
             "prompts/DISCUSSION_AI.md",
-            self.discussion("worker-should-not-write"),
+            self.discussion("worker-should-not-write") + "\nworker edit\n",
         )
         self.write(
             "reports/runs/003-worker.md",
@@ -1386,7 +1382,9 @@ class ClaimAndHookTests(MemorySyncTestCase):
         )
         payload = json.loads(process.stdout)
         self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn("immutable", payload["hookSpecificOutput"]["permissionDecisionReason"])
+        reason = payload["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("valid authority", reason)
+        self.assertNotIn("integration_route", reason)
 
     def test_pre_tool_use_denies_discussion_build_without_claim(self) -> None:
         memory_sync.write_session_runtime(
@@ -1420,7 +1418,9 @@ class ClaimAndHookTests(MemorySyncTestCase):
         )
         payload = json.loads(process.stdout)
         self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertIn("Claim", payload["hookSpecificOutput"]["permissionDecisionReason"])
+        reason = payload["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("not authorized", reason)
+        self.assertNotIn("Claim", reason)
 
     def test_pre_tool_use_denies_discussion_business_file_write(self) -> None:
         memory_sync.write_session_runtime(

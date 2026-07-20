@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": 12,
-    "runtime_version": 26,
+    "runtime_version": 27,
     "mode": "enforce",
     "required_hosts": ["codex", "claude"],
     "paths": {
@@ -40,9 +40,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "ARCHITECTURE.md",
         "CODEMAP.md",
         "CONVENTIONS.md",
-        "prompts/DISCUSSION_AI.md",
-        "prompts/EXECUTION_AI.md",
-        "prompts/INTEGRATION_AI.md",
     ],
     "ignore_globs": [
         ".git/**",
@@ -58,12 +55,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "**/.pytest_cache/**",
     ],
     "allow_noop_with_reason": True,
-    "require_discussion_update_for_substantive_changes": True,
     "scan_worker_refs_for_status": True,
-    "session_start_context_mode": "safety_only",
     "project_status_max_lines": 160,
     "project_status_max_chars": 12000,
-    "discussion_dynamic_max_lines": 30,
     "session_summary_max_chars": 2000,
     "orchestration_gate_enabled": True,
     "read_gate_mode": "host_dependent",
@@ -1532,11 +1526,6 @@ def load_config(root: Path) -> Optional[dict[str, Any]]:
     config = deep_merge(DEFAULT_CONFIG, data)
     config["required_hosts"] = normalize_required_hosts(config.get("required_hosts"))
     config["required_hosts_source"] = "configured"
-    context_mode = config.get("session_start_context_mode")
-    if context_mode not in {"safety_only", "discussion_summary", "off"}:
-        raise ValueError(
-            "session_start_context_mode must be safety_only, discussion_summary, or off"
-        )
     try:
         allocate_run_report_path(config, "001", 1)
     except ValueError as exc:

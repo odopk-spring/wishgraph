@@ -42,8 +42,8 @@ The Integration lease authorizes only the selected merge, bounded conflict resol
 - Do not let the merge commit before combined validation and shared-state closeout.
 - Rewrite `reports/PROJECT_STATUS.md` as the complete current snapshot and fill its `wishgraph:integration-state` block.
 - For each absorbed structured Task, move its durable task-state from `draft` or `approved` directly to `integrated` only when the bound canonical Run, released Claim, exact Worker commit, and immutable report prove the execution path. Move an absorbed Revision to `integrated`. Only later Discussion review moves a Task from `integrated` to `reviewed`.
-- Update affected PRD, architecture, CODEMAP, conventions, and prompts only when integrated project truth changed.
-- Refresh the concise dynamic state block in `prompts/DISCUSSION_AI.md`.
+- Update affected PRD, architecture, CODEMAP, and conventions only when integrated project truth changed.
+- Keep role prompts stable. Current user-readable state belongs only in `reports/PROJECT_STATUS.md`.
 - Run integration validation and the WishGraph worktree check.
 - Stage only the bounded integration diff and create one integration commit.
 - Release the Integration lease after the commit or a safely recorded abort.

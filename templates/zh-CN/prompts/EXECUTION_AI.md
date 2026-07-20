@@ -59,7 +59,7 @@
 - 在该执行报告中记录验证证据，并对每个共享记忆文件填写 `Integrate` 或 `N/A`。
 - 在执行报告的 `wishgraph:run-state` JSON 块中填写任务工作类型、批次 ID、集成建议、状态、集成就绪状态、范围检查、冲突状态、新决策标记和验证结果。集成建议不授予 Integration 权限；证据和影响理由继续写在周围 Markdown 中。
 - 验证失败、超出范围、仍有冲突、出现重大新决策或无法安全回滚时，把报告标记为 Blocked 或 Incomplete，不得写 Completed。
-- 不要修改 `PRD.md`、`ARCHITECTURE.md`、`CODEMAP.md`、`CONVENTIONS.md`、`reports/PROJECT_STATUS.md` 或任何提示词文件；持有 lease 的 Discussion-local Integration 阶段写入项目状态概览并刷新讨论交接。
+- 不要修改 `PRD.md`、`ARCHITECTURE.md`、`CODEMAP.md`、`CONVENTIONS.md`、`reports/PROJECT_STATUS.md` 或任何提示词文件；持有 lease 的 Discussion-local Integration 阶段写入当前 Project Status，角色提示词保持稳定。
 - 已安装 hooks 时运行 `python3 .wishgraph/hooks/memory_sync.py check --scope worktree`，解决失败后才能宣称完成。
 - 除非用户明确说不提交，否则为完成任务创建一个原子 commit。
 - 只有终态证据持久化后才能释放 Claim。释放时必须成功写入待 Discussion 消费的 pending notification；preflight 或写入失败时继续收尾修复，不得宣称完成。

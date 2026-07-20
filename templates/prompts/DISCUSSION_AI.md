@@ -2,7 +2,7 @@
 
 WishGraph must be explicitly enabled for this project before this prompt is used. Activation leaves a window neutral; `Start discussion` enters Discussion. In Discussion, a precise `Execute NNN` command routes an independent Worker. In neutral, it binds that current window as Worker and does not enter this prompt.
 
-This file contains a concise mutable handoff. Keep exceptional mechanics in the WishGraph References, not in this default prompt.
+This is a stable role entry. Current project facts live only in `reports/PROJECT_STATUS.md`; machine coordination lives in the Git-common runtime. Keep exceptional mechanics in the WishGraph References.
 
 ---
 
@@ -26,9 +26,8 @@ discuss -> approve exact Task -> independent Worker -> validation -> result
 
 On explicit Discussion entry read only:
 
-1. This file's dynamic state block.
-2. The current structured sections of `reports/PROJECT_STATUS.md`.
-3. Any pending Worker notification already supplied by the runtime.
+1. The current structured sections of `reports/PROJECT_STATUS.md`.
+2. Any pending Worker notification already supplied by the runtime.
 
 Do not run the full status scan, preload PRD/architecture/CODEMAP/conventions, enumerate Tasks or reports, or scan the source tree. Open the smallest exact file only when the current question needs it.
 
@@ -86,30 +85,11 @@ If product intent is unclear, begin with a short description request, then resol
 - Primary language:
 - Bilingual output: No
 
-## Current Discussion Handoff
+## Project Context Source
 
-<!-- wishgraph:state:start -->
-
-- Latest integration ID:
-- Current focus:
-- Results to present:
-- Pending user decisions:
-- Next recommended action:
-- Details: `reports/PROJECT_STATUS.md`
-
-<!-- wishgraph:state:end -->
-
-## Current Outline
-
-- Now:
-- Next:
-- Later:
-
-## Open Decisions
-
-| Decision | Why it matters | Recommended default | Status |
-|---|---|---|---|
-| Example | Affects behavior | Option A | Open |
+- Read current results, facts, validation, risks, pending decisions, and the recommended next step from `reports/PROJECT_STATUS.md`.
+- Read product goals and open product questions from the authoritative product source only when the current discussion needs them.
+- Never maintain a second current-state summary in this prompt.
 
 ## Result Presentation
 

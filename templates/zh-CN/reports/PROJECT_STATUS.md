@@ -1,13 +1,14 @@
-# 项目状态概览
+# 项目状态
 
-本文件只保存最近一次正式集成后的当前项目快照，不连续追加历史。Discussion-local Integration 在每次集成时重写本文件；详细执行历史保存在 `reports/runs/*.md` 和 Git 中。实时 Worker 进度来自 `memory_sync.py status`，不要把 heartbeat 或临时进度写进本文件。
+本文件是唯一面向用户的动态项目快照。Discussion-local Integration 每次集成后重写本文件，不追加执行历史。详细历史保存在不可变 Run Report 和 Git 中。
 
-## 当前集成
+## 最近结果
 
 - 日期：
-- 提交：
+- Commit：
+- 用户可见结果：
 
-下面的 JSON 块是本次集成生命周期的机器可读真相源；本文件其余部分继续作为压缩后的人类评审视图。
+下面的紧凑区块是可携带的集成证据。Hook 可以检查它，但普通用户消息不得暴露内部字段。
 
 <!-- wishgraph:integration-state:start -->
 ```json
@@ -19,73 +20,39 @@
   "integration_kind": "sequential",
   "authorization": "inherited_task_approval",
   "reports": [
-    "reports/runs/NNN-short-slug.md"
+    "reports/runs/NNN-attempt-1.md"
   ]
 }
 ```
 <!-- wishgraph:integration-state:end -->
 
-## 编排状态快照
+## 当前事实
 
-这些字段只用于只读呈现。实时真相源是 Git common dir 中的 session runtime、Worker Claim 与 Integration lease；不要把它们写入上面的 Task Lifecycle JSON。
-
-- Session Role：
-- Flow Phase：
-- Expected transition：
-- 活跃 Worker Claim：
-- 活跃 Integration lease：
-
-## 本次吸收的执行报告
-
-- `reports/runs/NNN-short-slug.md`
-
-## 当前项目状态
-
-- 已完成：
-- 用户可见结果：
-- 当前重要事实：
+- 重要事实：
+- 当前能力：
+- 当前限制：
 
 ## 验证
 
 - 构建：
 - 测试：
-- 手动验证：
+- 手工检查：
 
-## 未解决事项
+## 风险和阻塞
 
 - 风险：
-- 冲突：
-- 待用户决定：
+- 阻塞：
 
-## Worker 状态
+## 待用户决定
 
-- 已完成：
-- 等待中：
-- 阻塞中：
-- 竞争候选：
-- 选中的报告：
+- 决定：
+- 推荐默认值：
 
-## 下一步
+## 推荐下一步
 
-- 推荐任务：
-- 推荐原因：
+- 动作：
+- 原因：
 
-## 讨论交接
+## 本次集成吸收的 Run Report
 
-- 当前焦点：
-- 需要呈现：
-- 详细证据：`reports/PROJECT_STATUS.md` 和上面列出的单次执行报告
-
-## 共享记忆影响
-
-Result 只能使用 `Updated` 或 `N/A`。每个 N/A 必须有具体理由；每个 Updated 必须对应集成 diff 中的文件。
-
-| File | Result | Reason |
-|---|---|---|
-| `PRD.md` | Updated / N/A | 产品行为、范围、路线图、进度影响，或无需更新的理由 |
-| `ARCHITECTURE.md` | Updated / N/A | 依赖、归属、数据流影响，或无需更新的理由 |
-| `CODEMAP.md` | Updated / N/A | 文件、符号、契约、状态、验证入口影响，或无需更新的理由 |
-| `CONVENTIONS.md` | Updated / N/A | 工作规则影响，或无需更新的理由 |
-| `prompts/DISCUSSION_AI.md` | Updated | 状态快照完成后刷新精简讨论交接 |
-| `prompts/EXECUTION_AI.md` | Updated / N/A | 稳定执行规则影响，或无需更新的理由 |
-| `prompts/INTEGRATION_AI.md` | Updated / N/A | 稳定集成规则影响，或无需更新的理由 |
+- `reports/runs/NNN-attempt-1.md`

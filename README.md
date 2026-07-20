@@ -50,7 +50,7 @@ WishGraph is not about making every agent read more documentation. Each phase re
 
 The default read scope stays small:
 
-- Discussion starts with the concise handoff, `reports/PROJECT_STATUS.md`, and active state.
+- Discussion starts with `reports/PROJECT_STATUS.md`, pending notifications, and only the active runtime facts needed for the next action.
 - A Worker reads its exact Task or Revision, execution rules, necessary status, and source files inside scope.
 - Integration reads this run's reports and only the shared files they actually affect.
 
@@ -148,7 +148,7 @@ After installation:
 
 To protect only one host, add `--project-hosts codex` or `--project-hosts claude` (PowerShell: `-ProjectHosts codex|claude`). The choice is saved as `required_hosts`; an unselected host is not treated as an install error and is not protected.
 
-The default `warn` mode reports problems without blocking completion or commits. After one successful full run, enable strict gates with `--strict` on Bash or `-Strict` on PowerShell if you want them.
+The default `warn` mode is a quiet advisory mode: ordinary documentation and closeout gaps do not block and stay silent during normal work. Authority and state-integrity boundaries still fail closed. After one successful full run, enable strict gates with `--strict` on Bash or `-Strict` on PowerShell if you want them.
 
 For an Agent-guided setup, install this repository's `skills/wishgraph` with `$skill-installer` in Codex, or invoke `/wishgraph` after installing it in Claude Code, then say:
 
@@ -186,7 +186,7 @@ No. WishGraph handoff state lives in project files and the Git-common runtime, n
 
 ### What do the three common commands mean?
 
-- `Start discussion` moves the current neutral window into Discussion and loads compact current state.
+- `Start discussion` moves the current neutral window into Discussion and loads the compact Project Status snapshot.
 - `Execute task 012` routes an independent Worker from Discussion. In an ordinary neutral window it binds that current window as the Worker instead of creating a second one. Both paths match `012` exactly and never collide with `012b` or `012ba`.
 - `Refresh project status` refreshes active state and relevant terminal evidence without scanning the whole source tree or report history by default.
 
@@ -200,7 +200,7 @@ No. WishGraph runs no daemon, terminal polling loop, or cross-window IPC service
 
 ### Will WishGraph fill my repository with process files?
 
-Existing repositories use native-lite adoption by default: reuse current README, product, architecture, conventions, and tests, then add only missing entry state. Task, Revision, and report directories appear when first needed. Immutable history stays in Run Reports while `PROJECT_STATUS.md` remains a current snapshot.
+Existing repositories use native-lite adoption by default: verify only the paths, symbols, commands, and conflicts needed by the current Task; reuse suitable native sources; then add only missing stable entry prompts and Project Status. No document registry or trust state is created. Task, Revision, and report directories appear when first needed. Immutable history stays in Run Reports while `PROJECT_STATUS.md` remains the only user-readable dynamic snapshot.
 
 ### Does every small correction need a full Task?
 

@@ -77,7 +77,6 @@ from workflow_state import (
     canonical_task_id,
     canonical_revision_id,
     competitive_candidate_ids,
-    dynamic_state_block,
     is_contextual_approval,
     markdown_section,
     parse_task_command,
@@ -1087,44 +1086,29 @@ def observe_codex_worker(
 def project_session_context(
     root: Path,
     config: dict[str, Any],
-    *,
-    include_active_status: bool = False,
 ) -> Optional[str]:
-    if config.get("session_start_context_mode", "safety_only") != "discussion_summary":
-        return None
-    paths = config["paths"]
     status_path = resolve_project_status_path(root, config)
     overview = read_version(root, status_path, "worktree")
-    discussion = read_version(root, paths["discussion_prompt"], "worktree")
     current_integration = markdown_section(
+        overview, "Latest Result"
+    ) or markdown_section(
+        overview, "最近结果"
+    ) or markdown_section(
         overview, "Current Integration"
     ) or markdown_section(overview, "当前集成")
     current_status = markdown_section(
+        overview, "Current Facts"
+    ) or markdown_section(
+        overview, "当前事实"
+    ) or markdown_section(
         overview, "Current Project Status"
     ) or markdown_section(overview, "当前项目状态")
     results = "\n\n".join(
         part for part in (current_integration, current_status) if part
     )
-    state = dynamic_state_block(discussion)
     sections: list[str] = []
-    integration = (
-        integration_state(root, config, view="active").as_dict()
-        if include_active_status
-        else None
-    )
-    if integration and (
-        integration["pending_integration"]
-        or integration["waiting_reports"]
-        or integration["blocked_reports"]
-    ):
-        sections.append(
-            "Integration status (machine-readable; Hooks do not start agents):\n"
-            + json.dumps(integration, ensure_ascii=False, separators=(",", ":"))
-        )
     if results:
         sections.append(f"Current integrated project status ({status_path}):\n{results}")
-    if state:
-        sections.append(f"Current discussion handoff:\n{state}")
     if not sections:
         return None
     text = "WishGraph project update (read-only context):\n\n" + "\n\n".join(sections)
@@ -1140,7 +1124,6 @@ def format_failure(
     paths = (config or {}).get("paths", {})
     report_glob = paths.get("run_report_glob", "reports/runs/*.md")
     project_status = paths.get("project_status", "reports/PROJECT_STATUS.md")
-    discussion_prompt = paths.get("discussion_prompt", "prompts/DISCUSSION_AI.md")
     lines = [f"WishGraph external-memory sync failed ({scope}).", ""]
     lines.extend(f"- {error}" for error in result.errors)
     if result.trigger_paths:
@@ -1157,9 +1140,9 @@ def format_failure(
             f"Worker: create one new immutable report matching {report_glob},",
             "record work type, readiness, safety fields, validation, and Integrate or N/A,",
             "and do not edit shared state or start other agents.",
-            f"Integration: merge with --no-commit, rewrite {project_status} and",
-            f"{discussion_prompt}, record integration kind and authorization, then",
-            "record Updated or N/A for shared memory. Parallel/high-risk work needs user confirmation.",
+            f"Integration: merge with --no-commit, rewrite {project_status}, record",
+            "integration kind and authorization, and apply required shared-memory updates.",
+            "Parallel/high-risk work needs user confirmation.",
             "Local corrections require a Task Revision; other work requires a formal Task.",
         ]
     )
@@ -1170,6 +1153,24 @@ def format_warnings(result: CheckResult) -> str:
     return "WishGraph status warnings:\n" + "\n".join(
         f"- {warning}" for warning in result.warnings
     )
+
+
+HOOK_STATUS_ADVICE = (
+    "WishGraph found project state that may need attention. Run "
+    "'Check WishGraph status' for details and the next action."
+)
+HOOK_AUTHORITY_DENIAL = (
+    "This session does not have valid authority for the requested change. "
+    "Return to Discussion, approve the Task, and start its Worker again."
+)
+HOOK_CLOSEOUT_DENIAL = (
+    "WishGraph has not completed this work handoff, so the result cannot close yet. "
+    "Run 'Check WishGraph status' for the required repair."
+)
+HOOK_CONFIG_DENIAL = (
+    "WishGraph configuration needs attention before managed work can continue. "
+    "Run the WishGraph doctor for details."
+)
 
 
 NO_MATERIAL_DECISION_VALUES = {"no", "none", "false", "无", "否"}
@@ -1409,27 +1410,27 @@ def ensure_terminal_notification_for_session(
 
 
 def format_worker_notifications(notifications: list[dict[str, Any]]) -> str:
-    """Keep activation context compact and machine-readable."""
+    """Return one compact, user-comprehensible Discussion handoff."""
     if not notifications:
         return ""
-    compact = [
+    task_ids = sorted(
         {
-            "notification_id": item.get("notification_id"),
-            "task_id": item.get("task_id"),
-            "work_unit_id": item.get("work_unit_id"),
-            "event": item.get("terminal_event"),
-            "lifecycle": item.get("task_lifecycle"),
-            "run_report": item.get("run_report"),
-            "next_action": item.get("next_action"),
-            "reason": item.get("reason"),
+            task_id
+            for item in notifications
+            if (task_id := canonical_task_id(item.get("task_id")))
         }
-        for item in notifications
-    ]
-    return (
-        "WishGraph Worker notifications (consumed and marked read; evaluate in "
-        "Discussion, never implement as fallback):\n"
-        + json.dumps(compact, ensure_ascii=False, separators=(",", ":"))
     )
+    needs_attention = any(
+        str(item.get("task_lifecycle") or "") in {"blocked", "incomplete"}
+        for item in notifications
+    )
+    subject = "Task " + ", ".join(task_ids) if task_ids else "A Worker result"
+    if needs_attention:
+        return (
+            f"{subject} needs attention before integration. Run "
+            "'Check WishGraph status' to see the blocking details and next action."
+        )
+    return f"{subject} is ready for Discussion to integrate and present."
 
 
 def consume_discussion_notification_context(
@@ -1444,8 +1445,8 @@ def consume_discussion_notification_context(
     )
     if not consumed.get("ok"):
         return (
-            "WishGraph Worker notification inbox could not be consumed: "
-            + str(consumed.get("error") or "unknown_error")
+            "WishGraph could not load pending Worker results. Run "
+            "'Check WishGraph status' for recovery details."
         )
     notifications = consumed.get("notifications", [])
     if len(notifications) == 1:
@@ -1496,31 +1497,14 @@ def consume_discussion_notification_context(
             )
             if not projected.get("ok"):
                 return (
-                    "WishGraph Worker result exists, but its Discussion projection "
-                    "could not be refreshed: "
-                    + str(projected.get("error") or "unknown_error")
+                    "A Worker result exists, but WishGraph could not complete the "
+                    "handoff. Run 'Check WishGraph status' for recovery details."
                 )
     return format_worker_notifications(notifications)
 
 
 def join_context(*parts: Optional[str]) -> str:
     return "\n\n".join(part for part in parts if part)
-
-
-def format_session_safety(result: CheckResult) -> str:
-    """Return concise safety-only SessionStart context without role activation."""
-    issues = [*result.errors, *result.warnings]
-    if not issues:
-        return ""
-    lines = ["WishGraph safety check found project-state issues:"]
-    lines.extend(f"- {issue}" for issue in issues[:8])
-    if len(issues) > 8:
-        lines.append(f"- ... and {len(issues) - 8} more")
-    lines.append(
-        "Resolve these issues before claiming completion. Say '开始讨论' or "
-        "'Start discussion' when you want WishGraph to load discussion context."
-    )
-    return "\n".join(lines)
 
 
 def read_hook_input() -> dict[str, Any]:
@@ -2079,9 +2063,7 @@ def user_prompt_submit_main(
                 write_session_runtime(root, session_id, patch)
             else:
                 apply_session_runtime_patch(root, session_id, patch)
-        explicit_config = dict(config)
-        explicit_config["session_start_context_mode"] = "discussion_summary"
-        context = project_session_context(root, explicit_config)
+        context = project_session_context(root, config)
         notification_context = consume_discussion_notification_context(
             root, session_id, adopt_project_pending=True
         )
@@ -2103,9 +2085,7 @@ def user_prompt_submit_main(
         return 0
 
     if action == "refresh_project_status":
-        explicit_config = dict(config)
-        explicit_config["session_start_context_mode"] = "discussion_summary"
-        context = project_session_context(root, explicit_config) or (
+        context = project_session_context(root, config) or (
             "WishGraph project memory is not initialized. Run the project bootstrap first."
         )
         notification_context = consume_discussion_notification_context(
@@ -2391,8 +2371,32 @@ def hook_main(event: str, host: str = "unknown") -> int:
 
     try:
         config = load_config(root)
-    except ValueError as exc:
-        emit({"systemMessage": f"WishGraph hook configuration error: {exc}"})
+    except ValueError:
+        if event == "pre-tool-use":
+            emit(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": HOOK_CONFIG_DENIAL,
+                    }
+                }
+            )
+            return 0
+        if event == "task-completed":
+            print(HOOK_CONFIG_DENIAL, file=sys.stderr)
+            return 2
+        if event == "stop":
+            emit({"decision": "block", "reason": HOOK_CONFIG_DENIAL})
+            return 0
+        emit(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": HOOK_CONFIG_DENIAL,
+                }
+            }
+        )
         return 0
     if config is None or config.get("mode") == "off":
         emit({})
@@ -2450,10 +2454,8 @@ def hook_main(event: str, host: str = "unknown") -> int:
                     "hookEventName": "SessionStart",
                     "additionalContext": join_context(
                         session_notification_context,
-                        "WishGraph hooks are active in "
-                        f"{config.get('mode', 'warn')} mode, but project memory is not "
-                        "initialized. Say '开始讨论' or 'Start discussion' to bootstrap "
-                        "the minimum project state.",
+                        "WishGraph needs a minimal project handoff before managed work "
+                        "can start. Say '开始讨论' or 'Start discussion' to create it.",
                     ),
                 }
             }
@@ -2473,10 +2475,7 @@ def hook_main(event: str, host: str = "unknown") -> int:
                         "hookSpecificOutput": {
                             "hookEventName": "PreToolUse",
                             "permissionDecision": "deny",
-                            "permissionDecisionReason": (
-                                "WishGraph authority gate blocked this operation. "
-                                + authority_plan.denial_reason
-                            ),
+                            "permissionDecisionReason": HOOK_AUTHORITY_DENIAL,
                         }
                     }
                 )
@@ -2490,25 +2489,15 @@ def hook_main(event: str, host: str = "unknown") -> int:
                 "-i/--include, -o/--only). Stage the bounded code and external-memory "
                 "files explicitly, run the staged memory check, then commit."
             )
-            if config.get("mode") == "warn":
-                emit(
-                    {
-                        "hookSpecificOutput": {
-                            "hookEventName": "PreToolUse",
-                            "additionalContext": reason,
-                        }
+            emit(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": reason,
                     }
-                )
-            else:
-                emit(
-                    {
-                        "hookSpecificOutput": {
-                            "hookEventName": "PreToolUse",
-                            "permissionDecision": "deny",
-                            "permissionDecisionReason": reason,
-                        }
-                    }
-                )
+                }
+            )
             return 0
         result = None
         if commit_command:
@@ -2526,23 +2515,15 @@ def hook_main(event: str, host: str = "unknown") -> int:
             if staged_probe.returncode != 0:
                 result = check_sync(root, config, "staged")
         if result is not None and not result.ok:
-            reason = format_failure(result, "staged", config)
             if config.get("mode") == "warn":
-                emit(
-                    {
-                        "hookSpecificOutput": {
-                            "hookEventName": "PreToolUse",
-                            "additionalContext": reason,
-                        }
-                    }
-                )
+                emit({})
             else:
                 emit(
                     {
                         "hookSpecificOutput": {
                             "hookEventName": "PreToolUse",
                             "permissionDecision": "deny",
-                            "permissionDecisionReason": reason,
+                            "permissionDecisionReason": HOOK_CLOSEOUT_DENIAL,
                         }
                     }
                 )
@@ -2553,53 +2534,24 @@ def hook_main(event: str, host: str = "unknown") -> int:
         if gate_plan is not None and not gate_plan.accepted:
             emit_orchestration_gate(gate_plan, str(config.get("mode")))
             return 0
-        if result is not None and result.warnings:
-            emit(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "additionalContext": format_warnings(result),
-                    }
-                }
-            )
-        else:
-            emit({})
+        emit({})
         return 0
 
     result = check_sync(root, config, "worktree")
-    session_context = (
-        join_context(
-            session_notification_context,
-            project_session_context(root, config, include_active_status=True),
-        )
-        if event == "session-start"
-        else None
-    )
+    session_context = session_notification_context if event == "session-start" else None
     if result.ok and event in {"stop", "task-completed"}:
         terminal_notification = ensure_terminal_notification_for_session(
             root, config, hook_session_id(payload)
         )
         if not terminal_notification.get("ok"):
-            notification_error = str(
-                terminal_notification.get("error") or "unknown_error"
-            )
-            reason = (
-                "WishGraph Worker cannot stop with an active Claim. Write the "
-                "terminal Task/Revision state and Run Report, then release the Claim "
-                "so its Discussion notification is durable."
-                if notification_error == "active_worker_claim_not_closed_out"
-                else "WishGraph could not persist the Worker terminal notification: "
-                + notification_error
-            )
             if event == "task-completed":
-                print(reason, file=sys.stderr)
+                print(HOOK_CLOSEOUT_DENIAL, file=sys.stderr)
                 return 2
-            emit({"decision": "block", "reason": reason})
+            emit({"decision": "block", "reason": HOOK_CLOSEOUT_DENIAL})
             return 0
     if result.ok:
-        warning_text = format_warnings(result) if result.warnings else None
-        if event == "session-start" and (session_context or warning_text):
-            session_warning = format_session_safety(result) if result.warnings else None
+        if event == "session-start" and (session_context or result.warnings):
+            session_warning = HOOK_STATUS_ADVICE if result.warnings else None
             emit(
                 {
                     "hookSpecificOutput": {
@@ -2610,21 +2562,15 @@ def hook_main(event: str, host: str = "unknown") -> int:
                     }
                 }
             )
-        elif warning_text and event == "task-completed":
-            print(warning_text, file=sys.stderr)
-            emit({})
-        elif warning_text:
-            emit({"systemMessage": warning_text})
         else:
             emit({})
         return 0
-    reason = format_failure(result, "worktree", config)
 
     if event == "session-start":
         context_parts = []
         if session_context:
             context_parts.append(session_context)
-        context_parts.append(format_session_safety(result))
+        context_parts.append(HOOK_STATUS_ADVICE)
         emit(
             {
                 "hookSpecificOutput": {
@@ -2634,15 +2580,15 @@ def hook_main(event: str, host: str = "unknown") -> int:
             }
         )
     elif event == "task-completed":
-        print(reason, file=sys.stderr)
         if config.get("mode") == "warn":
             emit({})
             return 0
+        print(HOOK_CLOSEOUT_DENIAL, file=sys.stderr)
         return 2
     elif config.get("mode") == "warn":
-        emit({"systemMessage": reason})
+        emit({})
     else:
-        emit({"decision": "block", "reason": reason})
+        emit({"decision": "block", "reason": HOOK_CLOSEOUT_DENIAL})
     return 0
 
 

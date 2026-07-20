@@ -33,7 +33,7 @@ class UnbornRepositoryTests(unittest.TestCase):
             payload = json.loads(process.stdout)
             self.assertIn("hookSpecificOutput", payload)
             self.assertIn(
-                "project memory is not initialized",
+                "needs a minimal project handoff",
                 payload["hookSpecificOutput"]["additionalContext"],
             )
 
@@ -463,7 +463,6 @@ class RuntimeStateTests(MemorySyncTestCase):
 
     def test_discussion_fast_context_does_not_scan_active_tasks_or_reports(self) -> None:
         config = json.loads(json.dumps(self.config))
-        config["session_start_context_mode"] = "discussion_summary"
         with mock.patch(
             "host_adapter.integration_state",
             side_effect=AssertionError("default Discussion context must stay bounded"),
@@ -705,9 +704,9 @@ class RuntimeStateTests(MemorySyncTestCase):
             check=True,
         )
         context = json.loads(process.stdout)["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Worker notifications", context)
+        self.assertIn("needs attention before integration", context)
         self.assertIn("029b", context)
-        self.assertIn("failed", context)
+        self.assertNotIn("claim-029b", context)
         notification = memory_sync.inspect_worker_notifications(self.root)[0]
         self.assertEqual(notification["status"], "read")
         self.assertEqual(
@@ -760,8 +759,8 @@ class RuntimeStateTests(MemorySyncTestCase):
             check=True,
         )
         context = json.loads(process.stdout)["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Worker notifications", context)
-        self.assertIn("auto_integrate", context)
+        self.assertIn("Task 029b is ready", context)
+        self.assertNotIn("auto_integrate", context)
         self.assertEqual(
             memory_sync.inspect_worker_notifications(self.root, "pending"), []
         )
@@ -1210,7 +1209,8 @@ class RuntimeStateTests(MemorySyncTestCase):
         )
         payload = json.loads(process.stdout)
         self.assertEqual(payload["decision"], "block")
-        self.assertIn("cannot stop with an active Claim", payload["reason"])
+        self.assertIn("Check WishGraph status", payload["reason"])
+        self.assertNotIn("Claim", payload["reason"])
         self.assertEqual(memory_sync.inspect_worker_notifications(self.root), [])
 
     def test_claim_cli_runs_execution_preflight_and_blocks_duplicate_worker(self) -> None:

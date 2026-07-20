@@ -538,23 +538,16 @@ def emit_orchestration_gate(
     *,
     emit_output: Callable[[dict[str, Any]], None],
 ) -> None:
-    reason = "WishGraph orchestration gate blocked this operation. " + plan.denial_reason
-    if mode == "warn" and plan.next_action != "deny_current_host_execution":
-        emit_output(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "additionalContext": reason,
-                }
+    del mode
+    emit_output(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": (
+                    "This session is not authorized for the requested change. "
+                    "Return to Discussion and start the approved Task from there."
+                ),
             }
-        )
-    else:
-        emit_output(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": reason,
-                }
-            }
-        )
+        }
+    )

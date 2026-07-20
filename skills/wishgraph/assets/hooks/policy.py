@@ -31,7 +31,6 @@ from git_state import (
 )
 from workflow_state import (
     SCHEMA_VERSION as WORKFLOW_STATE_SCHEMA_VERSION,
-    STATE_BLOCK_RE,
     ReportState,
     RevisionState,
     FlowPlan,
@@ -41,7 +40,6 @@ from workflow_state import (
     UserEvent,
     canonical_revision_id,
     canonical_task_id,
-    dynamic_state_block,
     integrated_report_paths,
     markdown_section,
     normalized_string,
@@ -69,7 +67,6 @@ ACCEPTED_REPORT_STATUSES = {
     "superseded",
     "cancelled",
 }
-UPDATED_STATUSES = {"updated", "yes"}
 INTEGRATE_STATUSES = {"integrate", "needs integration", "review", "proposed"}
 NOOP_STATUSES = {"n/a", "na", "not applicable", "no"}
 WORK_TYPES = {"discussion", "sequential", "parallel_batch", "high_risk"}
@@ -1151,9 +1148,20 @@ class IntegrationState:
 
 
 def shared_memory_paths(config: dict[str, Any]) -> set[str]:
-    return set(config.get("required_impact_rows", [])) | set(
-        project_status_candidates(config)
-    )
+    paths = config.get("paths", {})
+    named_paths = {
+        str(paths.get(name) or "")
+        for name in (
+            "prd",
+            "architecture",
+            "codemap",
+            "conventions",
+            "discussion_prompt",
+            "execution_prompt",
+            "integration_prompt",
+        )
+    }
+    return {path for path in named_paths if path} | set(project_status_candidates(config))
 
 
 def report_state(report_path: str, content: str) -> ReportState:
@@ -1969,11 +1977,12 @@ def validate_single_current_snapshot(
     status_path: str, content: str, result: CheckResult
 ) -> None:
     current_headings = re.findall(
-        r"(?mi)^##\s+(?:Current Integration|当前集成)\s*$", content
+        r"(?mi)^##\s+(?:Latest Result|Current Integration|最近结果|当前集成)\s*$",
+        content,
     )
     if len(current_headings) != 1:
         result.errors.append(
-            f"{status_path} must contain exactly one Current Integration/当前集成 section. "
+            f"{status_path} must contain exactly one Latest Result/最近结果 section. "
             "Rewrite the current snapshot instead of appending integration history."
         )
 
@@ -1988,7 +1997,6 @@ def validate_integration_overview(
 ) -> None:
     paths = config["paths"]
     overview_path = resolve_project_status_path(root, config, scope)
-    discussion_path = paths["discussion_prompt"]
     overview = read_version(root, overview_path, scope)
     if overview is None:
         result.errors.append(f"Cannot read the {scope} version of {overview_path}")
@@ -2096,57 +2104,12 @@ def validate_integration_overview(
             + ", ".join(historical_reports)
         )
 
-    impact_rows = parse_impact_rows(overview)
-    for memory_path in config.get("required_impact_rows", []):
-        row = impact_rows.get(memory_path)
-        if row is None:
-            result.errors.append(f"{overview_path} is missing an impact row for {memory_path}")
-            continue
-        status, reason = row
-        if memory_path in required_report_integrations and status not in UPDATED_STATUSES:
+    for memory_path in sorted(required_report_integrations):
+        if memory_path not in changed:
             result.errors.append(
-                f"{overview_path} must mark {memory_path} Updated because a selected "
-                "Run Report marked it Integrate"
+                f"Integration must update {memory_path} because a selected Run Report "
+                "marked it Integrate"
             )
-        if status in UPDATED_STATUSES:
-            if memory_path not in changed:
-                result.errors.append(
-                    f"{overview_path} says {memory_path} is Updated, but it is not in the {scope} diff"
-                )
-        elif status in NOOP_STATUSES:
-            if memory_path in changed:
-                result.errors.append(
-                    f"{overview_path} says {memory_path} is N/A, but that file changed"
-                )
-            if config.get("allow_noop_with_reason", True) and len(reason.strip()) < 3:
-                result.errors.append(f"N/A for {memory_path} requires a concrete reason")
-        else:
-            result.errors.append(
-                f"Integration impact for {memory_path} must be Updated or N/A, got {status or 'blank'}"
-            )
-
-    if discussion_path not in changed:
-        result.errors.append(
-            f"Integration must update {discussion_path} so discussion agents receive the merged results"
-        )
-        return
-    current_state = dynamic_state_block(read_version(root, discussion_path, scope))
-    previous_state = dynamic_state_block(read_head_version(root, discussion_path))
-    if current_state is None:
-        result.errors.append(f"{discussion_path} is missing wishgraph:state start/end markers")
-    elif previous_state is not None and current_state == previous_state:
-        result.errors.append(
-            f"{discussion_path} changed, but its dynamic wishgraph:state block did not"
-        )
-    elif len(current_state.splitlines()) > int(
-        config.get("discussion_dynamic_max_lines", 30)
-    ):
-        result.errors.append(
-            f"{discussion_path} dynamic wishgraph:state block exceeds "
-            f"{int(config.get('discussion_dynamic_max_lines', 30))} lines. Keep only the "
-            "current discussion focus, results to present, pending decisions, next action, "
-            f"and a pointer to {overview_path}."
-        )
 
 
 def validate_task_spec(
@@ -2431,20 +2394,6 @@ def task_state_only_change(
     )
 
 
-def discussion_state_only_change(root: Path, scope: str, discussion_path: str) -> bool:
-    content = read_version(root, discussion_path, scope)
-    previous_content = read_head_version(root, discussion_path)
-    if content is None or previous_content is None:
-        return False
-    current_state = dynamic_state_block(content)
-    previous_state = dynamic_state_block(previous_content)
-    if current_state is None or previous_state is None or current_state == previous_state:
-        return False
-    return STATE_BLOCK_RE.sub("", content).strip() == STATE_BLOCK_RE.sub(
-        "", previous_content
-    ).strip()
-
-
 def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
     result = CheckResult()
     overview_path = resolve_project_status_path(root, config, scope)
@@ -2524,7 +2473,6 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
             )
 
     paths = config["paths"]
-    discussion_path = paths["discussion_prompt"]
     run_report_glob = paths["run_report_glob"]
     run_reports = sorted(path for path in changed if fnmatch.fnmatch(path, run_report_glob))
     task_paths = sorted(
@@ -2547,8 +2495,6 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
         if state is not None:
             validated_revisions[revision_path] = state
     lifecycle_paths = set(task_paths) | set(revision_paths)
-    if discussion_path in changed:
-        lifecycle_paths.add(discussion_path)
     revision_routing_only = bool(revision_paths) and all(
         state.status in {"pending", "running"}
         for state in validated_revisions.values()
@@ -2557,15 +2503,12 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
         task_path in validated_tasks
         and task_state_only_change(root, scope, task_path, validated_tasks[task_path])
         for task_path in task_paths
-    ) and (
-        discussion_path not in changed
-        or discussion_state_only_change(root, scope, discussion_path)
     ):
         return result
     trigger_paths = [
         path
         for path in changed
-        if path not in set(project_status_candidates(config)) | {discussion_path}
+        if path not in set(project_status_candidates(config))
         and path not in run_reports
         and path not in revision_paths
     ]

@@ -13,11 +13,17 @@ Use this reference when starting from a vague idea, adapting an existing reposit
 
 ## Reuse Before Creating
 
-Inspect README files, product specs, architecture notes, task folders, tests, CI, ownership rules, and status documents. Reuse a native file when it already carries the same truth. Do not create two competing sources for one concept.
+Inspect README files, product specs, architecture notes, task folders, tests, CI, ownership rules, and status documents. Finding a document does not make it authoritative. For only the facts needed by the current Task, check:
 
-Map existing artifacts to product intent, architecture boundaries, feature-to-code lookup, conventions, Discussion/Worker handoffs, executable Tasks, immutable evidence, and current integrated status.
+1. The responsibility the document actually performs.
+2. Whether referenced paths and key symbols exist.
+3. Whether important build and test commands are available.
+4. Whether it obviously conflicts with code or another core document.
+5. Whether it is sufficient for the current Task and marks unknown facts explicitly.
 
-Default existing repositories to **native-lite** adoption. Reuse their README, product spec, architecture notes, code map, conventions, issue/task system, and validation commands. Create a WishGraph file only when no native source can carry that truth without ambiguity.
+Default existing repositories to **native-lite** adoption. Choose one simple outcome: reuse the native source, reuse it while recording the current gap in the Task, or create the smallest missing entry/index when no source can perform the responsibility. `Reuse`, `Adapt`, and `Bridge` may describe this judgment in discussion, but never persist them as document trust state.
+
+Do not replace or delete a user's existing document without explicit confirmation. Do not create two competing sources for one concept.
 
 The first usable entry should stay human-visible and small: add a short WishGraph section to the existing root README stating that the project has explicitly opted in, with links to Project Status and the three post-activation commands `开始讨论`, `刷新项目状态`, and `执行 NNN 任务`. Do not create a second landing-page document. If no README exists, create one concise README rather than a WishGraph-specific manual.
 
@@ -105,7 +111,9 @@ For an existing project, create runtime artifacts lazily:
 
 Native-lite must preserve the same Claim, role, validation, closeout, and semantic-sync gates. It reduces duplicate files; it does not weaken governance.
 
-Keep `prompts/EXECUTION_AI.md` stable and put work-specific instructions in Tasks or Revisions. Keep only concise current state in the dynamic block of `prompts/DISCUSSION_AI.md`.
+Native-lite readiness belongs to the current Task, not to a global documentation score. A Task is ready when its intended result, scope and Do Not Do boundary, real code anchors, executable validation, permission/risk boundary, and blocking unknowns are explicit. The goal is reliable facts for this Task, not perfect documentation for the whole project.
+
+Keep both role prompts stable and put work-specific instructions in Tasks or Revisions. Current user-readable state belongs only in `reports/PROJECT_STATUS.md`.
 
 ## Template Mapping
 
@@ -142,7 +150,7 @@ Use `tasks/build/*.md` for formal Tasks. Do not infer hidden or alternate Task d
 
 Do not make the user copy a full Discussion prompt or previous chat as a normal handoff.
 
-Before the current Discussion ends, keep the concise dynamic block in `prompts/DISCUSSION_AI.md` and the current snapshot in `reports/PROJECT_STATUS.md` accurate. A new supported window in the same Git project says `开始讨论` / `Start discussion`; an already active Discussion says `刷新项目状态` / `Refresh project status`.
+Before the current Discussion ends, keep `reports/PROJECT_STATUS.md` accurate. A new supported window in the same Git project says `开始讨论` / `Start discussion`; an already active Discussion says `刷新项目状态` / `Refresh project status`.
 
 When switching hosts, preserve project files, Tasks, reports, Claims, and integrated state. Require the destination host to be selected in `required_hosts`; otherwise explicitly enable and install it before reopening the session. Never route a Codex thread ID to Claude or a Claude session ID to Codex; the new host establishes its own valid Worker binding before execution.
 
@@ -157,13 +165,13 @@ Use `reports/PROJECT_STATUS.md` as the current snapshot.
 
 ## Bootstrap Completion
 
-Stop grilling and prepare Worker authorization only when the first Task has concrete intent, scope, validation, rollback, architecture ownership, and a unique next transition. If the user wants more discussion, keep the handoff current instead of launching work.
+Stop grilling and prepare Worker authorization only when the first Task has concrete intent, scope, validation, rollback, architecture ownership, and a unique next transition. If the user wants more discussion, keep Project Status current instead of launching work.
 
 ## Discussion-Window Migration
 
 When the user asks to migrate or copy the Discussion:
 
-1. Refresh current project facts and `prompts/DISCUSSION_AI.md`.
+1. Refresh current project facts in `reports/PROJECT_STATUS.md`; keep the role prompt stable.
 2. Output the full prompt in a fenced code block.
 3. Prepend one short copy instruction.
 

@@ -151,9 +151,6 @@ class MemorySyncTestCase(unittest.TestCase):
             "ARCHITECTURE.md": defaults,
             "CODEMAP.md": defaults,
             "CONVENTIONS.md": defaults,
-            "prompts/DISCUSSION_AI.md": defaults,
-            "prompts/EXECUTION_AI.md": defaults,
-            "prompts/INTEGRATION_AI.md": defaults,
         }
         rows.update(overrides or {})
         return "\n".join(
@@ -601,72 +598,52 @@ class MemorySyncTestCase(unittest.TestCase):
         integration_kind: Optional[str] = None,
         authorization: Optional[str] = None,
     ) -> str:
-        rows = {
-            "prompts/DISCUSSION_AI.md": (
-                "Updated",
-                "Integrated results were added to the discussion handoff",
-            )
-        }
-        rows.update(overrides or {})
-        table = self.impact_table(("N/A", "Integrated project truth did not change"), rows)
         report_list = "\n".join(f"- `{path}`" for path in reports)
         kind = integration_kind or ("parallel_batch" if len(reports) > 1 else "sequential")
         auth = authorization or (
-            "Explicit user confirmation"
+            "explicit_user_confirmation"
             if kind in {"parallel_batch", "high_risk"}
-            else "Inherited task approval"
+            else "inherited_task_approval"
         )
+        integration_state = {
+            "schema_version": 1,
+            "kind": "integration",
+            "integration_id": "integration/test",
+            "status": "completed",
+            "integration_kind": kind,
+            "authorization": auth,
+            "reports": reports,
+        }
         return (
             "# Project Status\n\n"
-            "## Current Integration\n\n"
-            "- Integration ID: integration/test\n"
+            "## Latest Result\n\n"
             "- Date: 2026-07-13\n"
-            "- Status: Completed\n"
             "- Commit: pending\n"
-            f"- Integration kind: {kind}\n"
-            f"- Authorization: {auth}\n\n"
-            "## Run Reports Absorbed This Integration\n\n"
-            f"{report_list}\n\n"
-            "## Current Project Status\n\n"
-            "- Completed: latest worker results integrated\n"
             "- User-visible result: current behavior verified\n"
-            "- Current important facts: integrated snapshot is current\n\n"
+            "\n<!-- wishgraph:integration-state:start -->\n```json\n"
+            + json.dumps(integration_state, indent=2)
+            + "\n```\n<!-- wishgraph:integration-state:end -->\n\n"
+            "## Current Facts\n\n"
+            "- Important fact: integrated snapshot is current\n"
+            "- Current capability: latest worker results integrated\n"
+            "- Current limitation: None\n\n"
             "## Validation\n\n"
             "- Build: Pass\n- Tests: Pass\n- Manual: Pass\n\n"
-            "## Unresolved Items\n\n"
-            "- Risks: None\n- Conflicts: None\n- Pending user decisions: None\n\n"
-            "## Worker Status\n\n"
-            "- Completed: current workers\n- Waiting: None\n- Blocked: None\n\n"
-            "## Next Step\n\n"
-            "- Recommended task: review the status\n- Reason: confirm result\n\n"
-            "## Discussion Handoff\n\n"
-            "- Current focus: review\n- Results to present: integrated result\n"
-            "- Detailed evidence: reports/PROJECT_STATUS.md\n\n"
-            "## Shared Memory Impact\n\n"
-            "| File | Result | Reason |\n"
-            "|---|---|---|\n"
-            f"{table}\n"
+            "## Risks And Blockers\n\n- Risk: None\n- Blocker: None\n\n"
+            "## Pending User Decisions\n\n- Decision: None\n\n"
+            "## Recommended Next Step\n\n"
+            "- Action: review the status\n- Reason: confirm result\n\n"
+            "## Run Reports Absorbed This Integration\n\n"
+            f"{report_list}\n"
         )
 
     def discussion(self, unit: str) -> str:
-        return (
-            "# Discussion\n\n"
-            "<!-- wishgraph:state:start -->\n\n"
-            "## Current Discussion Handoff\n\n"
-            f"- Latest integration ID: {unit}\n"
-            "- Current discussion focus: review\n"
-            "- Results to present: integrated result\n"
-            "- Pending user decisions: none\n"
-            "- Next recommended action: next\n"
-            "- Details: `reports/PROJECT_STATUS.md`\n\n"
-            "<!-- wishgraph:state:end -->\n"
-        )
+        return "# Discussion\n\nRead `reports/PROJECT_STATUS.md` for current project facts.\n"
 
     def prepare_integration(self, unit: str) -> tuple[str, str]:
         report_path = f"reports/runs/{unit}.md"
         self.write("src/integration.py", f"print('{unit}')\n")
         self.write(report_path, self.run_report(unit))
-        self.write("prompts/DISCUSSION_AI.md", self.discussion(f"integration/{unit}"))
         status = self.overview([report_path])
         self.write("reports/PROJECT_STATUS.md", status)
         return report_path, status

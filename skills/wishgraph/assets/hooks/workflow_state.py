@@ -116,12 +116,6 @@ TASK_ID_RE = re.compile(r"^(?P<number>\d{3,})(?P<suffix>[a-z]*)$")
 REVISION_ID_RE = re.compile(
     r"^(?P<task_id>\d{3,}[a-z]*)-r(?P<revision_number>[1-9]\d*)$"
 )
-STATE_BLOCK_RE = re.compile(
-    r"<!--\s*wishgraph:state:start\s*-->(.*?)<!--\s*wishgraph:state:end\s*-->",
-    re.IGNORECASE | re.DOTALL,
-)
-
-
 @dataclass(frozen=True)
 class WorkflowBlock:
     kind: str
@@ -939,13 +933,6 @@ def positive_attempt(value: Any, errors: list[str]) -> int:
         errors.append("attempt must be a positive integer")
         return 1
     return value
-
-
-def dynamic_state_block(content: Optional[str]) -> Optional[str]:
-    if content is None:
-        return None
-    match = STATE_BLOCK_RE.search(content)
-    return match.group(1).strip() if match else None
 
 
 def markdown_section(content: Optional[str], heading: str) -> Optional[str]:

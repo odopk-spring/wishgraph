@@ -38,6 +38,13 @@ Task state 只记录 Task Lifecycle。Session Role、Flow Phase 与 `expected_tr
 
 概述从文件、测试、日志或文档中确认的相关仓库事实。
 
+## Readiness Notes
+
+- 已核验的代码 / 模块 / 接口锚点：
+- 可用的验证命令：
+- 权限和风险边界：
+- 本 Task 显式承载的未知或来源冲突：
+
 ## Change Set
 
 | Target | Anchor | Required Change |

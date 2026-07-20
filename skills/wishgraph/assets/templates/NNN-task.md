@@ -38,6 +38,13 @@ State the user-visible goal in one short paragraph. This section must be underst
 
 Summarize the relevant repo facts discovered from files, tests, logs, or docs.
 
+## Readiness Notes
+
+- Verified code/module/interface anchors:
+- Available validation commands:
+- Permission and risk boundaries:
+- Unknowns or source conflicts carried into this Task:
+
 ## Change Set
 
 | Target | Anchor | Required Change |

@@ -62,6 +62,13 @@ Language mode:
 
 ## Current State
 
+## Readiness Notes
+
+- Verified code/module/interface anchors:
+- Available validation commands:
+- Permission and risk boundaries:
+- Unknowns or conflicts carried into this Task:
+
 ## Change Set
 
 | Target | Anchor | Required Change |
@@ -96,9 +103,12 @@ Before Worker authorization, confirm:
 - The user-visible outcome is observable.
 - Current State comes from repository facts.
 - Change Set names stable targets and anchors.
+- Referenced paths and key symbols were checked for the current Task.
 - The implementation surface fits one atomic commit.
 - Out-of-scope behavior is explicit.
 - Validation commands are concrete and available.
+- Permission and risk boundaries are explicit.
+- Unknown or conflicting source facts are recorded, with no unresolved blocker.
 - Rollback is safe and bounded.
 - Dependencies and parent identity are exact.
 - Work type, execution mode, batch/comparison group, and future Integration route are correct.

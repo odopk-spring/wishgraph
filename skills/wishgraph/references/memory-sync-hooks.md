@@ -13,7 +13,7 @@ Use this reference when configuring, inspecting, debugging, or benchmarking the 
 
 ## Runtime Boundary
 
-Hooks enforce mechanical authority and external-memory closeout. They do not write semantic project memory, choose product meaning, select parallelism, launch Workers, merge branches, or replace human review.
+Hooks enforce mechanical authority and external-memory closeout. They do not write semantic project memory, choose product meaning, select parallelism, launch Workers, merge branches, replace human review, or persist ordinary diagnostics.
 
 The stable entrypoint is `.wishgraph/hooks/memory_sync.py`. Its implementation keeps four public boundaries. Native Worker and tool-gate providers remain private behind the Host Adapter:
 
@@ -35,11 +35,11 @@ Only after `.wishgraph/config.json` enables the project, route explicit entry co
 
 When the Hook cannot resolve the whole prompt to one allowed command, it emits no route and does not mutate session state. The original prompt continues to the Agent. The Agent may ask whether the user wants Discussion or refresh, but an ambiguous execution request must be answered with a request for the exact command, such as `执行 012 任务`; Agent interpretation cannot manufacture authorization.
 
-The default Discussion entry reads only the current Project Status sections, the concise Discussion handoff, session runtime, and pending notifications. It does not build the active integration index. Exact Task execution narrows candidates by canonical filename before reading bodies, then reads only the exact Task and its declared dependencies. Exact Revision routing reads only that parent's Revision family. Full active/history scans remain explicit status or recovery operations.
+The default Discussion entry reads only the current Project Status sections, session runtime, and pending notifications. It does not build the active integration index or maintain a second dynamic prompt snapshot. Exact Task execution narrows candidates by canonical filename before reading bodies, then reads only the exact Task and its declared dependencies. Exact Revision routing reads only that parent's Revision family. Full active/history scans remain explicit status or recovery operations.
 
 ### SessionStart
 
-Create or load a neutral session and run the worktree external-memory safety check. Default `safety_only` mode reports pending or invalid state without activating Discussion or injecting its full prompt.
+Create or load a neutral session and run the worktree external-memory safety check. Stay silent on a normal start. Report only pending recovery, integration, failure recovery, or a decision that needs the user; never activate Discussion or inject its full prompt.
 
 Use explicit `开始讨论` / `Start discussion` or project refresh to load Discussion context. A continuously open Discussion receives new state only through a supported resume event or refresh.
 
@@ -57,9 +57,18 @@ Ordinary non-commit operations use the current Session Role, live Worker Claim, 
 
 ### Stop And TaskCompleted
 
-Inspect closeout before an agent stops. In `enforce`, continue or block when required Task/Revision state, Run Report, validation, or shared-memory impact is missing. In `warn`, report the problem without hard blocking.
+Inspect closeout before an agent stops. In `enforce`, block when required Task/Revision state, Run Report, validation, or shared-memory impact is missing. In `warn`, ordinary closeout incompleteness stays non-blocking and silent. Authority and state-integrity boundaries still fail closed in every active mode.
 
 Claude Code may also expose `TaskCompleted`; keep it as a host adapter event rather than portable workflow meaning.
+
+### Output Ownership
+
+- `PreToolUse` stays silent unless the operation is actually denied.
+- `SessionStart` reports only recovery, pending integration, failure recovery, or a user decision.
+- `Stop` / `TaskCompleted` emit at most one closeout result through the channel required by that host event.
+- `status`, `doctor`, and `check` are explicit CLI diagnostics and may show detailed paths and internal state.
+
+`mode` decides whether an ordinary mechanical finding blocks; event ownership decides whether and where it is shown. A Hook invocation uses one output channel only. Normal Hook messages state impact and next action, while raw Claim IDs, commits, worktrees, runtime phases, and checker errors stay in explicit diagnostics.
 
 ## Installed Files
 
@@ -111,8 +120,7 @@ Key settings include:
 - `required_hosts`: non-empty subset of `codex` and `claude`; use `mode: off` instead of an empty list.
 - `paths`: canonical governance, Task, Revision, report, and prompt locations.
 - `required_impact_rows`: shared-memory files that require `Integrate` or concrete `N/A` evidence.
-- `session_start_context_mode`: defaults to `safety_only`; `discussion_summary` is an explicit advanced opt-in, never an inferred migration mode.
-- Project Status and Discussion dynamic-block size limits.
+- Project Status size limits and the explicit Discussion context size limit.
 - `orchestration_gate_enabled` and host-dependent read-gate mode.
 
 WishGraph reads `tasks/build/*.md`, `tasks/revisions/*.md`, and `reports/PROJECT_STATUS.md`. Task, Revision, Run Report, and Project Status records require their structured state blocks. `paths.run_report_template` allocates one portable repository-relative report path when a work unit is authorized; `paths.run_report_glob` validates it. The defaults remain `reports/runs/{work_unit_id}-attempt-{attempt}.md` and `reports/runs/*.md`. Pre-release hidden Task paths, `reports/DEV_REPORT.md`, old field aliases, and configuration without `required_hosts` are intentionally not inferred. Reactivate the project or regenerate the affected record instead of maintaining two truth formats.

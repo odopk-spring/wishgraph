@@ -48,7 +48,10 @@ class TemplateMirrorTests(unittest.TestCase):
         self.assertIn("Role-Specific Read Scope", claude_adapter)
         self.assertIn("complete source tree", claude_adapter)
         self.assertIn("supplies no native Worker creation", generic_adapter)
-        self.assertIn("managed background Agent is allowed", conventions)
+        self.assertIn("engineering rules specific to this project", conventions)
+        self.assertNotIn("managed background Agent is allowed", conventions)
+        self.assertNotIn("## Roles", conventions)
+        self.assertNotIn("Flow Phase", conventions)
         self.assertIn("No prompt migration is required", getting_started)
         self.assertNotIn("output the full prompt for copying", claude_adapter)
         self.assertNotIn("full prompt for manual transfer", conventions)
@@ -143,3 +146,41 @@ class TemplateMirrorTests(unittest.TestCase):
         self.assertFalse(
             (ROOT / "skills" / "wishgraph" / "assets" / "templates" / "DEV_REPORT.md").exists()
         )
+
+    def test_project_documents_have_single_responsibilities(self) -> None:
+        prd = (ROOT / "templates" / "PRD.md").read_text(encoding="utf-8")
+        codemap = (ROOT / "templates" / "CODEMAP.md").read_text(encoding="utf-8")
+        conventions = (ROOT / "templates" / "CONVENTIONS.md").read_text(
+            encoding="utf-8"
+        )
+        status = (ROOT / "templates" / "reports" / "PROJECT_STATUS.md").read_text(
+            encoding="utf-8"
+        )
+        discussion = (ROOT / "templates" / "prompts" / "DISCUSSION_AI.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("Current Progress", prd)
+        self.assertIn("Verified / Unverified", codemap)
+        self.assertNotIn("## Roles", conventions)
+        self.assertNotIn("Orchestration Snapshot", status)
+        self.assertNotIn("Shared Memory Impact", status)
+        self.assertNotIn("wishgraph:state", discussion)
+        self.assertIn("only user-readable dynamic project snapshot", status)
+
+        bootstrap = (
+            ROOT / "skills" / "wishgraph" / "references" / "project-bootstrap.md"
+        ).read_text(encoding="utf-8")
+        task = (ROOT / "templates" / "tasks" / "build" / "NNN-task.md").read_text(
+            encoding="utf-8"
+        )
+        for expected in (
+            "responsibility the document actually performs",
+            "referenced paths and key symbols exist",
+            "build and test commands are available",
+            "obviously conflicts",
+            "marks unknown facts explicitly",
+        ):
+            self.assertIn(expected, bootstrap)
+        self.assertNotIn("document-registry", bootstrap)
+        self.assertIn("## Readiness Notes", task)
+        self.assertIn("Permission and risk boundaries", task)

@@ -59,7 +59,7 @@ Before final report:
 - Record validation evidence and `Integrate` or `N/A` proposals for every shared-memory file in that run report.
 - Fill the Run Report's `wishgraph:run-state` JSON block with the Task's work type, batch ID, integration recommendation, status, integration readiness, scope check, conflict status, new-decision flag, and validation results. A recommendation never grants Integration authority; keep evidence and impact reasoning in the surrounding Markdown.
 - Mark the report Blocked or Incomplete instead of Completed when validation fails, work exceeds scope, a conflict remains, a new material decision appears, or safe rollback is uncertain.
-- Do not edit `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, `CONVENTIONS.md`, `reports/PROJECT_STATUS.md`, or any prompt file. The Discussion-local Integration lease holder writes Project Status and refreshes the discussion handoff.
+- Do not edit `PRD.md`, `ARCHITECTURE.md`, `CODEMAP.md`, `CONVENTIONS.md`, `reports/PROJECT_STATUS.md`, or any prompt file. The Discussion-local Integration lease holder writes the current Project Status; role prompts stay stable.
 - If hooks are installed, run `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` and resolve failures before claiming completion.
 - Create one atomic commit for the completed task unless the user explicitly says not to commit.
 - Release the Claim only after terminal evidence is durable. Claim release must create the pending Discussion notification; if its preflight or write fails, remain in closeout repair and do not claim completion.

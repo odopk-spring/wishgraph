@@ -121,7 +121,7 @@ Update as needed:
 
 Rewrite Project Status rather than appending history. Preserve current facts, unresolved risk, conflicts, pending decisions, next action, and only the report paths absorbed by this integration. Keep historical detail in immutable reports and Git.
 
-After Project Status is complete, update only the concise dynamic state block in `prompts/DISCUSSION_AI.md`: latest integration ID, current focus, result to present, pending decisions, next action, and Project Status pointer.
+After Project Status is complete, do not copy its dynamic facts into a prompt. Role prompts remain stable; the next Discussion reads the current snapshot and Git-common runtime when explicitly entered or refreshed.
 
 ## Completion
 

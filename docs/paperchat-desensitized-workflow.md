@@ -95,7 +95,7 @@ Acts as the lookup table:
 
 ### prompts/DISCUSSION_AI.md
 
-Stores the current planning state. Before another window continues, Discussion refreshes the concise handoff; the new window opens the same project and says `Start discussion` without copying a full prompt.
+Provides the stable Discussion role entry. Current planning facts stay in Project Status; a new window opens the same project and says `Start discussion` without copying a full prompt.
 
 ### prompts/EXECUTION_AI.md
 

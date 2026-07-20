@@ -59,7 +59,8 @@ class IntegrationStatusTests(MemorySyncTestCase):
         )
         payload = json.loads(process.stdout)
         self.assertEqual(payload["decision"], "block")
-        self.assertIn("reports/runs", payload["reason"])
+        self.assertIn("Check WishGraph status", payload["reason"])
+        self.assertNotIn("reports/runs", payload["reason"])
 
     def test_task_completed_uses_blocking_exit_code(self) -> None:
         self.write("src/app.py", "print('changed')\n")
@@ -72,7 +73,8 @@ class IntegrationStatusTests(MemorySyncTestCase):
             stderr=subprocess.PIPE,
         )
         self.assertEqual(process.returncode, 2)
-        self.assertIn("reports/runs", process.stderr)
+        self.assertIn("Check WishGraph status", process.stderr)
+        self.assertNotIn("reports/runs", process.stderr)
 
     def test_integration_absorbs_multiple_worker_reports_and_updates_discussion(self) -> None:
         report_paths = ["reports/runs/003-a.md", "reports/runs/004-b.md"]
@@ -109,30 +111,18 @@ class IntegrationStatusTests(MemorySyncTestCase):
         )
         legacy_overview = self.overview(
             [report_path],
-            integration_kind="sequential",
-            authorization="Inherited task approval",
+            integration_kind="parallel_batch",
+            authorization="explicit_user_confirmation",
         )
-        integration_state = {
-            "schema_version": 1,
-            "kind": "integration",
-            "integration_id": "integration/structured-parallel",
-            "status": "completed",
-            "integration_kind": "parallel_batch",
-            "authorization": "explicit_user_confirmation",
-            "reports": [report_path],
-        }
-        block = (
-            "<!-- wishgraph:integration-state:start -->\n```json\n"
-            + json.dumps(integration_state, indent=2)
-            + "\n```\n<!-- wishgraph:integration-state:end -->\n\n"
+        legacy_overview = legacy_overview.replace(
+            "- User-visible result: current behavior verified",
+            "- Integration kind: sequential\n"
+            "- Authorization: Inherited task approval\n"
+            "- User-visible result: current behavior verified",
         )
         self.write(
             "reports/PROJECT_STATUS.md",
-            legacy_overview.replace(
-                "## Current Integration\n\n",
-                "## Current Integration\n\n" + block,
-                1,
-            ),
+            legacy_overview,
         )
         task_path = "tasks/build/structured-parallel.md"
         self.write(
@@ -165,25 +155,24 @@ class IntegrationStatusTests(MemorySyncTestCase):
         result = memory_sync.check_sync(self.root, self.config, "worktree")
         self.assertTrue(result.ok, result.errors)
 
-    def test_integration_requires_discussion_state_update(self) -> None:
+    def test_integration_does_not_require_a_second_discussion_snapshot(self) -> None:
         report_path = "reports/runs/005-no-discussion.md"
         self.write("src/new.py", "print('new')\n")
         self.write(report_path, self.run_report("005-no-discussion"))
         self.write("reports/PROJECT_STATUS.md", self.overview([report_path]))
         result = memory_sync.check_sync(self.root, self.config, "worktree")
-        self.assertFalse(result.ok)
-        self.assertTrue(any("discussion" in error.lower() for error in result.errors))
+        self.assertTrue(result.ok, result.errors)
 
     def test_integration_requires_project_status_update(self) -> None:
         report_path = "reports/runs/005b-no-status.md"
         self.write("src/no_status.py", "print('new')\n")
         self.write(report_path, self.run_report("005b-no-status"))
-        self.write("prompts/DISCUSSION_AI.md", self.discussion("integration/005b"))
+        self.write("CODEMAP.md", "# CODEMAP\n\n- `src/no_status.py`\n")
         result = memory_sync.check_sync(self.root, self.config, "worktree")
         self.assertFalse(result.ok)
         self.assertTrue(
             any(
-                "must not update shared memory prompts/DISCUSSION_AI.md" in error
+                "must not update shared memory CODEMAP.md" in error
                 for error in result.errors
             )
         )
@@ -208,9 +197,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             check=True,
         )
         warned_payload = json.loads(warned.stdout)
-        self.assertIn("systemMessage", warned_payload)
-        self.assertNotIn("decision", warned_payload)
-        self.assertIn("reports/runs/*.md", warned_payload["systemMessage"])
+        self.assertEqual(warned_payload, {})
 
         warned_check = subprocess.run(
             [
@@ -241,7 +228,68 @@ class IntegrationStatusTests(MemorySyncTestCase):
         )
         blocked_payload = json.loads(blocked.stdout)
         self.assertEqual(blocked_payload["decision"], "block")
-        self.assertIn("Do not remove unresolved risks", blocked_payload["reason"])
+        self.assertIn("Check WishGraph status", blocked_payload["reason"])
+        self.assertNotIn("Do not remove unresolved risks", blocked_payload["reason"])
+
+    def test_warn_pretool_sync_advice_is_silent_but_authority_still_denies(self) -> None:
+        config_path = self.root / ".wishgraph" / "config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["mode"] = "warn"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        self.write("src/warn_quiet.py", "print('quiet')\n")
+        self.git("add", "src/warn_quiet.py")
+        quiet = subprocess.run(
+            [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "pre-tool-use"],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": "warn-neutral",
+                    "tool_name": "Bash",
+                    "tool_input": {"command": "git commit -m quiet"},
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        self.assertEqual(json.loads(quiet.stdout), {})
+        self.assertEqual(quiet.stderr, "")
+
+        memory_sync.write_session_runtime(
+            self.root,
+            "warn-discussion",
+            {
+                "session": {
+                    "session_id": "warn-discussion",
+                    "role": "discussion",
+                    "host": "codex",
+                    "phase": "planning",
+                    "expected_transition": None,
+                }
+            },
+        )
+        denied = subprocess.run(
+            [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "pre-tool-use"],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": "warn-discussion",
+                    "tool_name": "Bash",
+                    "tool_input": {"command": "python3 -m unittest"},
+                }
+            ),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        payload = json.loads(denied.stdout)
+        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertNotIn("additionalContext", payload["hookSpecificOutput"])
+        self.assertNotIn("systemMessage", payload)
 
     def test_project_status_character_limit_is_enforced(self) -> None:
         self.prepare_integration("005d-long-chars")
@@ -251,7 +299,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
         self.assertFalse(result.ok)
         self.assertTrue(any("characters; limit is 100" in error for error in result.errors))
 
-    def test_discussion_dynamic_block_line_limit_is_enforced(self) -> None:
+    def test_discussion_prompt_is_not_a_dynamic_snapshot(self) -> None:
         self.prepare_integration("005e-long-discussion")
         long_state = "\n".join(f"- line {index}: value" for index in range(31))
         self.write(
@@ -261,10 +309,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             + "\n<!-- wishgraph:state:end -->\n",
         )
         result = memory_sync.check_sync(self.root, self.config, "worktree")
-        self.assertFalse(result.ok)
-        self.assertTrue(
-            any("dynamic wishgraph:state block exceeds 30 lines" in error for error in result.errors)
-        )
+        self.assertTrue(result.ok, result.errors)
 
     def test_project_status_lists_only_current_integration_reports(self) -> None:
         report_path, _ = self.prepare_integration("005f-current-only")
@@ -335,8 +380,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
         )
         self.assertEqual(runtime["session"]["role"], "discussion")
 
-    def test_session_start_can_opt_in_to_discussion_summary(self) -> None:
-        self.update_config(session_start_context_mode="discussion_summary")
+    def test_session_start_does_not_inject_project_summary(self) -> None:
         process = subprocess.run(
             [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "session-start"],
             cwd=self.root,
@@ -346,19 +390,14 @@ class IntegrationStatusTests(MemorySyncTestCase):
             stderr=subprocess.PIPE,
             check=True,
         )
-        payload = json.loads(process.stdout)
-        context = payload["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("latest worker results integrated", context)
-        self.assertIn("Current Discussion Handoff", context)
-        self.assertLessEqual(len(context), 2000)
+        self.assertEqual(json.loads(process.stdout), {})
 
 
 
 
-    def test_invalid_session_start_context_mode_is_rejected(self) -> None:
+    def test_removed_session_start_context_mode_has_no_effect(self) -> None:
         self.update_config(session_start_context_mode="surprise")
-        with self.assertRaisesRegex(ValueError, "session_start_context_mode"):
-            memory_sync.load_config(self.root)
+        self.assertIsNotNone(memory_sync.load_config(self.root))
 
 
     def test_safe_sequential_result_needs_no_second_confirmation(self) -> None:
@@ -719,10 +758,9 @@ class IntegrationStatusTests(MemorySyncTestCase):
         unit = next(item for item in completed["work_units"] if item["task_id"] == "024")
         self.assertEqual(unit["lifecycle_status"], "completed")
 
-    def test_session_start_injects_pending_integration_status(self) -> None:
+    def test_session_start_keeps_pending_integration_details_out_of_output(self) -> None:
         self.write("src/app.py", "print('pending')\n")
         self.write("reports/runs/012-pending.md", self.run_report("012-pending"))
-        self.update_config(session_start_context_mode="discussion_summary")
         process = subprocess.run(
             [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "session-start"],
             cwd=self.root,
@@ -732,9 +770,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             stderr=subprocess.PIPE,
             check=True,
         )
-        context = json.loads(process.stdout)["hookSpecificOutput"]["additionalContext"]
-        self.assertIn('"pending_integration":true', context)
-        self.assertIn('"integration_kind":"sequential"', context)
+        self.assertEqual(json.loads(process.stdout), {})
 
     def test_user_prompt_submit_routes_discussion_refresh_and_exact_task(self) -> None:
         task_path = "tasks/build/012-route.md"
@@ -1404,23 +1440,15 @@ class IntegrationStatusTests(MemorySyncTestCase):
                 {"PRD.md": ("Integrate", "The visible product decision changed")},
             ),
         )
-        self.write("prompts/DISCUSSION_AI.md", self.discussion("integration/043"))
         self.write("reports/PROJECT_STATUS.md", self.overview([report_path]))
         rejected = memory_sync.check_sync(self.root, self.config, "worktree")
         self.assertFalse(rejected.ok)
         self.assertTrue(
-            any("Run Report marked it Integrate" in error for error in rejected.errors),
+            any("Integration must update PRD.md" in error for error in rejected.errors),
             rejected.errors,
         )
 
         self.write("PRD.md", "# PRD\n\n- Decision: updated detail\n")
-        self.write(
-            "reports/PROJECT_STATUS.md",
-            self.overview(
-                [report_path],
-                {"PRD.md": ("Updated", "Applied the changed product decision")},
-            ),
-        )
         accepted = memory_sync.check_sync(self.root, self.config, "worktree")
         self.assertTrue(accepted.ok, accepted.errors)
 

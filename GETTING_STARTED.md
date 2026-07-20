@@ -52,7 +52,7 @@ Claude Code:
 & ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
 ```
 
-The installer checks Git, Python, and the repository root before writing. It keeps the Agent running setup (`current_host`) separate from the project scope (`required_hosts`). By default it atomically installs both Codex and Claude Code adapters, while preserving unrelated Hook groups. The default `warn` mode reports workflow problems without blocking completion or commits.
+The installer checks Git, Python, and the repository root before writing. It keeps the Agent running setup (`current_host`) separate from the project scope (`required_hosts`). By default it atomically installs both Codex and Claude Code adapters, while preserving unrelated Hook groups. The default `warn` mode keeps ordinary workflow advice silent and non-blocking; authority and state-integrity boundaries still block.
 
 For a deliberate single-host project, add `--project-hosts codex` or `--project-hosts claude` (PowerShell: `-ProjectHosts codex|claude`). The other Adapter is not required, and ordinary sessions in that host are not protected. Agent-guided setup asks the same three-way question instead of inferring the answer from the current Agent.
 
@@ -177,13 +177,13 @@ Any API, schema, persistence, migration, dependency, permission, security, priva
 
 WishGraph uses native-lite adoption by default:
 
-- Reuse an existing product spec instead of creating a competing `PRD.md`.
-- Reuse existing architecture, code-map, conventions, issue, Task, and test sources when they already own the truth.
-- Add a compact `reports/PROJECT_STATUS.md` and Discussion/Worker entry state only when missing.
+- Reuse an existing product spec instead of creating a competing `PRD.md`, after checking the current Task's key paths, symbols, commands, and obvious conflicts.
+- Reuse existing architecture, code-map, conventions, issue, Task, and test sources when they can support the current Task; record unknowns in that Task.
+- Add a compact `reports/PROJECT_STATUS.md` and stable Discussion/Worker entry prompts only when missing.
 - Create Task, Revision, and Run Report directories when first needed.
 - Keep current status as a rewritten snapshot; keep history in immutable reports and Git.
 
-The standard file names are defaults, not a demand to duplicate good project documentation.
+The standard file names are defaults, not a demand to duplicate good project documentation. Native-lite does not create a document registry or persistent trust score.
 
 Pre-release `.tasks/build/`, `reports/DEV_REPORT.md`, retired field aliases, and configuration without `required_hosts` are no longer auto-migrated. When Doctor detects one, explicitly reactivate the project or regenerate the affected structured record.
 
