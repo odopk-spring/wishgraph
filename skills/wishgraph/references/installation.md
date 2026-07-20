@@ -40,10 +40,10 @@ Make a recommendation before asking, except that an explicit `使用 WishGraph` 
 - Recommend **Skill only** when there is no target project, the user is only evaluating WishGraph, or they explicitly do not want project files.
 - Recommend **strict setup** only when the Git worktree is clean, the governance skeleton exists, safe mode already completed successfully, and the user wants mechanical blocking.
 
-Use a compact choice message in the user's language. Include the detected host/system, one-sentence rationale, WishGraph's own size/time, and the recommendation first. Example:
+Use a compact choice message in the user's language. Include the detected host/system, one-sentence rationale, expected time, and the recommendation first. Example:
 
 ```text
-我检测到你正在 Codex 中配置一个现有 Git 项目。推荐“安全配置”：安装 Skill 和提醒型 Hooks，不会阻止结束或提交；WishGraph Skill 约 0.5 MB，项目 hooks 约 0.3 MB，通常不到 1 分钟。
+我检测到你正在 Codex 中配置一个现有 Git 项目。推荐“安全配置”：安装 Skill 和安静的建议模式 Hooks；普通文档与闭环问题不阻止，权限和状态完整性底线仍会阻止。通常不到 1 分钟。
 
 这个项目需要在哪些 Agent 中使用 WishGraph？
 - Codex + Claude Code（推荐）
@@ -99,8 +99,8 @@ These are intentionally broad estimates; hardware, mirrors, package managers, an
 
 | Component | Typical Added Disk | Typical Time |
 |---|---:|---:|
-| WishGraph Skill | about 0.5 MB | under 1 minute |
-| Project hooks | about 0.3 MB | under 10 seconds |
+| WishGraph Skill | small source-only install; no Python packages | under 1 minute |
+| Project hooks | generated local runtime | under 10 seconds |
 | Git package | about 200-500 MB | about 2-10 minutes |
 | Python runtime | about 100-300 MB | about 2-10 minutes |
 | Apple Command Line Tools route for Git | about 1-3 GB | about 5-30 minutes |
@@ -195,7 +195,7 @@ After installation:
 1. Read `.wishgraph/config.json` and confirm the selected mode.
 2. Confirm every selected `required_host` has one current Adapter and Worker definition, either project-local or user-global. Refuse to overwrite a same-path non-WishGraph Agent definition. Claude background launch injects its Worktree settings per launch, so missing project `.claude/settings.json` is not by itself a failure and user settings remain unchanged.
 3. Confirm the host commands use the exact Python executable recorded in `.wishgraph/config.json`; then run that interpreter with `.wishgraph/hooks/memory_sync.py check --scope worktree`.
-4. Treat a missing governance skeleton as a next setup step, not a dependency failure; safe mode remains non-blocking.
+4. Treat a missing governance skeleton as a next setup step, not a dependency failure; in safe mode ordinary setup gaps remain non-blocking while authority and state-integrity boundaries still fail closed.
 5. Finish with the selected mode and one next action: reopen the current Agent session, then use `开始讨论` / `Start discussion`. Do not teach Hook internals during normal setup.
 6. Only if the reopened session does not respond, run Doctor. For an unverified Codex receipt, direct the user to `/hooks`; for Claude Code CLI, additionally allow `claude doctor`. Mention `--bare`, `--safe-mode`, or setting-source overrides only when the diagnosis requires them.
 

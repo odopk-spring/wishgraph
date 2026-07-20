@@ -155,9 +155,9 @@ case "$target" in
     ;;
 esac
 
-echo "WishGraph install estimate: about 0.5 MB on disk and usually under 1 minute."
+echo "WishGraph installs source files only, adds no Python packages, and usually takes under 1 minute."
 if [[ "$setup_project" -eq 1 ]]; then
-  echo "Project hooks add about 0.3 MB and usually take under 10 seconds."
+  echo "Project runtime setup usually takes under 10 seconds."
 fi
 echo "Installation stage 1: checking prerequisites."
 

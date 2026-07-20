@@ -4,9 +4,9 @@
 
 <h1 align="center">WishGraph</h1>
 
-<p align="center"><strong>Let AI move fast without losing the project story.</strong></p>
+<p align="center"><strong>Bounded AI execution with durable project memory.</strong></p>
 
-<p align="center">Turn discussion, execution, validation, and handoff into inspectable repository facts. Built for Codex and Claude Code, enabled one project at a time.</p>
+<p align="center">An opt-in coordination layer for Codex and Claude Code that separates planning, execution, evidence, and integration without filling the repository with process files.</p>
 
 <p align="center">
   <a href="#install-in-60-seconds"><strong>Install in 60 seconds</strong></a> ·
@@ -29,13 +29,13 @@
   <img alt="WishGraph connects Discussion, Worker execution, validation evidence, and current project state into an inspectable workflow" src="docs/assets/hero/wishgraph-hero-light.svg">
 </picture>
 
-WishGraph is a project interface between natural language and code. It turns an open-ended wish into a bounded Task, routes authorized work to an inspectable Worker thread or window, and writes real validation results back into current project state.
+WishGraph turns an open-ended request into a bounded Task, routes explicitly authorized work to an inspectable Worker, and closes the loop with validation evidence and a rewritten current-state snapshot.
 
 ```text
 Wish → Spec → Task → Worker → Validation → Run Report → Integration → Current State
 ```
 
-Goals, architecture, tasks, evidence, and progress live in the repository instead of one chat. When you switch windows, models, or hosts, Codex and Claude Code continue from the same compact facts.
+Stable product and engineering facts stay in existing project documents when possible. WishGraph adds only the missing Task, current-status, and execution-evidence files needed for reliable handoff, so a new window or host can continue without replaying chat history.
 
 ## The framework
 
@@ -200,7 +200,7 @@ No. WishGraph runs no daemon, terminal polling loop, or cross-window IPC service
 
 ### Will WishGraph fill my repository with process files?
 
-Existing repositories use native-lite adoption by default: verify only the paths, symbols, commands, and conflicts needed by the current Task; reuse suitable native sources; then add only missing stable entry prompts and Project Status. No document registry or trust state is created. Task, Revision, and report directories appear when first needed. Immutable history stays in Run Reports while `PROJECT_STATUS.md` remains the only user-readable dynamic snapshot.
+Existing repositories use native-lite adoption by default: verify only the paths, symbols, commands, and conflicts needed by the current Task, reuse suitable native sources, and add only the missing Project Status. WishGraph creates no project-level prompts, document registry, trust state, or blank Run Report. Task, Revision, and report directories appear only when first needed; immutable history stays in actual Run Reports while `PROJECT_STATUS.md` remains the only user-readable dynamic snapshot.
 
 ### Does every small correction need a full Task?
 
@@ -224,7 +224,7 @@ No. Hooks can gate writes, builds, commits, and lifecycle events exposed by the 
 - **Evidence-based completion:** a natural-language “done” message is insufficient. Task state, Run Report, validation, and Claim closeout must agree.
 - **Local coordination boundary:** Claims coordinate worktrees sharing one local Git common directory; they are not distributed locks across machines.
 
-WishGraph is a **v0.1 public beta**. Automated tests cover installation, state transitions, Claims, Revisions, Codex/Claude Worker routing, notifications, and performance gates. Broader real-project and host-version testing is still required before calling it a stable v1.
+WishGraph is a **v0.1 public beta**. CI exercises the complete test suite on Ubuntu and macOS with Python 3.9 and 3.13, plus a Windows installation smoke path. A bundled cold-process benchmark checks Hook latency and source-tree scaling separately. Broader real-project and host-version testing is still required before a stable v1.
 
 ## Where project memory lives
 
@@ -233,7 +233,7 @@ WishGraph is a **v0.1 public beta**. Automated tests cover installation, state t
 | `PRD.md` | Goals: what the project is doing, why, and what is out of scope. |
 | `ARCHITECTURE.md` | Structure: modules, dependencies, data flow, and boundaries. |
 | `CODEMAP.md` | Address book: where features, state, storage, and tests live. |
-| `CONVENTIONS.md` | Working rules: collaboration, validation, Git, and state writeback. |
+| `CONVENTIONS.md` | Project-native build, test, coding, permission, and Git rules. |
 | `tasks/*.md` | Formal Tasks with scope, non-goals, validation, and rollback boundaries. |
 | `tasks/revisions/*.md` | Lightweight, low-risk corrections. |
 | `reports/runs/*.md` | Immutable Worker execution and validation evidence. |
@@ -242,8 +242,6 @@ WishGraph is a **v0.1 public beta**. Automated tests cover installation, state t
 Existing projects do not need to create every file mechanically. WishGraph reuses native documents that already own the same truth.
 
 WishGraph creates only these named documents and directories. It does not police the rest of the repository root: user-owned files such as `AGENTS.md`, `CLAUDE.md`, framework configuration, and native project folders remain untouched. Project-level prompts and a blank Run Report template are not copied into user projects.
-
-Current releases do not infer pre-release `.tasks/build/`, `reports/DEV_REPORT.md`, retired field aliases, or configuration without `required_hosts`. If Doctor finds one, explicitly reactivate the project or regenerate the affected structured record instead of preserving two truth formats.
 
 ## Go deeper
 

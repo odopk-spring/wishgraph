@@ -25,13 +25,13 @@ If the Skill is already installed, explicitly enable this project:
 Use WishGraph for this project with the recommended safe setup.
 ```
 
-The recommended setup selects Codex and Claude Code and installs non-blocking `warn` hooks without asking the user to learn installer flags. A user may explicitly choose only one host.
+The recommended setup selects Codex and Claude Code and installs quiet `warn` hooks without asking the user to learn installer flags. Ordinary documentation and closeout advice remains non-blocking; authority and state-integrity boundaries still fail closed. A user may explicitly choose only one host.
 
 Natural-language choices are:
 
 ```text
 Install only the Skill; do not enable hooks.
-Set up WishGraph safely for this project. (Recommended.)
+Set up WishGraph safely for this project. (Recommended; ordinary guidance is non-blocking.)
 Set up WishGraph strictly and block missing memory sync.
 ```
 
@@ -53,7 +53,7 @@ Windows PowerShell has a native entry point:
 & ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) codex -SetupProject
 ```
 
-Preflight runs before installation. The WishGraph Skill uses about 0.5 MB and project hooks about 0.3 MB. Missing Git commonly adds about 200-500 MB and 2-10 minutes; missing Python commonly adds about 100-300 MB and 2-10 minutes. The Apple Command Line Tools route for Git is larger, roughly 1-3 GB and 5-30 minutes. These are broad estimates.
+Preflight runs before installation. WishGraph is a small source-only install and adds no Python packages. Missing Git commonly adds about 200-500 MB and 2-10 minutes; missing Python commonly adds about 100-300 MB and 2-10 minutes. The Apple Command Line Tools route for Git is larger, roughly 1-3 GB and 5-30 minutes. These are broad estimates.
 
 ### Custom option
 
@@ -109,7 +109,7 @@ Codex project Hooks do not run before repository trust is granted; this detail i
 Every worker uses a separate branch or worktree and creates one new immutable report:
 
 ```text
-reports/runs/<work-unit-id>.md
+reports/runs/<work-unit-id>-attempt-N.md
 ```
 
 Task Specs contain `wishgraph:task-state`, Run Reports contain `wishgraph:run-state`, and Project Status snapshots contain `wishgraph:integration-state`. Durable Task files move `draft -> approved -> integrated -> reviewed`; the Git-common-dir canonical Run owns dispatching, running, terminal evidence, and Integration progress. Hooks require exact Run, Claim, commit, and report evidence before allowing direct integration, so main does not need artificial intermediate lifecycle commits.

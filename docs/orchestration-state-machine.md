@@ -21,7 +21,7 @@ WishGraph 按项目显式启用。全局安装 Skill 只表示“可用”，不
 
 | 意图 | 命令 | 读取范围 |
 | --- | --- | --- |
-| 进入讨论 | `开始讨论` / `Start discussion` | 精简交接、当前 Project Status、active state |
+| 进入讨论 | `开始讨论` / `Start discussion` | 当前 Project Status、待处理通知、必要 active state |
 | 执行任务 | `执行 012 任务` / `Execute task 012` | 精确 Task；授权后再路由 Worker |
 | 刷新状态 | `刷新项目状态` / `Refresh project status` | 当前候选 Task、Claim 和相关终态报告 |
 
