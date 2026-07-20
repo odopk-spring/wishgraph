@@ -7,6 +7,15 @@ class TemplateMirrorTests(unittest.TestCase):
         getting_started = (ROOT / "GETTING_STARTED.md").read_text(
             encoding="utf-8"
         )
+        getting_started_zh = (ROOT / "GETTING_STARTED.zh-CN.md").read_text(
+            encoding="utf-8"
+        )
+        memory_sync_en = (ROOT / "docs" / "memory-sync-hooks.md").read_text(
+            encoding="utf-8"
+        )
+        memory_sync_zh = (
+            ROOT / "docs" / "memory-sync-hooks.zh-CN.md"
+        ).read_text(encoding="utf-8")
         state_machine = (
             ROOT / "docs" / "orchestration-state-machine.md"
         ).read_text(encoding="utf-8")
@@ -53,6 +62,19 @@ class TemplateMirrorTests(unittest.TestCase):
         self.assertNotIn("## Roles", conventions)
         self.assertNotIn("Flow Phase", conventions)
         self.assertIn("No prompt migration is required", getting_started)
+        self.assertIn("creates no project-level prompts", readme_en)
+        self.assertIn("不创建项目级 Prompt", readme_zh)
+        self.assertIn("authority and state-integrity boundaries still block", getting_started)
+        self.assertIn("权限和状态完整性底线仍然阻止", getting_started_zh)
+        for content in (readme_en, readme_zh, getting_started, getting_started_zh):
+            self.assertNotIn("stable entry prompts", content)
+            self.assertNotIn("入口提示词", content)
+            self.assertNotIn(".tasks/build/", content)
+            self.assertNotIn("about 0.5 MB", content)
+            self.assertNotIn("约 0.5 MB", content)
+        for content in (memory_sync_en, memory_sync_zh):
+            self.assertIn("reports/runs/<work-unit-id>-attempt-N.md", content)
+            self.assertNotIn("reports/runs/<work-unit-id>.md", content)
         self.assertNotIn("output the full prompt for copying", claude_adapter)
         self.assertNotIn("full prompt for manual transfer", conventions)
         self.assertNotIn("Never start workers in the background by default", conventions)

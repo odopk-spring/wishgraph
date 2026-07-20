@@ -12,7 +12,7 @@ WishGraph requires:
 - Python 3.9 or newer.
 - Codex or Claude Code for the supported native paths.
 
-It installs no Python packages. The Skill is roughly 0.5 MB and the project runtime roughly 0.3 MB.
+It installs no Python packages. Setup checks prerequisites and the target Git repository before writing.
 
 Global installation and project activation are separate:
 
@@ -73,7 +73,7 @@ After setup succeeds:
 2. Say: Start discussion
 ```
 
-The new window starts neutral. The command loads only the concise Discussion handoff, current Project Status, and active workflow state.
+The new window starts neutral. The command loads only current Project Status, pending notifications, and the active workflow facts needed for the next action.
 
 For an existing project, WishGraph first reuses authoritative files already present in the repository. It should not rename folders, copy existing documents into parallel WishGraph versions, create a fake bootstrap Task, or modify business code merely to prove installation.
 
@@ -180,13 +180,11 @@ WishGraph uses native-lite adoption by default:
 
 - Reuse an existing product spec instead of creating a competing `PRD.md`, after checking the current Task's key paths, symbols, commands, and obvious conflicts.
 - Reuse existing architecture, code-map, conventions, issue, Task, and test sources when they can support the current Task; record unknowns in that Task.
-- Add a compact `reports/PROJECT_STATUS.md` and stable Discussion/Worker entry prompts only when missing.
-- Create Task, Revision, and Run Report directories when first needed.
+- Add a compact `reports/PROJECT_STATUS.md` only when no suitable current-state source exists.
+- Create `tasks/`, `tasks/revisions/`, and `reports/runs/` only when the first corresponding work unit needs them; create reports only for actual runs.
 - Keep current status as a rewritten snapshot; keep history in immutable reports and Git.
 
-The standard file names are defaults, not a demand to duplicate good project documentation. Native-lite does not create a document registry or persistent trust score.
-
-Pre-release `.tasks/build/`, `reports/DEV_REPORT.md`, retired field aliases, and configuration without `required_hosts` are no longer auto-migrated. When Doctor detects one, explicitly reactivate the project or regenerate the affected structured record.
+The standard file names are defaults, not a demand to duplicate good project documentation. Native-lite does not create project-level prompts, a blank Run Report, a document registry, or a persistent trust score. User-owned root files and native project folders remain unrestricted.
 
 ## Maintenance and recovery
 

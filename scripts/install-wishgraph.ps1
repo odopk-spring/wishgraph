@@ -77,9 +77,9 @@ function Write-PythonHelp {
     [Console]::Error.WriteLine("Official guide: https://docs.python.org/3/using/windows.html")
 }
 
-Write-Host "WishGraph install estimate: about 0.5 MB on disk and usually under 1 minute."
+Write-Host "WishGraph installs source files only, adds no Python packages, and usually takes under 1 minute."
 if ($SetupProject) {
-    Write-Host "Project hooks add about 0.3 MB and usually under 10 seconds."
+    Write-Host "Project runtime setup usually takes under 10 seconds."
 }
 Write-Host "Installation stage 1: checking prerequisites."
 

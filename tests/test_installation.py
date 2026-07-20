@@ -1012,7 +1012,7 @@ class OneCommandInstallerTests(unittest.TestCase):
                 stderr=subprocess.PIPE,
             )
             self.assertEqual(process.returncode, 0, process.stderr)
-            self.assertIn("about 0.5 MB", process.stdout)
+            self.assertIn("adds no Python packages", process.stdout)
             self.assertIn("Prerequisite check passed", process.stdout)
             self.assertFalse((root / "codex-home").exists())
             self.assertFalse((project / ".wishgraph").exists())
@@ -1242,7 +1242,7 @@ class OneCommandInstallerTests(unittest.TestCase):
             "winget install --id Git.Git",
             "winget install 9NQ7512CXL7T",
             "py list --format=exe",
-            "about 0.5 MB",
+            "adds no Python packages",
             "wishgraph-worker.md",
             "wishgraph-managed: wishgraph-worker",
         ):

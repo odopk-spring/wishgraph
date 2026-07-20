@@ -10,7 +10,7 @@
 - Python 3.9 或更高版本。
 - Codex 或 Claude Code，用于当前支持的原生宿主路径。
 
-WishGraph 不安装任何 Python 第三方包。Skill 大约 0.5 MB，项目 runtime 大约 0.3 MB。
+WishGraph 不安装任何 Python 第三方包。安装器会在写入前检查依赖和目标 Git 仓库。
 
 三个概念要分开：
 
@@ -71,7 +71,7 @@ Claude Code：
 2. 输入：开始讨论
 ```
 
-新窗口默认保持 neutral。收到命令后，它只读取精简 Discussion 交接、当前 Project Status 和 active state。
+新窗口默认保持 neutral。收到命令后，它只读取当前 Project Status、待处理通知和下一步真正需要的 active state。
 
 对于已有项目，WishGraph 会先复用仓库中已经可信的文档。它不应该为了证明安装成功而重命名目录、复制出一套平行文档、创建虚假的 bootstrap Task，或者修改业务代码。
 
@@ -178,13 +178,11 @@ WishGraph 默认使用 native-lite：
 
 - 已经有产品说明时，先核验当前 Task 涉及的关键路径、符号、命令和明显冲突，再决定复用，不创建竞争性的 `PRD.md`。
 - 已有架构、代码地图、规范、Issue、Task 或测试事实源能支持当前 Task 时继续复用，并把未知内容写入该 Task。
-- 只在缺少时补充精简 `reports/PROJECT_STATUS.md` 和稳定的 Discussion/Worker 入口提示词。
-- Task、Revision 和 Run Report 目录在首次需要时创建。
+- 只有缺少合适的当前状态源时，才补充精简 `reports/PROJECT_STATUS.md`。
+- `tasks/`、`tasks/revisions/` 和 `reports/runs/` 在首次需要对应工作单元时创建；只有真实运行才生成报告。
 - 当前状态保持为重写后的快照，历史留在不可变报告和 Git 中。
 
-标准文件名是默认方案，不是要求已有项目复制一套文档。native-lite 不创建文档注册表或持久信任评分。
-
-预发布时期的 `.tasks/build/`、`reports/DEV_REPORT.md`、旧字段别名和缺失 `required_hosts` 的配置不再自动迁移。Doctor 发现这些格式时，明确重新启用项目或重新生成结构化记录即可。
+标准文件名是默认方案，不是要求已有项目复制一套文档。native-lite 不创建项目级 Prompt、空白 Run Report、文档注册表或持久信任评分，也不限制用户自己的根目录文件和项目原生目录。
 
 ## 维护与排障
 
