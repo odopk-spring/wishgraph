@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": 13,
-    "runtime_version": 30,
+    "runtime_version": 31,
     "mode": "enforce",
     "required_hosts": ["codex", "claude"],
     "paths": {
@@ -81,7 +81,34 @@ def run_git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedP
     )
 
 
+def _worktree_git_dir(root: Path) -> Optional[Path]:
+    """Resolve the worktree Git directory without starting a Git process."""
+    marker = root / ".git"
+    if marker.is_dir():
+        return marker.resolve()
+    if not marker.is_file():
+        return None
+    try:
+        declaration = marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    prefix = "gitdir:"
+    if not declaration.casefold().startswith(prefix):
+        return None
+    value = declaration[len(prefix) :].strip()
+    if not value:
+        return None
+    path = Path(value)
+    return (path if path.is_absolute() else root / path).resolve()
+
+
 def find_git_root(start: Path) -> Optional[Path]:
+    candidate = start.resolve(strict=False)
+    if candidate.is_file():
+        candidate = candidate.parent
+    for directory in (candidate, *candidate.parents):
+        if _worktree_git_dir(directory) is not None:
+            return directory.resolve()
     try:
         result = run_git(start, "rev-parse", "--show-toplevel")
     except (OSError, subprocess.CalledProcessError):
@@ -90,6 +117,18 @@ def find_git_root(start: Path) -> Optional[Path]:
 
 
 def git_common_dir(root: Path) -> Path:
+    git_dir = _worktree_git_dir(root)
+    if git_dir is not None:
+        common_marker = git_dir / "commondir"
+        try:
+            value = common_marker.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            return git_dir
+        except OSError:
+            value = ""
+        if value:
+            path = Path(value)
+            return (path if path.is_absolute() else git_dir / path).resolve()
     value = run_git(root, "rev-parse", "--git-common-dir").stdout.decode(
         "utf-8", errors="replace"
     ).strip()
@@ -98,6 +137,17 @@ def git_common_dir(root: Path) -> Path:
 
 
 def current_branch(root: Path) -> str:
+    git_dir = _worktree_git_dir(root)
+    if git_dir is not None:
+        try:
+            head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+        except OSError:
+            head = ""
+        prefix = "ref: refs/heads/"
+        if head.startswith(prefix):
+            return head[len(prefix) :]
+        if head:
+            return "DETACHED"
     result = run_git(root, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
     if result.returncode == 0:
         return result.stdout.decode("utf-8", errors="replace").strip()

@@ -1,0 +1,53 @@
+name: Bug report
+description: Report reproducible WishGraph behavior or an installation problem.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Do not report security vulnerabilities here. Follow SECURITY.md and remove secrets or private repository content.
+  - type: input
+    id: version
+    attributes:
+      label: WishGraph version
+      description: Release tag, commit, and project runtime_version if available.
+    validations:
+      required: true
+  - type: dropdown
+    id: host
+    attributes:
+      label: Host
+      options: [Codex, Claude Code CLI, Other]
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, host version, Python version, and warn/enforce mode.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include exact commands and sanitized diagnostics.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Validation evidence
+      description: Sanitized Doctor/status output, logs, or test results. Do not include credentials.

@@ -27,6 +27,11 @@ tool_gate_provider.py     private PreToolUse classification and authority gate
 git_state.py              Git facts, canonical Runs, Claims, sessions, and Integration leases
 ```
 
+The stable entrypoint routes `PreToolUse` directly through the private tool-gate
+provider so high-frequency gates do not import the larger diagnostic and Worker
+routing surface. Module imports still expose the public boundaries for tests and
+CLI consumers; this fast executable path does not create a second policy layer.
+
 ## Hook Events
 
 ### UserPromptSubmit
@@ -179,7 +184,8 @@ Use these regression budgets:
 
 ```text
 SKILL.md                          < 15-20 KB
-PreToolUse p95                   < 200 ms
+ordinary non-commit PreToolUse p95 < 200 ms
+commit PreToolUse p95              < 300 ms
 SessionStart p95                 < 500 ms
 Discussion dispatch p95         < 3,000 ms
 non-commit PreToolUse bulk delta <= 25 ms
@@ -210,7 +216,7 @@ Keep the boundary exact:
 
 Keep non-timing I/O-contract tests in the normal suite. Fail ordinary PreToolUse if it invokes Git `status`, `diff`, `ls-files`, `ls-tree`, or `for-each-ref`, or uses `os.walk`, `Path.rglob`, or recursive `**` glob. Allow bounded Claim `*.json` scans.
 
-Do not put wall-clock assertions in ordinary unit tests. If absolute p95 fails but the I/O contract passes, repeat three rounds and record environment variance. Treat a bulk delta failure as source-tree coupling. Repair the hot path before raising thresholds. Do not commit machine-specific JSON as a universal result.
+Do not put wall-clock assertions in ordinary unit tests. Commit gates have a separate budget because they must inspect the staged index through Git; that exception must not relax ordinary tool gates. If absolute p95 fails but the I/O contract passes, repeat three rounds and record environment variance. Treat a bulk delta failure as source-tree coupling. Repair the hot path before raising thresholds. Do not commit machine-specific JSON as a universal result.
 
 ## Failure And Recovery
 

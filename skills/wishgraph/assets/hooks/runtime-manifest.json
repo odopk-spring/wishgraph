@@ -1,17 +1,27 @@
 {
   "schema_version": 1,
-  "runtime_version": 30,
+  "runtime_version": 31,
   "files": {
-    "memory_sync.py": "1b23d23318a014aea4f92b881b768f0dc174745c8bfd562e465a3e9ebcd1d3d6",
-    "git_state.py": "a511f51098c580ebcd16dd66a0d96c2480fe028fd8ca4b0f03f24a8e31f9b8d8",
+    "memory_sync.py": "8e6dfb504c48cb04891cd0c8282855168b96a90a908b2e0c195069439c7da158",
+    "git_state.py": "d12a12631a586749c8c381d50b6d5072c0744129a4287131278608f577955c70",
     "workflow_state.py": "38d4dd3431936419abcce9bd594b4082ce6cfe8bf66b11c8c111b16ac3288faa",
     "policy.py": "9c8177cce096667a9a046fa9669aaec1819a012d83ebe387cc4d0d845aabf1d6",
-    "host_adapter.py": "2e456c8e4f2d93370ac69e5d72d54cdead979a9f6b2e65985bcb8ae0662c05ef",
+    "host_adapter.py": "f201e91cf70ad7b2d2da545595101f3e1073ba8cc14ffe37cc90976d76eb9cd2",
     "codex_worker_provider.py": "3ba60efdf01dc0327b683e0570a59833771fadc167f03715f063ced7dee63677",
     "claude_worker_provider.py": "a063db8fb77d848222c235fb451227f90061de1769d25f6f7b82bf47898dba48",
-    "tool_gate_provider.py": "000a431550a20fae6d2dcb6f7b5b5b170ce3f5c1af1e4390ed8f7f22d8a1393e"
+    "tool_gate_provider.py": "36f738b8b250cc53f647980c3628a11fd30c57a78f5e0f3772873d124ffd6680"
   },
   "known_versions": {
+    "30": {
+      "memory_sync.py": "1b23d23318a014aea4f92b881b768f0dc174745c8bfd562e465a3e9ebcd1d3d6",
+      "git_state.py": "a511f51098c580ebcd16dd66a0d96c2480fe028fd8ca4b0f03f24a8e31f9b8d8",
+      "workflow_state.py": "38d4dd3431936419abcce9bd594b4082ce6cfe8bf66b11c8c111b16ac3288faa",
+      "policy.py": "9c8177cce096667a9a046fa9669aaec1819a012d83ebe387cc4d0d845aabf1d6",
+      "host_adapter.py": "2e456c8e4f2d93370ac69e5d72d54cdead979a9f6b2e65985bcb8ae0662c05ef",
+      "codex_worker_provider.py": "3ba60efdf01dc0327b683e0570a59833771fadc167f03715f063ced7dee63677",
+      "claude_worker_provider.py": "a063db8fb77d848222c235fb451227f90061de1769d25f6f7b82bf47898dba48",
+      "tool_gate_provider.py": "000a431550a20fae6d2dcb6f7b5b5b170ce3f5c1af1e4390ed8f7f22d8a1393e"
+    },
     "29": {
       "memory_sync.py": "1b23d23318a014aea4f92b881b768f0dc174745c8bfd562e465a3e9ebcd1d3d6",
       "git_state.py": "5747638a9532f4f43ce4115b758a82f7b000741d733eb4c3ffe3312f93948654",

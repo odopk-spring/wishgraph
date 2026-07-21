@@ -1,5 +1,72 @@
 from tests.wishgraph_test_support import *  # noqa: F401,F403
 
+
+class GitMetadataFastPathTests(unittest.TestCase):
+    def test_standard_worktree_metadata_does_not_start_git(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            nested = root / "src" / "nested"
+            nested.mkdir(parents=True)
+            git_state_module = sys.modules["git_state"]
+
+            with mock.patch.object(
+                git_state_module,
+                "run_git",
+                side_effect=AssertionError("Git CLI fallback should not run"),
+            ):
+                self.assertEqual(memory_sync.find_git_root(nested), root.resolve())
+                self.assertEqual(memory_sync.git_common_dir(root), (root / ".git").resolve())
+                self.assertIn(memory_sync.current_branch(root), {"main", "master"})
+
+    def test_linked_worktree_resolves_common_dir_and_branch_without_git(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            base = Path(tempdir)
+            root = base / "source"
+            linked = base / "linked"
+            root.mkdir()
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            subprocess.run(
+                ["git", "-C", str(root), "config", "user.email", "test@example.com"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(root), "config", "user.name", "WishGraph Tests"],
+                check=True,
+            )
+            (root / "README.md").write_text("fixture\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(root), "add", "README.md"], check=True)
+            subprocess.run(
+                ["git", "-C", str(root), "commit", "-qm", "fixture"], check=True
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "worktree",
+                    "add",
+                    "-q",
+                    "-b",
+                    "worktree-fast-path",
+                    str(linked),
+                ],
+                check=True,
+            )
+            git_state_module = sys.modules["git_state"]
+
+            with mock.patch.object(
+                git_state_module,
+                "run_git",
+                side_effect=AssertionError("Git CLI fallback should not run"),
+            ):
+                self.assertEqual(memory_sync.find_git_root(linked), linked.resolve())
+                self.assertEqual(
+                    memory_sync.git_common_dir(linked), (root / ".git").resolve()
+                )
+                self.assertEqual(memory_sync.current_branch(linked), "worktree-fast-path")
+
+
 class UnbornRepositoryTests(unittest.TestCase):
     def test_session_start_accepts_repository_without_first_commit(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:

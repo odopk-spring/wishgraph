@@ -114,7 +114,7 @@ WishGraph requires Git and Python 3.9+ and installs no Python packages. These co
 Run inside the target project:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- codex --setup-project
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.0/scripts/install-wishgraph.sh | bash -s -- codex --setup-project
 ```
 
 ### Claude Code CLI · macOS / Linux
@@ -122,7 +122,7 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 Run inside the target project:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.sh | bash -s -- claude-user --setup-project
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.0/scripts/install-wishgraph.sh | bash -s -- claude-user --setup-project
 ```
 
 ### Windows PowerShell
@@ -130,14 +130,18 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts
 Codex:
 
 ```powershell
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) codex -SetupProject
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.0/scripts/install-wishgraph.ps1'))) codex -SetupProject
 ```
 
 Claude Code:
 
 ```powershell
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.0/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
 ```
+
+These commands are pinned to the immutable `v0.1.0` release. Development
+snapshots are intentionally opt-in: download the installer from `main` and set
+`WISHGRAPH_REF=main` only when testing unreleased changes.
 
 After installation:
 
@@ -269,6 +273,11 @@ tests/              Installer and runtime regression tests
 ## Community and contact
 
 - Bugs and concrete feature requests: [GitHub Issues](https://github.com/odopk-spring/wishgraph/issues)
+- Compatibility and beta limitations: [COMPATIBILITY.md](COMPATIBILITY.md)
+- Security reports: [SECURITY.md](SECURITY.md)
+- Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Local data and privacy: [PRIVACY.md](PRIVACY.md)
+- Release history: [CHANGELOG.md](CHANGELOG.md)
 - Commercial licensing and partnerships: [zuelfma@foxmail.com](mailto:zuelfma@foxmail.com)
 - Chinese articles, practical notes, and project updates: WeChat Official Account **有言以对Spring**
 

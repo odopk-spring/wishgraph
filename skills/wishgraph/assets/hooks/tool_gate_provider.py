@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
+import sys
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -13,14 +15,16 @@ from git_state import (
     configured_revision_glob,
     configured_task_globs,
     current_branch,
+    find_git_root,
     inspect_claims,
     inspect_integration_lease,
     load_config,
     matches_repo_glob,
     read_session_runtime,
     read_version,
+    run_git,
 )
-from policy import reduce_orchestration
+from policy import check_sync, reduce_orchestration
 from workflow_state import (
     FlowPlan,
     HostCapability,
@@ -701,3 +705,280 @@ def emit_orchestration_gate(
             }
         }
     )
+
+
+_HOOK_AUTHORITY_DENIAL = (
+    "This session does not have valid authority for the requested change. "
+    "Return to Discussion, approve the Task, and start its Worker again."
+)
+_HOOK_CLOSEOUT_DENIAL = (
+    "WishGraph has not completed this work handoff, so the result cannot close yet. "
+    "Run 'Check WishGraph status' for the required repair."
+)
+_HOOK_CONFIG_DENIAL = (
+    "WishGraph configuration needs attention before managed work can continue. "
+    "Run the WishGraph doctor for details."
+)
+_HOOK_RUNTIME_DENIAL = (
+    "WishGraph could not verify the authority state for this operation. "
+    "The operation was stopped safely; run 'Check WishGraph status' for recovery."
+)
+
+
+def _emit(value: dict[str, Any]) -> None:
+    sys.stdout.write(json.dumps(value, ensure_ascii=False) + "\n")
+
+
+def _configured_mode_from_payload(payload: dict[str, Any]) -> str:
+    start = Path(payload.get("cwd") or os.getcwd()).resolve(strict=False)
+    if start.is_file():
+        start = start.parent
+    for candidate in (start, *start.parents):
+        try:
+            raw = (candidate / ".wishgraph" / "config.json").read_text(
+                encoding="utf-8"
+            )
+        except OSError:
+            continue
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            return "enforce" if re.search(r'"mode"\s*:\s*"enforce"', raw) else ""
+        mode = value.get("mode") if isinstance(value, dict) else ""
+        return mode if mode in {"off", "warn", "enforce"} else ""
+    return ""
+
+
+def _fast_host_capability(host: str) -> HostCapability:
+    common = {
+        "can_gate_writes": True,
+        "can_gate_builds": True,
+        "can_gate_reads": False,
+        "can_deliver_result_to_discussion": True,
+    }
+    if host == "codex":
+        return HostCapability(
+            host=host,
+            can_spawn_execution_thread=True,
+            can_inspect_execution_thread=True,
+            can_bind_thread_id=True,
+            can_stop_or_steer_thread=True,
+            can_isolate_worktree=False,
+            can_observe_terminal_result=True,
+            **common,
+        )
+    if host == "claude":
+        return HostCapability(
+            host=host,
+            can_spawn_execution_thread=True,
+            can_inspect_execution_thread=True,
+            can_bind_thread_id=True,
+            can_stop_or_steer_thread=True,
+            can_isolate_worktree=True,
+            can_observe_terminal_result=True,
+            **common,
+        )
+    return HostCapability(host=host)
+
+
+def _fast_execution_guard(
+    root: Path,
+    config: dict[str, Any],
+    host: str,
+    *,
+    bound_claim: bool = False,
+) -> dict[str, Any]:
+    # Claim acquisition already verifies the selected host, current Adapter, and
+    # recent receipt. Rechecking those static files before every Worker tool call
+    # adds latency without strengthening the active Claim binding.
+    if bound_claim and host in config.get("required_hosts", []):
+        return {
+            "ok": True,
+            "formal_worker_ready": True,
+            "host_execution_confirmed": True,
+            "receipt_state": "active_claim_binding",
+        }
+    return {
+        "ok": False,
+        "formal_worker_ready": False,
+        "host_execution_confirmed": False,
+        "error": "active_claim_required",
+        "message": "A strict-mode Worker must hold its bound active Claim.",
+    }
+
+
+def _lazy_task_specs(root: Path, config: dict[str, Any]) -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
+    seen: set[Path] = set()
+    for pattern in configured_task_globs(config):
+        for path in sorted(root.glob(pattern)):
+            if path in seen or path.name.startswith(("EXAMPLE-", "NNN-")):
+                continue
+            seen.add(path)
+            relative = path.relative_to(root).as_posix()
+            content = read_version(root, relative, "worktree")
+            if content is None:
+                continue
+            state = parse_task_state(relative, content)
+            specs.append({"task_id": state.task_id, "task_path": relative})
+    return specs
+
+
+def _neutral_operation_requires_worker(
+    root: Path,
+    config: dict[str, Any],
+    payload: dict[str, Any],
+) -> bool:
+    """Reject a neutral-session operation before constructing full flow state."""
+    if not config.get("orchestration_gate_enabled", True):
+        return False
+    if classify_tool_operation(root, config, payload) is None:
+        return False
+    session_id = hook_session_id(payload)
+    runtime = read_session_runtime(root, session_id) if session_id else None
+    session = runtime.get("session") if isinstance(runtime, dict) else None
+    role = str(session.get("role") or "neutral") if isinstance(session, dict) else "neutral"
+    return role == "neutral"
+
+
+def _pre_tool_use_main(payload: dict[str, Any], host: str) -> int:
+    root = find_git_root(Path(payload.get("cwd") or os.getcwd()))
+    if root is None:
+        _emit({})
+        return 0
+    try:
+        config = load_config(root)
+    except ValueError:
+        if _configured_mode_from_payload(payload) != "enforce":
+            _emit({})
+            return 0
+        _emit(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": _HOOK_CONFIG_DENIAL,
+                }
+            }
+        )
+        return 0
+    if config is None or config.get("mode") in {"off", "warn"}:
+        _emit({})
+        return 0
+
+    for authority_plan in (
+        wishgraph_control_gate_plan(root, payload),
+        worker_policy_mutation_plan(
+            root, payload, task_specs_loader=_lazy_task_specs
+        ),
+    ):
+        if authority_plan is not None and not authority_plan.accepted:
+            _emit(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": _HOOK_AUTHORITY_DENIAL,
+                    }
+                }
+            )
+            return 0
+
+    tool_input = payload.get("tool_input")
+    command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+    commit_command = payload.get("tool_name") == "Bash" and is_git_commit_command(
+        str(command)
+    )
+    if commit_command and commit_uses_implicit_staging(str(command)):
+        _emit(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        "WishGraph blocks git commit options that stage implicitly "
+                        "(-a/--all, -i/--include, -o/--only). Stage the bounded code "
+                        "and external-memory files explicitly, run the staged memory "
+                        "check, then commit."
+                    ),
+                }
+            }
+        )
+        return 0
+    if not commit_command and _neutral_operation_requires_worker(root, config, payload):
+        _emit(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        "This session is not authorized for the requested change. "
+                        "Return to Discussion and start the approved Task from there."
+                    ),
+                }
+            }
+        )
+        return 0
+    if commit_command:
+        staged_probe = run_git(root, "diff", "--cached", "--quiet", check=False)
+        try:
+            allow_empty_commit = "--allow-empty" in shlex.split(str(command))
+        except ValueError:
+            allow_empty_commit = False
+        if staged_probe.returncode == 0 and not allow_empty_commit:
+            _emit({})
+            return 0
+        if staged_probe.returncode != 0:
+            result = check_sync(root, config, "staged")
+            if not result.ok:
+                _emit(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": _HOOK_CLOSEOUT_DENIAL,
+                        }
+                    }
+                )
+                return 0
+    gate_plan = orchestration_gate_plan(
+        root,
+        config,
+        payload,
+        current_host=host,
+        execution_guard=_fast_execution_guard,
+        capability_for=_fast_host_capability,
+    )
+    if gate_plan is not None and not gate_plan.accepted:
+        emit_orchestration_gate(gate_plan, str(config.get("mode")), emit_output=_emit)
+        return 0
+    _emit({})
+    return 0
+
+
+def pre_tool_use_entry(host: str = "unknown") -> int:
+    """Run the high-frequency gate without importing the full diagnostic CLI."""
+    try:
+        raw = sys.stdin.read()
+        payload = json.loads(raw) if raw.strip() else {}
+        if not isinstance(payload, dict):
+            payload = {}
+    except json.JSONDecodeError:
+        payload = {}
+    mode = _configured_mode_from_payload(payload)
+    try:
+        return _pre_tool_use_main(payload, host)
+    except Exception:
+        if mode != "enforce":
+            _emit({})
+            return 0
+        _emit(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": _HOOK_RUNTIME_DENIAL,
+                }
+            }
+        )
+        return 0
