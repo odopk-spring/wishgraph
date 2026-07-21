@@ -42,6 +42,10 @@ Release artifacts include `SHA256SUMS`. The tag workflow runs the full test suit
 tag-pinned installation smoke tests on Ubuntu, macOS, and Windows, plus three-round
 cold-process performance benchmarks before producing those artifacts.
 
+The ordinary PreToolUse target remains below 200 ms. The release gate uses 200 ms
+on Ubuntu/macOS and 250 ms on GitHub-hosted Windows runners to account for observed
+cold-process runner variance.
+
 ## Feedback
 
 Use GitHub Issues for reproducible bugs and concrete feature requests. Report

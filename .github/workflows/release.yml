@@ -100,7 +100,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            pretool-limit-ms: 200
+          - os: macos-latest
+            pretool-limit-ms: 200
+          - os: windows-latest
+            pretool-limit-ms: 250
     steps:
       - uses: actions/checkout@v7
         with:
@@ -116,6 +122,7 @@ jobs:
           --iterations 100
           --rounds 3
           --bulk-files 20000
+          --pretool-limit-ms ${{ matrix.pretool-limit-ms }}
           --enforce
           --json-out "benchmark-${{ runner.os }}.json"
       - uses: actions/upload-artifact@v7
