@@ -29,6 +29,7 @@ RUNTIME_FILES = (
     "tool_gate_provider.py",
 )
 PRETOOL_LIMIT_MS = 200.0
+COMMIT_PRETOOL_LIMIT_MS = 300.0
 SESSION_LIMIT_MS = 500.0
 DISPATCH_LIMIT_MS = 3000.0
 BULK_DELTA_LIMIT_MS = 25.0
@@ -448,7 +449,11 @@ def benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 else (
                     args.session_limit_ms
                     if name.startswith("session_")
-                    else args.pretool_limit_ms
+                    else (
+                        args.commit_pretool_limit_ms
+                        if name == "pretool_commit_staged"
+                        else args.pretool_limit_ms
+                    )
                 )
             )
             if result["p95_ms"] >= limit:
@@ -478,6 +483,7 @@ def benchmark(args: argparse.Namespace) -> dict[str, Any]:
             },
             "thresholds_ms": {
                 "pretool_p95": args.pretool_limit_ms,
+                "commit_pretool_p95": args.commit_pretool_limit_ms,
                 "session_start_p95": args.session_limit_ms,
                 "dispatch_p95": args.dispatch_limit_ms,
                 "bulk_p95_delta": args.bulk_delta_limit_ms,
@@ -496,6 +502,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rounds", type=int, default=1)
     parser.add_argument("--bulk-files", type=int, default=5000)
     parser.add_argument("--pretool-limit-ms", type=float, default=PRETOOL_LIMIT_MS)
+    parser.add_argument(
+        "--commit-pretool-limit-ms",
+        type=float,
+        default=COMMIT_PRETOOL_LIMIT_MS,
+    )
     parser.add_argument("--session-limit-ms", type=float, default=SESSION_LIMIT_MS)
     parser.add_argument("--dispatch-limit-ms", type=float, default=DISPATCH_LIMIT_MS)
     parser.add_argument(

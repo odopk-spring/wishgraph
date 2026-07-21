@@ -28,6 +28,15 @@ jobs:
         run: python -m py_compile skills/wishgraph/assets/hooks/*.py skills/wishgraph/scripts/install_project_hooks.py
       - name: Check shell installer syntax
         run: bash -n scripts/install-wishgraph.sh
+      - name: Run quick hook performance regression gate
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        run: >-
+          python skills/wishgraph/scripts/benchmark_hooks.py
+          --warmup 3
+          --iterations 30
+          --rounds 1
+          --bulk-files 1000
+          --enforce
       - name: Check whitespace
         run: git diff --check
 

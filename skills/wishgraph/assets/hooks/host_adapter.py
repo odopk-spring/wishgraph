@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
-import difflib
 import fnmatch
 import json
 import os
@@ -12,7 +10,6 @@ import shlex
 import shutil
 import subprocess
 import sys
-import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -4172,6 +4169,8 @@ def resolve_task(root: Path, config: dict[str, Any], task_id: str) -> dict[str, 
             "matches": [item["task_path"] for item in matches],
         }
     if not matches:
+        import difflib
+
         filename_ids: set[str] = set()
         for pattern in configured_task_globs(config):
             for path in root.glob(pattern):
@@ -5025,6 +5024,8 @@ def claude_worker_main(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    import argparse
+
     if len(sys.argv) > 1 and sys.argv[1] == "codex-worker":
         return _codex_worker_provider().main(
             sys.argv[2:],

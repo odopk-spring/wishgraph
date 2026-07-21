@@ -31,7 +31,7 @@ Examples:
 
 Environment:
   WISHGRAPH_REPO_URL  Defaults to https://github.com/odopk-spring/wishgraph.git
-  WISHGRAPH_REF       Defaults to main
+  WISHGRAPH_REF       Defaults to v0.1.0; set main only for development snapshots
 USAGE
 }
 
@@ -205,7 +205,7 @@ if [[ "$check_only" -eq 1 ]]; then
 fi
 
 repo_url="${WISHGRAPH_REPO_URL:-https://github.com/odopk-spring/wishgraph.git}"
-repo_ref="${WISHGRAPH_REF:-main}"
+repo_ref="${WISHGRAPH_REF:-v0.1.0}"
 
 case "$target" in
   codex)
@@ -252,7 +252,7 @@ if [[ "$reuse_existing" -eq 0 ]]; then
   git -C "$tmpdir" sparse-checkout set skills/wishgraph >/dev/null
 
   staged_skill="$tmpdir/skills/wishgraph"
-  for required in SKILL.md scripts/install_project_hooks.py; do
+  for required in VERSION SKILL.md scripts/install_project_hooks.py; do
     if [[ ! -f "$staged_skill/$required" ]]; then
       echo "Downloaded WishGraph Skill is incomplete: missing $required" >&2
       exit 1

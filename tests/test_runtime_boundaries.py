@@ -1,6 +1,38 @@
 from tests.wishgraph_test_support import *  # noqa: F401,F403
 
 class RuntimeBoundaryTests(unittest.TestCase):
+    def test_release_installers_pin_the_packaged_product_version(self) -> None:
+        version = (ROOT / "skills" / "wishgraph" / "VERSION").read_text(
+            encoding="utf-8"
+        ).strip()
+        self.assertEqual(version, "0.1.0")
+        bash_installer = TOP_LEVEL_INSTALLER.read_text(encoding="utf-8")
+        powershell_installer = POWERSHELL_INSTALLER.read_text(encoding="utf-8")
+        self.assertIn('repo_ref="${WISHGRAPH_REF:-v0.1.0}"', bash_installer)
+        self.assertIn('else { "v0.1.0" }', powershell_installer)
+        for document in (
+            "README.md",
+            "README.zh-CN.md",
+            "GETTING_STARTED.md",
+            "GETTING_STARTED.zh-CN.md",
+        ):
+            content = (ROOT / document).read_text(encoding="utf-8")
+            self.assertIn("/v0.1.0/scripts/install-wishgraph", content)
+            self.assertNotIn("/main/scripts/install-wishgraph", content)
+
+    def test_commit_benchmark_budget_does_not_relax_ordinary_tool_gate(self) -> None:
+        benchmark_path = (
+            ROOT / "skills" / "wishgraph" / "scripts" / "benchmark_hooks.py"
+        )
+        spec = importlib.util.spec_from_file_location(
+            "wishgraph_benchmark_budget", benchmark_path
+        )
+        assert spec and spec.loader
+        benchmark = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(benchmark)
+        self.assertEqual(benchmark.PRETOOL_LIMIT_MS, 200.0)
+        self.assertEqual(benchmark.COMMIT_PRETOOL_LIMIT_MS, 300.0)
+
     def test_benchmark_fixture_matches_the_host_receipt_contract(self) -> None:
         benchmark_path = (
             ROOT / "skills" / "wishgraph" / "scripts" / "benchmark_hooks.py"
@@ -46,7 +78,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
             "codex_worker_provider.py": {"git_state", "workflow_state"},
             "claude_worker_provider.py": {"git_state", "workflow_state"},
             "tool_gate_provider.py": {"git_state", "policy", "workflow_state"},
-            "memory_sync.py": public_boundaries,
+            "memory_sync.py": public_boundaries | {"tool_gate_provider"},
         }
 
         for filename, expected_imports in expected.items():

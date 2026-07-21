@@ -158,7 +158,7 @@ if ($Check) {
 }
 
 $repoUrl = if ($env:WISHGRAPH_REPO_URL) { $env:WISHGRAPH_REPO_URL } else { "https://github.com/odopk-spring/wishgraph.git" }
-$repoRef = if ($env:WISHGRAPH_REF) { $env:WISHGRAPH_REF } else { "main" }
+$repoRef = if ($env:WISHGRAPH_REF) { $env:WISHGRAPH_REF } else { "v0.1.0" }
 
 switch ($Target) {
     "codex" {
@@ -211,7 +211,7 @@ if (-not $reuseExisting) {
         }
 
         $stagedSkill = Join-Path $tempDirectory "skills/wishgraph"
-        foreach ($required in @("SKILL.md", "scripts/install_project_hooks.py")) {
+        foreach ($required in @("VERSION", "SKILL.md", "scripts/install_project_hooks.py")) {
             if (-not (Test-Path -LiteralPath (Join-Path $stagedSkill $required) -PathType Leaf)) {
                 throw "Downloaded WishGraph Skill is incomplete: missing $required"
             }
