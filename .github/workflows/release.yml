@@ -4,9 +4,18 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Existing immutable release tag to validate and package
+        required: true
+        type: string
 
 permissions:
   contents: read
+
+env:
+  RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}
 
 jobs:
   validate-version:
@@ -14,11 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_REF }}
       - name: Match tag to packaged version
         shell: bash
         run: |
           expected="v$(tr -d '\r\n' < skills/wishgraph/VERSION)"
-          test "$GITHUB_REF_NAME" = "$expected"
+          test "$RELEASE_REF" = "$expected"
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -40,6 +51,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ env.RELEASE_REF }}
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -53,10 +65,10 @@ jobs:
           git -C "$project" init -q
           CODEX_HOME="$codex_home" \
           WISHGRAPH_REPO_URL="$GITHUB_WORKSPACE" \
-          WISHGRAPH_REF="$GITHUB_REF_NAME" \
+          WISHGRAPH_REF="$RELEASE_REF" \
             bash scripts/install-wishgraph.sh codex --setup-project --project "$project"
-          test "$(tr -d '\r\n' < "$codex_home/skills/wishgraph/VERSION")" = "${GITHUB_REF_NAME#v}"
-          python "$project/.wishgraph/hooks/memory_sync.py" status
+          test "$(tr -d '\r\n' < "$codex_home/skills/wishgraph/VERSION")" = "${RELEASE_REF#v}"
+          (cd "$project" && python .wishgraph/hooks/memory_sync.py status)
       - name: Smoke test tagged PowerShell installer
         if: runner.os == 'Windows'
         shell: powershell
@@ -67,13 +79,18 @@ jobs:
           git -C $project init -q
           $env:CODEX_HOME = $codexHome
           $env:WISHGRAPH_REPO_URL = $env:GITHUB_WORKSPACE
-          $env:WISHGRAPH_REF = $env:GITHUB_REF_NAME
+          $env:WISHGRAPH_REF = $env:RELEASE_REF
           & ./scripts/install-wishgraph.ps1 codex -SetupProject -Project $project
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $installedVersion = (Get-Content (Join-Path $codexHome "skills/wishgraph/VERSION") -Raw).Trim()
-          if ("v$installedVersion" -ne $env:GITHUB_REF_NAME) { exit 1 }
-          python (Join-Path $project ".wishgraph/hooks/memory_sync.py") status
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ("v$installedVersion" -ne $env:RELEASE_REF) { exit 1 }
+          Push-Location $project
+          try {
+            python .wishgraph/hooks/memory_sync.py status
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Pop-Location
+          }
 
   performance:
     name: Release benchmark (${{ matrix.os }})
@@ -86,6 +103,8 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_REF }}
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -113,17 +132,18 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ env.RELEASE_REF }}
       - name: Build archives and checksums
         shell: bash
         run: |
           mkdir -p dist
-          prefix="wishgraph-${GITHUB_REF_NAME}/"
-          git archive --format=tar.gz --prefix="$prefix" -o "dist/wishgraph-${GITHUB_REF_NAME}.tar.gz" HEAD
-          git archive --format=zip --prefix="$prefix" -o "dist/wishgraph-${GITHUB_REF_NAME}.zip" HEAD
+          prefix="wishgraph-${RELEASE_REF}/"
+          git archive --format=tar.gz --prefix="$prefix" -o "dist/wishgraph-${RELEASE_REF}.tar.gz" HEAD
+          git archive --format=zip --prefix="$prefix" -o "dist/wishgraph-${RELEASE_REF}.zip" HEAD
           cd dist
-          sha256sum "wishgraph-${GITHUB_REF_NAME}.tar.gz" "wishgraph-${GITHUB_REF_NAME}.zip" > SHA256SUMS
+          sha256sum "wishgraph-${RELEASE_REF}.tar.gz" "wishgraph-${RELEASE_REF}.zip" > SHA256SUMS
       - uses: actions/upload-artifact@v7
         with:
-          name: release-${{ github.ref_name }}
+          name: release-${{ env.RELEASE_REF }}
           path: dist/
           if-no-files-found: error
