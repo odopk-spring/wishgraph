@@ -29,6 +29,10 @@
   <img alt="WishGraph 把讨论、Worker 执行、验证证据和最新项目状态连接成可追踪工作循环" src="docs/assets/hero/wishgraph-hero-light.svg">
 </picture>
 
+<p align="center">
+  <img src="docs/assets/method/wishgraph-method.gif" width="960" alt="WishGraph 方法论：从两个黑箱到有边界、可验证的控制闭环">
+</p>
+
 WishGraph 把开放式需求整理成有边界的 Task，把明确授权的工作交给可检查 Worker，并通过真实验证证据和重写后的当前状态完成闭环。
 
 ```text

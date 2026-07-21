@@ -29,6 +29,10 @@
   <img alt="WishGraph connects Discussion, Worker execution, validation evidence, and current project state into an inspectable workflow" src="docs/assets/hero/wishgraph-hero-light.svg">
 </picture>
 
+<p align="center">
+  <img src="docs/assets/method/wishgraph-method.gif" width="960" alt="WishGraph method: from two black boxes to a bounded, auditable control loop">
+</p>
+
 WishGraph turns an open-ended request into a bounded Task, routes explicitly authorized work to an inspectable Worker, and closes the loop with validation evidence and a rewritten current-state snapshot.
 
 ```text
