@@ -1440,9 +1440,9 @@ class OneCommandInstallerTests(unittest.TestCase):
                 stderr=subprocess.PIPE,
             )
             self.assertEqual(process.returncode, 0, process.stderr)
-            self.assertIn("Next: fully quit and reopen the current Agent", process.stdout)
+            self.assertIn("Next: reopen the current Agent", process.stdout)
             self.assertIn(
-                "warn mode does not bypass authority checks", process.stdout
+                "they do not block distribution in warn mode", process.stdout
             )
             self.assertTrue((codex_home / "skills" / "wishgraph" / "SKILL.md").exists())
             self.assertTrue((project / ".codex" / "hooks.json").exists())
