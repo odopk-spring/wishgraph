@@ -1,6 +1,16 @@
 from tests.wishgraph_test_support import *  # noqa: F401,F403
 
 class RuntimeBoundaryTests(unittest.TestCase):
+    def test_release_workflow_revalidates_an_immutable_tag_from_project_cwd(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertIn("RELEASE_REF: ${{ inputs.release_ref || github.ref_name }}", workflow)
+        self.assertIn('(cd "$project" && python .wishgraph/hooks/memory_sync.py status)', workflow)
+        self.assertIn("Push-Location $project", workflow)
+        self.assertNotIn('python "$project/.wishgraph/hooks/memory_sync.py" status', workflow)
+
     def test_release_installers_pin_the_packaged_product_version(self) -> None:
         version = (ROOT / "skills" / "wishgraph" / "VERSION").read_text(
             encoding="utf-8"
