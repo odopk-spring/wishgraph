@@ -1,5 +1,8 @@
 from tests.wishgraph_test_support import *  # noqa: F401,F403
 
+POSIX_BASH_AVAILABLE = os.name != "nt" and shutil.which("bash") is not None
+
+
 class InstallerTests(unittest.TestCase):
     def install_project_runtime(self, root: Path, *, mode: str = "warn") -> None:
         process = subprocess.run(
@@ -1207,7 +1210,7 @@ class OneCommandInstallerTests(unittest.TestCase):
         self.assertIn('$env:PYTHONUTF8 = "1"', content)
         self.assertIn('$env:PYTHONIOENCODING = "utf-8"', content)
 
-    @unittest.skipUnless(shutil.which("bash"), "bash is required")
+    @unittest.skipUnless(POSIX_BASH_AVAILABLE, "POSIX bash is required")
     def test_shell_force_clone_failure_preserves_existing_skill(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -1267,7 +1270,7 @@ class OneCommandInstallerTests(unittest.TestCase):
             self.assertNotEqual(process.returncode, 0)
             self.assertEqual(marker.read_text(encoding="utf-8"), "existing skill\n")
 
-    @unittest.skipUnless(shutil.which("bash"), "bash is required")
+    @unittest.skipUnless(POSIX_BASH_AVAILABLE, "POSIX bash is required")
     def test_check_mode_reports_cost_without_installing(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -1297,7 +1300,7 @@ class OneCommandInstallerTests(unittest.TestCase):
             self.assertFalse((root / "codex-home").exists())
             self.assertFalse((project / ".wishgraph").exists())
 
-    @unittest.skipUnless(shutil.which("bash"), "bash is required")
+    @unittest.skipUnless(POSIX_BASH_AVAILABLE, "POSIX bash is required")
     def test_missing_python_reports_guidance_without_writing(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -1329,7 +1332,7 @@ class OneCommandInstallerTests(unittest.TestCase):
             self.assertFalse((root / "codex-home").exists())
             self.assertFalse((project / ".wishgraph").exists())
 
-    @unittest.skipUnless(shutil.which("bash"), "bash is required")
+    @unittest.skipUnless(POSIX_BASH_AVAILABLE, "POSIX bash is required")
     def test_missing_dependencies_are_guided_one_at_a_time(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -1355,7 +1358,7 @@ class OneCommandInstallerTests(unittest.TestCase):
             self.assertNotIn("Python 3.9", process.stderr)
             self.assertIn("Nothing was installed", process.stderr)
 
-    @unittest.skipUnless(shutil.which("bash"), "bash is required")
+    @unittest.skipUnless(POSIX_BASH_AVAILABLE, "POSIX bash is required")
     def test_fresh_install_can_setup_current_project_in_one_command(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -1412,7 +1415,7 @@ class OneCommandInstallerTests(unittest.TestCase):
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["required_hosts"], ["codex", "claude"])
 
-    @unittest.skipUnless(shutil.which("bash"), "bash is required")
+    @unittest.skipUnless(POSIX_BASH_AVAILABLE, "POSIX bash is required")
     def test_setup_project_reuses_installed_skill_and_defaults_to_warn(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -1463,7 +1466,7 @@ class OneCommandInstallerTests(unittest.TestCase):
             self.assertEqual(config["mode"], "enforce")
             self.assertTrue((project / ".git" / "hooks" / "pre-commit").exists())
 
-    @unittest.skipUnless(shutil.which("bash"), "bash is required")
+    @unittest.skipUnless(POSIX_BASH_AVAILABLE, "POSIX bash is required")
     def test_claude_user_install_adds_managed_global_worker_agent(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -1511,7 +1514,7 @@ class OneCommandInstallerTests(unittest.TestCase):
                 agent.read_text(encoding="utf-8"),
             )
 
-    @unittest.skipUnless(shutil.which("bash"), "bash is required")
+    @unittest.skipUnless(POSIX_BASH_AVAILABLE, "POSIX bash is required")
     def test_strict_requires_project_setup(self) -> None:
         process = subprocess.run(
             ["bash", str(TOP_LEVEL_INSTALLER), "codex", "--strict"],
