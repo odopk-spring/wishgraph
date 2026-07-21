@@ -72,7 +72,7 @@ Create or update:
 - Implement only the approved task.
 - Keep the patch minimal and reversible.
 - Run validation listed in the task.
-- Verify authorization, advance the canonical Run through execution and terminal closeout, and create one new immutable `reports/runs/<work-unit-id>.md`. Do not mirror transient execution into task-state.
+- Verify authorization, advance the canonical Run through execution and terminal closeout, and create one new immutable `reports/runs/<work-unit-id>-attempt-N.md`. Do not mirror transient execution into task-state.
 - Record Integrate or N/A proposals; do not edit shared project memory.
 - If `.wishgraph/hooks/memory_sync.py` exists, run its worktree check before completion.
 - Create one atomic commit unless the user explicitly says not to.

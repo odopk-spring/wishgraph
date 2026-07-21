@@ -8,8 +8,7 @@
             "type": "command",
             "command": "python3 \"$(git rev-parse --show-toplevel)/.wishgraph/hooks/memory_sync.py\" session-start --host codex",
             "commandWindows": "powershell -NoProfile -Command \"$root = git rev-parse --show-toplevel; py -3 (Join-Path $root '.wishgraph/hooks/memory_sync.py') session-start --host codex\"",
-            "timeout": 30,
-            "statusMessage": "Checking WishGraph handoff state"
+            "timeout": 30
           }
         ]
       }
@@ -21,8 +20,7 @@
             "type": "command",
             "command": "python3 \"$(git rev-parse --show-toplevel)/.wishgraph/hooks/memory_sync.py\" user-prompt-submit --host codex",
             "commandWindows": "powershell -NoProfile -Command \"$root = git rev-parse --show-toplevel; py -3 (Join-Path $root '.wishgraph/hooks/memory_sync.py') user-prompt-submit --host codex\"",
-            "timeout": 10,
-            "statusMessage": "Routing WishGraph command"
+            "timeout": 10
           }
         ]
       }
@@ -35,8 +33,7 @@
             "type": "command",
             "command": "python3 \"$(git rev-parse --show-toplevel)/.wishgraph/hooks/memory_sync.py\" pre-tool-use --host codex",
             "commandWindows": "powershell -NoProfile -Command \"$root = git rev-parse --show-toplevel; py -3 (Join-Path $root '.wishgraph/hooks/memory_sync.py') pre-tool-use --host codex\"",
-            "timeout": 30,
-            "statusMessage": "Checking WishGraph memory sync"
+            "timeout": 30
           }
         ]
       }
@@ -48,8 +45,7 @@
             "type": "command",
             "command": "python3 \"$(git rev-parse --show-toplevel)/.wishgraph/hooks/memory_sync.py\" stop --host codex",
             "commandWindows": "powershell -NoProfile -Command \"$root = git rev-parse --show-toplevel; py -3 (Join-Path $root '.wishgraph/hooks/memory_sync.py') stop --host codex\"",
-            "timeout": 30,
-            "statusMessage": "Verifying WishGraph closeout"
+            "timeout": 30
           }
         ]
       }

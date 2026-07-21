@@ -285,4 +285,4 @@ WishGraph 能拦截受支持的原生写入工具、可识别的 shell 写入／
 
 普通用户不需要记诊断命令。重新打开会话后仍无法“开始讨论”时，再说“检查 WishGraph 状态”。Doctor 只读固定路径，区分文件安装、最近宿主调用、runtime 升级、当前宿主 adapter 修复和需人工检查的本地修改。
 
-Codex 触发未确认时检查 `/hooks`；Claude Code CLI 可额外运行 `claude doctor`。更新全局 Skill 不会自动改写已有项目的 `.wishgraph/hooks/`；项目 runtime 需要单独执行指纹校验的安全升级。
+Codex Desktop 触发未确认时，不要在聊天框输入 `/hooks`；请在同一项目打开 Codex CLI，并在那里用 `/hooks` 审查和信任精确 Hook 定义。Claude Code CLI 可额外运行 `claude doctor`。更新全局 Skill 不会自动改写已有项目的 `.wishgraph/hooks/`；项目 runtime 需要单独执行指纹校验的安全升级。

@@ -89,7 +89,7 @@ Claude Code may also expose `TaskCompleted`; keep it as a host adapter event rat
 .claude/agents/wishgraph-worker.md  # managed Claude background Worker
 ```
 
-The runtime manifest records one generated runtime version and SHA-256 fingerprints for the four public boundary files, stable entrypoint, and any private Host Adapter provider. Doctor compares only those fixed paths. The installer merges host JSON, removes obsolete WishGraph handlers, preserves unrelated hook groups, and refuses to overwrite a locally modified generated runtime unless `--force-assets` is explicit. Codex users must trust the repository and review `/hooks`.
+The runtime manifest records one generated runtime version and SHA-256 fingerprints for the four public boundary files, stable entrypoint, and any private Host Adapter provider. Doctor compares only those fixed paths. The installer merges host JSON, removes obsolete WishGraph handlers, preserves unrelated hook groups, and refuses to overwrite a locally modified generated runtime unless `--force-assets` is explicit. Codex project Hooks require the project layer and exact Hook definition to be trusted. `/hooks` is a Codex CLI command; Desktop users must open the CLI in the same project for that review instead of typing it into the Desktop chat.
 
 Updating the global Codex or Claude Skill refreshes the bundled runtime for future installs, but does not rewrite an existing project's `.wishgraph/hooks/` copy. The safe upgrade command repairs missing metadata for current bundled files or replaces a bundled-known generated version, and rolls back all runtime/config writes on failure. Unknown, incomplete, newer, or locally modified copies stop for review; `--force-assets` remains a deliberate human override.
 
@@ -108,7 +108,7 @@ A normal terminal Hook blocks while the Worker still holds an active Claim. Forc
 .git/wishgraph/host-observations/<host>/user-prompt-submit.json
 ```
 
-Each receipt contains only host, event, runtime version, and observation time. Doctor reports `unverified`, `stale`, `observed`, or `confirmed_recently` by comparing these receipts with the installed runtime and current host adapter. This proves only that the host recently invoked WishGraph; it is not a permanent trust guarantee. Do not write a receipt from `PreToolUse`, enumerate logs, or add files to the worktree.
+Each receipt contains only host, event, runtime version, and observation time. Before writing it, the adapter requires a valid stable session identity and an event payload consistent with the invoked lifecycle event; a bare manual CLI call is not a receipt. Doctor reports `unverified`, `stale`, `observed`, or `confirmed_recently` by comparing these receipts with the installed runtime and current host adapter. This proves only that the host recently invoked WishGraph; it is not a permanent trust guarantee. Do not write a receipt from `PreToolUse`, enumerate logs, or add files to the worktree.
 
 Use `warn` for first adoption. Use `enforce` only after a clean successful closeout. Add the Git pre-commit fallback for strict enforcement outside host lifecycle hooks. Follow `installation.md` for commands and prerequisites.
 
@@ -119,7 +119,7 @@ Key settings include:
 - `mode`: `off`, `warn`, or `enforce`.
 - `required_hosts`: non-empty subset of `codex` and `claude`; use `mode: off` instead of an empty list.
 - `paths`: canonical governance, Task, Revision, report, and prompt locations.
-- `required_impact_rows`: shared-memory files that require `Integrate` or concrete `N/A` evidence.
+- `paths.prd`, `paths.architecture`, `paths.codemap`, and `paths.conventions`: the four configured stable-memory paths; Run Report impact rows are derived from these paths rather than maintained in a second list.
 - Project Status size limits and the explicit Discussion context size limit.
 - `orchestration_gate_enabled` and host-dependent read-gate mode.
 
@@ -216,7 +216,7 @@ Do not put wall-clock assertions in ordinary unit tests. If absolute p95 fails b
 
 - Invalid configuration: report the specific field and stop semantic claims.
 - Missing or outdated current-host adapter: repair only that host after Doctor confirms a current runtime.
-- Current adapter with no recent host receipt: reopen the Agent session. If it still does not respond, use `/hooks` in Codex or `claude doctor` in Claude Code CLI.
+- Current adapter with no recent host receipt: fully reopen the Agent once and run Doctor. If it still does not respond, continue in the same project from the reported CLI fallback; use `/hooks` only inside Codex CLI, or `claude doctor` inside Claude Code CLI.
 - Recognized older runtime: use the atomic safe upgrade; a failed write restores the previous runtime, manifest, and config.
 - Modified generated runtime: compare before using `--force-assets`; preserve intentional local changes.
 - Incorrect repository rule: switch to `warn` while repairing configuration rather than fabricating reports.

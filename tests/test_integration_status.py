@@ -96,6 +96,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
                     }
                 ),
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=True,
@@ -120,6 +121,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             cwd=self.root,
             input=json.dumps({"cwd": str(self.root), "stop_hook_active": False}),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -136,6 +138,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             cwd=self.root,
             input=json.dumps({"cwd": str(self.root)}),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -259,6 +262,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             cwd=self.root,
             input=json.dumps({"cwd": str(self.root)}),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -276,6 +280,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -289,6 +294,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             cwd=self.root,
             input=json.dumps({"cwd": str(self.root)}),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -317,6 +323,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -349,6 +356,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -401,6 +409,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             cwd=self.root,
             input=json.dumps({"cwd": str(self.root)}),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -453,6 +462,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             cwd=self.root,
             input=json.dumps({"cwd": str(self.root)}),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -498,6 +508,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
                     ],
                     cwd=self.root,
                     text=True,
+                    encoding="utf-8",
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     check=True,
@@ -794,6 +805,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "status"],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -833,6 +845,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             cwd=self.root,
             input=json.dumps({"cwd": str(self.root)}),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -866,6 +879,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             check=True,
         )
@@ -886,6 +900,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
                 {"cwd": str(self.root), "session_id": "discussion-route", "prompt": "执行 012 号任务！"}
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             check=True,
         )
@@ -936,6 +951,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             check=True,
         )
@@ -1003,6 +1019,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -1067,6 +1084,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -1150,6 +1168,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -1198,6 +1217,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             cwd=self.root,
             input=json.dumps({"cwd": str(self.root), "session_id": session_id}),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -1220,6 +1240,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
                     }
                 ),
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=True,
@@ -1255,6 +1276,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -1262,8 +1284,13 @@ class IntegrationStatusTests(MemorySyncTestCase):
         fresh_context = json.loads(fresh_routed.stdout)["hookSpecificOutput"][
             "additionalContext"
         ]
-        self.assertIn('"host_action":"bind_current_worker"', fresh_context)
-        self.assertIn('"current_worker_claim_command":"python3 ', fresh_context)
+        fresh_route = json.loads(
+            fresh_context.split("WishGraph explicit route:\n", 1)[1]
+        )
+        self.assertEqual(fresh_route["host_action"], "bind_current_worker")
+        self.assertIn(str(sys.executable), fresh_route["current_worker_claim_command"])
+        self.assertIn("claim", fresh_route["current_worker_claim_command"])
+        self.assertIn("acquire", fresh_route["current_worker_claim_command"])
         fresh_runtime = memory_sync.read_session_runtime(self.root, fresh_session)
         assert fresh_runtime is not None
         self.assertEqual(fresh_runtime["session"]["role"], "neutral")
@@ -1293,13 +1320,17 @@ class IntegrationStatusTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
         )
         context = json.loads(routed.stdout)["hookSpecificOutput"]["additionalContext"]
-        self.assertIn('"host_action":"bind_current_worker"', context)
-        self.assertIn("claim acquire 008", context)
+        route = json.loads(context.split("WishGraph explicit route:\n", 1)[1])
+        self.assertEqual(route["host_action"], "bind_current_worker")
+        self.assertIn("claim", route["current_worker_claim_command"])
+        self.assertIn("acquire", route["current_worker_claim_command"])
+        self.assertIn(task_id, route["current_worker_claim_command"])
 
         claimed = subprocess.run(
             [
@@ -1323,6 +1354,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -1348,6 +1380,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -1387,6 +1420,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -1478,6 +1512,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             check=True,
         )
@@ -1492,6 +1527,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             check=True,
         )
@@ -1551,6 +1587,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             check=True,
         )

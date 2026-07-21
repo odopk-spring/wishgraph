@@ -389,6 +389,8 @@ class MemorySyncTestCase(unittest.TestCase):
         *,
         host: str,
         report_path: str,
+        dispatch_mode: str = "background_worker",
+        source_session_id: Optional[str] = None,
     ) -> dict[str, object]:
         task_content = (self.root / task_path).read_text(encoding="utf-8")
         head = self.git("rev-parse", "HEAD").stdout.strip()
@@ -406,10 +408,10 @@ class MemorySyncTestCase(unittest.TestCase):
                 "authorization": {
                     "authorized": True,
                     "event": "exact_execute_command",
-                    "source_session_id": discussion_session_id,
+                    "source_session_id": source_session_id or discussion_session_id,
                     "parent_discussion_id": discussion_session_id,
                     "host": host,
-                    "dispatch_mode": "background_worker",
+                    "dispatch_mode": dispatch_mode,
                     "authorized_at": "2026-07-18T00:00:00Z",
                 },
             },

@@ -102,7 +102,7 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
 
 对已启用项目，Skill 内的安装器还提供三个有界维护动作：`--doctor --json` 只读取固定路径并输出健康状态；`--upgrade --json` 可以为当前文件补齐缺失元数据，或原子替换内置已知版本的生成运行时，失败时自动回滚；`--repair-host-adapter --host codex|claude --json` 只修复所选当前宿主并保留其他 Hook。未知或本地修改过的运行时会停止并交给用户检查，不会直接覆盖。
 
-正常用户只需要启用 WishGraph、重新打开当前 Agent 会话、输入“开始讨论”。如果没有响应，Doctor 会通过 `.git/wishgraph/host-observations/` 下有界的 `SessionStart` 与 `UserPromptSubmit` 回执，区分静态安装健康和宿主实际执行。回执不会进入 worktree，`PreToolUse` 也不会写回执。Codex 未确认时才引导 `/hooks`；Claude Code CLI 可以额外运行 `claude doctor`。
+正常用户只需要启用 WishGraph、重新打开当前 Agent 会话、输入“开始讨论”。如果没有响应，Doctor 会通过 `.git/wishgraph/host-observations/` 下有界的 `SessionStart` 与 `UserPromptSubmit` 回执，分别报告静态安装、近期宿主执行和 Formal Worker 就绪状态。回执不会进入 worktree，`PreToolUse` 不会写回执，缺少有效宿主事件载荷的手动调用也不会写回执。Codex Desktop 未确认时，应在同一项目打开 Codex CLI，再用 `/hooks` 审查并信任精确 Hook 定义；`/hooks` 不是 Desktop 聊天命令。Claude Code CLI 可以额外运行 `claude doctor`。
 
 `memory_sync.py` 是稳定入口，内部保留四个公共边界：`workflow_state.py` 定义类型化状态，`policy.py` 实现纯状态转换，`host_adapter.py` 把唯一已授权动作映射到当前宿主，`git_state.py` 保存 Git 事实、规范 Run、Claim、session 和 Integration lease。`codex_worker_provider.py`、`claude_worker_provider.py` 和 `tool_gate_provider.py` 都是 `host_adapter.py` 背后的私有实现，不增加公共边界。项目语义真相仍保存在 Markdown 和 Git 中。
 
@@ -110,7 +110,7 @@ python3 ~/.claude/skills/wishgraph/scripts/install_project_hooks.py \
 
 `warn` 与 `enforce` 只能通过已安装且已加载的宿主 Adapter 生效，都不是操作系统沙箱。缺少 Claude Adapter 时，普通 Claude Code 会话无法被 WishGraph 阻止。可选 Git hook 只是提交阶段兜底，不是写入时门禁。
 
-Codex 项目 Hook 需要仓库信任后才能运行；只有正常入口失败时，Doctor 才向用户显示这项排障信息。
+Codex 项目 Hook 需要项目配置层和精确 Hook 定义都被信任后才能运行；只有正常入口失败时，Doctor 才向用户显示这项排障信息。
 
 ## 并行收尾规则
 

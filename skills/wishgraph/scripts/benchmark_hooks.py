@@ -46,6 +46,7 @@ def run(
         cwd=cwd,
         input=input_text,
         text=True,
+        encoding="utf-8",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=check,
@@ -149,6 +150,8 @@ def setup_fixture(base: Path) -> tuple[Path, Path]:
         "cwd": str(root),
         "session_id": "bench-neutral",
         "host": "codex",
+        "hook_event_name": "SessionStart",
+        "source": "startup",
     }
     invoke(runtime, root, "session-start", neutral_payload)
     invoke(
@@ -159,6 +162,8 @@ def setup_fixture(base: Path) -> tuple[Path, Path]:
             "cwd": str(root),
             "session_id": "bench-dispatch",
             "host": "codex",
+            "hook_event_name": "UserPromptSubmit",
+            "turn_id": "bench-dispatch-turn",
             "prompt": "开始讨论",
         },
     )
@@ -349,8 +354,7 @@ def measure_case(
     }
 
 
-def create_bulk_tree(root: Path, count: int) -> None:
-    bulk = root / "src" / "bulk"
+def create_bulk_tree(bulk: Path, count: int) -> None:
     bulk.mkdir(parents=True, exist_ok=True)
     for index in range(count):
         (bulk / f"probe-{index:06d}.txt").write_text("x\n", encoding="utf-8")
@@ -359,6 +363,11 @@ def create_bulk_tree(root: Path, count: int) -> None:
 def benchmark(args: argparse.Namespace) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="wishgraph-hook-bench-") as tempdir:
         root, runtime = setup_fixture(Path(tempdir))
+        staged_bulk = Path(tempdir) / "bulk-staging"
+        if args.bulk_files:
+            # Build outside the repository before baseline sampling so Windows
+            # indexing/antivirus work is not mistaken for source-tree scaling.
+            create_bulk_tree(staged_bulk, args.bulk_files)
         factories = payload_factories(root)
         results: dict[str, Any] = {}
         for name, (event, factory) in factories.items():
@@ -369,7 +378,13 @@ def benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 runtime,
                 root,
                 "session-start",
-                {"cwd": str(root), "session_id": "bench-neutral", "host": "codex"},
+                {
+                    "cwd": str(root),
+                    "session_id": "bench-neutral",
+                    "host": "codex",
+                    "hook_event_name": "SessionStart",
+                    "source": "resume",
+                },
             )
             results[name] = measure_case(
                 runtime,
@@ -384,7 +399,8 @@ def benchmark(args: argparse.Namespace) -> dict[str, Any]:
 
         bulk_probe: dict[str, Any] | None = None
         if args.bulk_files:
-            create_bulk_tree(root, args.bulk_files)
+            bulk_destination = root / "src" / "bulk"
+            staged_bulk.replace(bulk_destination)
             bulk_results: dict[str, Any] = {}
             for name in (
                 "pretool_passthrough",
@@ -395,7 +411,13 @@ def benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     runtime,
                     root,
                     "session-start",
-                    {"cwd": str(root), "session_id": "bench-neutral", "host": "codex"},
+                    {
+                        "cwd": str(root),
+                        "session_id": "bench-neutral",
+                        "host": "codex",
+                        "hook_event_name": "SessionStart",
+                        "source": "resume",
+                    },
                 )
                 event, factory = factories[name]
                 measured = measure_case(
@@ -452,6 +474,7 @@ def benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 "warmup": args.warmup,
                 "iterations": args.iterations,
                 "rounds": args.rounds,
+                "bulk_tree_staged_before_baseline": bool(args.bulk_files),
             },
             "thresholds_ms": {
                 "pretool_p95": args.pretool_limit_ms,

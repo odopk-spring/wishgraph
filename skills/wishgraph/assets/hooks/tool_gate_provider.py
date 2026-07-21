@@ -64,7 +64,10 @@ DEPENDENCY_COMMAND_RE = re.compile(
 
 WORKTREE_WRITE_COMMAND_RE = re.compile(
     r"(?is)(?:^|[;&|]\s*)(?:sed\s+[^\n;&|]*\s-i\b|perl\s+[^\n;&|]*\s-pi\b|"
-    r"(?:tee|cp|mv|rm|touch)\b)|(?:^|[^<])>{1,2}(?!=)"
+    r"(?:tee|cp|mv|rm|touch|set-content|out-file|add-content|remove-item|"
+    r"copy-item|move-item|new-item|sc|ac|ri|cpi|mi|ni|del|erase|rd|rmdir|"
+    r"clear-content|rename-item|tee-object|invoke-webrequest|clc|rni|ren|iwr|"
+    r"copy|move)(?=\s|[;&|]|$))|(?:^|[^<])>{1,2}(?!=)"
 )
 
 MERGE_COMMAND_RE = re.compile(
@@ -148,6 +151,126 @@ def _path_operation(
         return "governance_write", "revision_paths:" + "\n".join(relative_paths)
     return "business_write", "business_paths:" + "\n".join(relative_paths)
 
+POWERSHELL_WRITE_COMMANDS = {
+    "set-content": "set_content",
+    "sc": "set_content",
+    "out-file": "out_file",
+    "add-content": "add_content",
+    "ac": "add_content",
+    "remove-item": "remove_item",
+    "ri": "remove_item",
+    "del": "remove_item",
+    "erase": "remove_item",
+    "rd": "remove_item",
+    "rmdir": "remove_item",
+    "copy-item": "copy_item",
+    "cpi": "copy_item",
+    "copy": "copy_item",
+    "move-item": "move_item",
+    "mi": "move_item",
+    "move": "move_item",
+    "new-item": "new_item",
+    "ni": "new_item",
+    "clear-content": "clear_content",
+    "clc": "clear_content",
+    "rename-item": "rename_item",
+    "rni": "rename_item",
+    "ren": "rename_item",
+    "tee-object": "out_file",
+    "invoke-webrequest": "out_file",
+    "iwr": "out_file",
+}
+
+POWERSHELL_SWITCH_PARAMETERS = {
+    "append",
+    "confirm",
+    "force",
+    "nonewline",
+    "passthru",
+    "recurse",
+    "whatif",
+}
+POWERSHELL_HOST_EXECUTABLES = {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}
+
+
+def _unquote_shell_token(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
+
+
+def _wrapped_powershell_command(command: str) -> tuple[str, bool]:
+    """Return one inspectable -Command body, or flag encoded input as opaque."""
+    try:
+        tokens = shlex.split(command, posix=False)
+    except ValueError:
+        return "", False
+    if not tokens or Path(_unquote_shell_token(tokens[0])).name.lower() not in POWERSHELL_HOST_EXECUTABLES:
+        return "", False
+    for index, raw_token in enumerate(tokens[1:], start=1):
+        token = _unquote_shell_token(raw_token).lower()
+        if token.startswith("-enc"):
+            return "", True
+        if token in {"-command", "-c"} and index + 1 < len(tokens):
+            nested = " ".join(tokens[index + 1 :])
+            return _unquote_shell_token(nested), False
+    return "", False
+
+
+def _powershell_write_paths(tokens: list[str], operation: str) -> list[str]:
+    """Extract only ordinary PowerShell path forms; opaque writes remain gated."""
+    named: dict[str, list[str]] = {}
+    positional: list[str] = []
+    index = 1
+    while index < len(tokens):
+        token = _unquote_shell_token(tokens[index])
+        if token.startswith("-") and len(token) > 1:
+            parameter = token.lstrip("-")
+            attached = ""
+            if ":" in parameter:
+                parameter, attached = parameter.split(":", 1)
+            parameter = parameter.lower()
+            if attached:
+                named.setdefault(parameter, []).append(_unquote_shell_token(attached))
+            elif parameter not in POWERSHELL_SWITCH_PARAMETERS and index + 1 < len(tokens):
+                value = _unquote_shell_token(tokens[index + 1])
+                if not value.startswith("-"):
+                    named.setdefault(parameter, []).append(value)
+                    index += 1
+            index += 1
+            continue
+        positional.append(token)
+        index += 1
+
+    source_paths = named.get("path", []) + named.get("literalpath", [])
+    destinations = named.get("destination", [])
+    file_paths = named.get("filepath", [])
+    output_paths = file_paths + named.get("outfile", [])
+    names = named.get("name", [])
+    if operation in {"set_content", "add_content", "clear_content"}:
+        return source_paths or positional[:1]
+    if operation == "remove_item":
+        return source_paths or positional
+    if operation == "out_file":
+        return output_paths or positional[:1]
+    if operation in {"copy_item", "move_item"}:
+        sources = source_paths or positional[:1]
+        targets = destinations or positional[1:2]
+        return sources + targets
+    if operation == "new_item":
+        bases = source_paths or positional[:1]
+        if names and bases:
+            return [str(Path(base) / names[0]) for base in bases]
+        return bases or names[:1]
+    if operation == "rename_item":
+        sources = source_paths or positional[:1]
+        targets = named.get("newname", []) or destinations or positional[1:2]
+        if sources and targets and "/" not in targets[0] and "\\" not in targets[0]:
+            targets = [str(Path(sources[0]).parent / targets[0])]
+        return sources + targets
+    return []
+
+
 def _shell_write_paths(command: str) -> list[str]:
     paths: list[str] = []
     for segment in re.split(r"\s*(?:&&|\|\||[;|])\s*", command):
@@ -158,6 +281,19 @@ def _shell_write_paths(command: str) -> list[str]:
         if not tokens:
             continue
         executable = Path(tokens[0]).name.lower()
+        powershell_operation = POWERSHELL_WRITE_COMMANDS.get(executable)
+        if powershell_operation:
+            try:
+                powershell_tokens = shlex.split(segment, posix=False)
+            except ValueError:
+                continue
+            paths.extend(
+                _powershell_write_paths(
+                    [_unquote_shell_token(token) for token in powershell_tokens],
+                    powershell_operation,
+                )
+            )
+            continue
         arguments = [token for token in tokens[1:] if not token.startswith("-")]
         if executable in {"touch", "rm", "tee", "cp", "mv"}:
             paths.extend(arguments)
@@ -185,8 +321,12 @@ def classify_tool_operation(
             return "business_write", "merge_resolution"
         if is_git_commit_command(command):
             return "commit", ""
-        if WORKTREE_WRITE_COMMAND_RE.search(command):
-            return _path_operation(root, config, _shell_write_paths(command))
+        wrapped_command, opaque_powershell = _wrapped_powershell_command(command)
+        if opaque_powershell:
+            return "opaque_write", ""
+        inspected_command = wrapped_command or command
+        if WORKTREE_WRITE_COMMAND_RE.search(inspected_command):
+            return _path_operation(root, config, _shell_write_paths(inspected_command))
         return None
     if tool_name in {"write", "edit", "multiedit", "notebookedit", "apply_patch"}:
         return _path_operation(root, config, _tool_paths(tool_input))

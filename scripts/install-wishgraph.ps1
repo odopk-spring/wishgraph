@@ -35,6 +35,30 @@ function Write-GitHelp {
     [Console]::Error.WriteLine("Official download: https://git-scm.com/install/windows.html")
 }
 
+function Find-GitExecutable {
+    $fromPath = Get-Command git -ErrorAction SilentlyContinue
+    if ($fromPath) {
+        return @{ Path = $fromPath.Source; State = "available" }
+    }
+
+    $candidates = @()
+    if ($env:ProgramFiles) {
+        $candidates += (Join-Path $env:ProgramFiles "Git\cmd\git.exe")
+    }
+    if (${env:ProgramFiles(x86)}) {
+        $candidates += (Join-Path ${env:ProgramFiles(x86)} "Git\cmd\git.exe")
+    }
+    if ($env:LOCALAPPDATA) {
+        $candidates += (Join-Path $env:LOCALAPPDATA "Programs\Git\cmd\git.exe")
+    }
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return @{ Path = $candidate; State = "stale_path" }
+        }
+    }
+    return @{ Path = $null; State = "missing" }
+}
+
 function Find-PythonExecutable {
     $launcher = Get-Command py -ErrorAction SilentlyContinue
     if ($launcher) {
@@ -84,8 +108,13 @@ if ($SetupProject) {
 Write-Host "Installation stage 1: checking prerequisites."
 
 $preflightFailed = $false
-$gitCommand = Get-Command git -ErrorAction SilentlyContinue
-if (-not $gitCommand) {
+$gitDiagnosis = Find-GitExecutable
+$gitExecutable = $gitDiagnosis.Path
+if ($gitDiagnosis.State -eq "stale_path") {
+    [Console]::Error.WriteLine("Git is installed at $gitExecutable, but the current process PATH is stale.")
+    [Console]::Error.WriteLine("Fully quit Codex (not only this task), reopen it, then retry. WishGraph did not change PATH.")
+    $preflightFailed = $true
+} elseif ($gitDiagnosis.State -eq "missing") {
     Write-GitHelp
     $preflightFailed = $true
 }
@@ -104,7 +133,7 @@ if ($SetupProject -and -not $preflightFailed) {
         $preflightFailed = $true
     }
     if (-not $preflightFailed) {
-        $detectedRoot = (& git -C $Project rev-parse --show-toplevel 2>$null | Select-Object -First 1)
+        $detectedRoot = (& $gitExecutable -C $Project rev-parse --show-toplevel 2>$null | Select-Object -First 1)
         if ($LASTEXITCODE -ne 0 -or -not $detectedRoot) {
             [Console]::Error.WriteLine("Project hooks need a Git repository, but $Project is not inside one.")
             [Console]::Error.WriteLine("Run 'git init' there, or ask your agent to initialize Git, then retry.")
@@ -150,7 +179,8 @@ switch ($Target) {
 $reuseExisting = $false
 if (Test-Path -LiteralPath $destination) {
     if ($Force) {
-        Remove-Item -LiteralPath $destination -Recurse -Force
+        # Keep the working installation until the replacement has downloaded and
+        # passed its minimum layout validation.
     } elseif ($SetupProject -and (Test-Path -LiteralPath (Join-Path $destination "scripts/install_project_hooks.py"))) {
         $reuseExisting = $true
         Write-Host "WishGraph skill already exists at $destination; reusing it for project setup."
@@ -164,13 +194,49 @@ if (-not $reuseExisting) {
     Write-Host "Installation stage 2: installing the WishGraph Skill."
     $tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("wishgraph-" + [guid]::NewGuid())
     try {
-        & git clone --depth 1 --filter=blob:none --sparse --branch $repoRef $repoUrl $tempDirectory *> $null
-        if ($LASTEXITCODE -ne 0) { throw "Git clone failed." }
-        & git -C $tempDirectory sparse-checkout set skills/wishgraph *> $null
-        if ($LASTEXITCODE -ne 0) { throw "Git sparse checkout failed." }
+        # Windows PowerShell 5.1 promotes native stderr (including Git's normal
+        # progress line) to an ErrorRecord when ErrorActionPreference is Stop.
+        # Suppress native output here and decide success only from the exit code.
+        $savedErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            & $gitExecutable clone --quiet --depth 1 --filter=blob:none --sparse --branch $repoRef $repoUrl $tempDirectory *> $null
+            $cloneExitCode = $LASTEXITCODE
+            if ($cloneExitCode -ne 0) { throw "Git clone failed." }
+            & $gitExecutable -C $tempDirectory sparse-checkout set skills/wishgraph *> $null
+            $sparseExitCode = $LASTEXITCODE
+            if ($sparseExitCode -ne 0) { throw "Git sparse checkout failed." }
+        } finally {
+            $ErrorActionPreference = $savedErrorActionPreference
+        }
 
-        New-Item -ItemType Directory -Path $destination -Force | Out-Null
-        Copy-Item -Path (Join-Path $tempDirectory "skills/wishgraph/*") -Destination $destination -Recurse -Force
+        $stagedSkill = Join-Path $tempDirectory "skills/wishgraph"
+        foreach ($required in @("SKILL.md", "scripts/install_project_hooks.py")) {
+            if (-not (Test-Path -LiteralPath (Join-Path $stagedSkill $required) -PathType Leaf)) {
+                throw "Downloaded WishGraph Skill is incomplete: missing $required"
+            }
+        }
+
+        New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+        $backupDirectory = $null
+        if (Test-Path -LiteralPath $destination) {
+            $backupDirectory = "$destination.wishgraph-backup-$([guid]::NewGuid())"
+            Move-Item -LiteralPath $destination -Destination $backupDirectory
+        }
+        try {
+            Move-Item -LiteralPath $stagedSkill -Destination $destination
+        } catch {
+            if (Test-Path -LiteralPath $destination) {
+                Remove-Item -LiteralPath $destination -Recurse -Force
+            }
+            if ($backupDirectory -and (Test-Path -LiteralPath $backupDirectory)) {
+                Move-Item -LiteralPath $backupDirectory -Destination $destination
+            }
+            throw
+        }
+        if ($backupDirectory -and (Test-Path -LiteralPath $backupDirectory)) {
+            Remove-Item -LiteralPath $backupDirectory -Recurse -Force
+        }
         Write-Host "Installed WishGraph skill to $destination"
         Write-Host "Restart your agent tool if it does not pick up new skills immediately."
     } finally {

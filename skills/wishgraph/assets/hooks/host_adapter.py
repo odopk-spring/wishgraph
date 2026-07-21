@@ -34,9 +34,11 @@ from git_state import (
     create_integration_transition_grant,
     content_fingerprint,
     enqueue_worker_notification,
+    execution_run_id,
     find_git_root,
     load_config,
     inspect_claims,
+    inspect_execution_runs,
     inspect_integration_grant,
     inspect_integration_lease,
     latest_execution_run,
@@ -160,9 +162,36 @@ HOST_AGENT_PATHS = {
     "codex": Path(".codex/agents/wishgraph-worker.toml"),
     "claude": Path(".claude/agents/wishgraph-worker.md"),
 }
-HOST_AGENT_MARKERS = {
-    "codex": "# wishgraph-managed: wishgraph-worker",
-    "claude": "<!-- wishgraph-managed: wishgraph-worker -->",
+HOST_EVENT_COMMANDS = {
+    "SessionStart": "session-start",
+    "UserPromptSubmit": "user-prompt-submit",
+    "PreToolUse": "pre-tool-use",
+    "Stop": "stop",
+    "TaskCompleted": "task-completed",
+}
+HOST_EVENT_MATCHERS = {
+    "SessionStart": "startup|resume|clear|compact",
+    "PreToolUse": {
+        "codex": "^(Bash|Write|Edit|MultiEdit|NotebookEdit|apply_patch|mcp__.*__.*(?:write|edit|patch|create|delete|move|rename|update).*)$",
+        "claude": "^(Bash|Write|Edit|MultiEdit|NotebookEdit|mcp__.*__.*(?:write|edit|patch|create|delete|move|rename|update).*)$",
+    },
+}
+HOST_AGENT_REQUIRED_CONTENT = {
+    "codex": (
+        '# wishgraph-managed: wishgraph-worker',
+        'name = "wishgraph-worker"',
+        "Formal WishGraph Worker",
+        "--host codex --container-kind codex_agent_thread --agent-kind formal_worker",
+        "Never integrate",
+    ),
+    "claude": (
+        "<!-- wishgraph-managed: wishgraph-worker -->",
+        "name: wishgraph-worker",
+        "background: true",
+        "isolation: worktree",
+        "--host claude --container-kind claude_background_session --agent-kind formal_worker",
+        "Never update shared project memory or integrate",
+    ),
 }
 
 
@@ -213,6 +242,81 @@ def _value_contains_wishgraph_handler(value: Any) -> bool:
     )
 
 
+def _command_matches_host_event(command: Any, event: str, host: str) -> bool:
+    """Validate one managed command without adding an adapter registry."""
+    if not isinstance(command, str):
+        return False
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return False
+    expanded_tokens: list[str] = []
+    for token in tokens:
+        if _value_contains_wishgraph_handler(token) and any(
+            character.isspace() for character in token
+        ):
+            try:
+                expanded_tokens.extend(shlex.split(token, posix=True))
+            except ValueError:
+                return False
+        else:
+            expanded_tokens.append(token)
+    tokens = expanded_tokens
+    handler_index = next(
+        (
+            index
+            for index, token in enumerate(tokens)
+            if _value_contains_wishgraph_handler(token)
+        ),
+        None,
+    )
+    if handler_index is None:
+        return False
+    arguments = tokens[handler_index + 1 :]
+    event_argument = HOST_EVENT_COMMANDS[event]
+    return bool(
+        event_argument in arguments
+        and any(
+            argument == "--host"
+            and index + 1 < len(arguments)
+            and arguments[index + 1] == host
+            for index, argument in enumerate(arguments)
+        )
+    )
+
+
+def _group_matches_host_event(group: Any, event: str, host: str) -> bool:
+    if not isinstance(group, dict):
+        return False
+    expected_matcher = HOST_EVENT_MATCHERS.get(event)
+    if isinstance(expected_matcher, dict):
+        expected_matcher = expected_matcher.get(host)
+    if expected_matcher is not None and group.get("matcher") != expected_matcher:
+        return False
+    hooks = group.get("hooks")
+    if not isinstance(hooks, list):
+        return False
+    for hook in hooks:
+        if not isinstance(hook, dict) or hook.get("type") != "command":
+            continue
+        commands = [
+            hook.get(field)
+            for field in ("command", "commandWindows")
+            if isinstance(hook.get(field), str)
+            and _value_contains_wishgraph_handler(hook.get(field))
+        ]
+        if commands and all(
+            _command_matches_host_event(command, event, host)
+            for command in commands
+        ):
+            return True
+    return False
+
+
+def _agent_contract_is_current(text: str, host: str) -> bool:
+    return all(value in text for value in HOST_AGENT_REQUIRED_CONTENT[host])
+
+
 def current_host_adapter_state(root: Path, host: str) -> dict[str, Any]:
     if host not in {"codex", "claude"}:
         return {"state": "missing", "error": "current_host_unknown"}
@@ -239,7 +343,14 @@ def current_host_adapter_state(root: Path, host: str) -> dict[str, Any]:
         missing = [
             event
             for event in sorted(HOST_ADAPTER_EVENTS[host])
-            if not _value_contains_wishgraph_handler(hooks.get(event, []))
+            if not any(
+                _group_matches_host_event(group, event, host)
+                for group in (
+                    hooks.get(event, [])
+                    if isinstance(hooks.get(event), list)
+                    else []
+                )
+            )
         ]
         if selected_config is None or len(missing) < len(selected_missing):
             selected_config = candidate
@@ -256,7 +367,7 @@ def current_host_adapter_state(root: Path, host: str) -> dict[str, Any]:
             agent_text = candidate.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        if HOST_AGENT_MARKERS[host] in agent_text:
+        if _agent_contract_is_current(agent_text, host):
             agent_path = candidate
             break
     missing_events = list(selected_missing)
@@ -286,7 +397,7 @@ def current_host_adapter_state(root: Path, host: str) -> dict[str, Any]:
     }
 
 
-def current_host_execution_guard(
+def _current_host_execution_guard_unadorned(
     root: Path,
     config: dict[str, Any],
     host: str,
@@ -368,6 +479,68 @@ def current_host_execution_guard(
             "请重开当前 Agent 会话后重试。"
         ),
     }
+
+
+def current_host_execution_guard(
+    root: Path,
+    config: dict[str, Any],
+    host: str,
+    *,
+    bound_claim: bool = False,
+) -> dict[str, Any]:
+    """Fail closed while giving an executable, non-looping recovery route."""
+    result = _current_host_execution_guard_unadorned(
+        root, config, host, bound_claim=bound_claim
+    )
+    result["formal_worker_ready"] = bool(result.get("ok"))
+    if result.get("ok"):
+        return result
+    error = str(result.get("error") or "current_host_unverified")
+    result["retry_same_session"] = False
+    if error == "current_host_receipt_not_recent" and host in {"codex", "claude"}:
+        result.update(
+            {
+                "next_action": "open_supported_cli_session",
+                "fallback_command": host,
+                "message": (
+                    "WishGraph has not observed a recent Hook receipt from this host. Formal "
+                    f"Worker execution remains blocked; open a supported `{host}` CLI "
+                    "session instead of repeating the same restart."
+                ),
+            }
+        )
+    elif error == "current_host_adapter_not_current":
+        result.update(
+            {
+                "next_action": "repair_current_host_adapter",
+                "message": (
+                    "The current host Adapter is missing or incomplete. Repair this "
+                    "host Adapter before starting a Formal Worker."
+                ),
+            }
+        )
+    elif error == "current_host_not_required":
+        result.update(
+            {
+                "next_action": "enable_current_host_explicitly",
+                "message": (
+                    "This host is outside the project's required_hosts boundary. "
+                    "Enable it explicitly before starting a Formal Worker."
+                ),
+            }
+        )
+    else:
+        result.update(
+            {
+                "next_action": "open_supported_host_session",
+                "fallback_commands": {"codex": "codex", "claude": "claude"},
+                "message": (
+                    "WishGraph cannot confirm this host, so Formal Worker execution "
+                    "remains blocked. Open a supported Codex or Claude Code session."
+                ),
+            }
+        )
+    return result
 
 
 def map_flow_plan_to_host(
@@ -536,17 +709,33 @@ def _utc_now() -> str:
 
 
 
-def _execution_profile_command_suffix(profile: Any) -> str:
-    """Return safe optional CLI switches for a previously parsed profile."""
+def _execution_profile_command_args(profile: Any) -> list[str]:
     value = profile if isinstance(profile, dict) else {}
-    model = str(value.get("model") or "").strip()
-    effort = str(value.get("reasoning_effort") or "").strip()
-    parts: list[str] = []
-    if model:
-        parts.append(f"--model {shlex.quote(model)}")
-    if effort:
-        parts.append(f"--reasoning-effort {shlex.quote(effort)}")
-    return (" " + " ".join(parts)) if parts else ""
+    args: list[str] = []
+    if value.get("model"):
+        args.extend(["--model", str(value["model"])])
+    if value.get("reasoning_effort"):
+        args.extend(["--reasoning-effort", str(value["reasoning_effort"])])
+    return args
+
+
+def _shell_join_command(arguments: list[str]) -> str:
+    """Render one copy-ready command for the current platform shell."""
+    if os.name == "nt":
+        quoted = ["'" + value.replace("'", "''") + "'" for value in arguments]
+        return "& " + " ".join(quoted)
+    return shlex.join(arguments)
+
+
+def _memory_sync_command(config: dict[str, Any], *arguments: str) -> str:
+    python_executable = str(config.get("python_executable") or sys.executable)
+    return _shell_join_command(
+        [
+            python_executable,
+            ".wishgraph/hooks/memory_sync.py",
+            *[str(value) for value in arguments],
+        ]
+    )
 
 
 def _resolve_execution_profile(config: Any, host: str, profile: Any) -> dict[str, Any]:
@@ -956,9 +1145,13 @@ def _authorized_execution_thread_launch(
             "error": "authorized_task_must_match_current_head_for_execution_thread",
             "task_path": task_path,
         }
-    run = latest_execution_run(
-        root, task_id, attempt=int(durable_task.get("attempt") or 1)
-    )
+    try:
+        run_id = execution_run_id(
+            task_id, int(durable_task.get("attempt") or 1)
+        )
+    except ValueError:
+        return {"ok": False, "error": "authorized_execution_run_identity_invalid"}
+    run = read_execution_run(root, run_id)
     authorization = run.get("authorization") if isinstance(run, dict) else {}
     valid_run_authority = bool(
         isinstance(authorization, dict)
@@ -1171,6 +1364,10 @@ HOOK_CONFIG_DENIAL = (
     "WishGraph configuration needs attention before managed work can continue. "
     "Run the WishGraph doctor for details."
 )
+HOOK_RUNTIME_DENIAL = (
+    "WishGraph could not verify the authority state for this operation. "
+    "The operation was stopped safely; run 'Check WishGraph status' for recovery."
+)
 
 
 NO_MATERIAL_DECISION_VALUES = {"no", "none", "false", "无", "否"}
@@ -1219,9 +1416,21 @@ def enqueue_terminal_notification_from_claim(
     except ValueError:
         return {"ok": False, "error": "terminal_evidence_incomplete"}
     worktree_report_content = read_version(root, run_report, "worktree")
-    existing_run = latest_execution_run(
-        root, task_id, attempt=int(claim.get("attempt") or 1)
-    )
+    attempt = int(claim.get("attempt") or 1)
+    try:
+        bound_run_id = execution_run_id(task_id, attempt, revision_id or "")
+    except ValueError:
+        return {"ok": False, "error": "terminal_execution_run_identity_invalid"}
+    existing_run = read_execution_run(root, bound_run_id)
+    if not isinstance(existing_run, dict) or existing_run.get("record_status") == "invalid":
+        return {"ok": False, "error": "terminal_execution_run_not_found"}
+    if (
+        existing_run.get("task_id") != task_id
+        or str(existing_run.get("revision_id") or "") != (revision_id or "")
+        or int(existing_run.get("attempt") or 0) != attempt
+        or str(existing_run.get("run_report") or "") != run_report
+    ):
+        return {"ok": False, "error": "terminal_execution_run_binding_mismatch"}
     result_commit = str(
         ((existing_run or {}).get("result") or {}).get("commit") or ""
     )
@@ -1298,8 +1507,8 @@ def enqueue_terminal_notification_from_claim(
             root,
             task_id=task_id,
             revision_id=revision_id,
-            attempt=int(claim.get("attempt") or 1),
-            create=existing_run is None,
+            attempt=attempt,
+            create=False,
             patch={
                 "phase": terminal_phase,
                 "task_path": str(work.get("task_path") or ""),
@@ -1458,8 +1667,6 @@ def consume_discussion_notification_context(
         }
         run_id = str(notification.get("run_id") or "")
         run = read_execution_run(root, run_id) if run_id else None
-        if run is None and task_id:
-            run = latest_execution_run(root, task_id)
         if resolved.get("ok") and isinstance(run, dict):
             terminal_state = str((run.get("result") or {}).get("terminal_state") or "")
             lifecycle = (
@@ -1694,7 +1901,11 @@ def _persist_execution_route_runtime(
         }
     attempt = int(task_record.get("attempt") or 1)
     task_id = str(task_record.get("task_id") or "")
-    existing = latest_execution_run(root, task_id, attempt=attempt)
+    try:
+        run_id = execution_run_id(task_id, attempt)
+    except ValueError:
+        return {"ok": False, "error": "invalid_execution_run_identity"}
+    existing = read_execution_run(root, run_id)
     if existing is not None:
         recoverable_preclaim_failure = (
             existing.get("phase") == "failed"
@@ -1933,7 +2144,6 @@ def user_prompt_submit_main(
             }
         )
         resolved_profile = profile_resolution.get("resolved", {})
-        profile_suffix = _execution_profile_command_suffix(resolved_profile)
         manual_launch_instructions = (
             _manual_launch_instructions(
                 root,
@@ -1945,14 +2155,26 @@ def user_prompt_submit_main(
             else ""
         )
         host_adapter_command = (
-            "python3 .wishgraph/hooks/memory_sync.py "
-            f"claude-worker launch {plan.task_id} "
-            f"--discussion-session-id {session_id}{profile_suffix}"
+            _memory_sync_command(
+                config,
+                "claude-worker",
+                "launch",
+                plan.task_id,
+                "--discussion-session-id",
+                session_id,
+                *_execution_profile_command_args(resolved_profile),
+            )
             if action.action == "launch_claude_background_worker"
             else (
-                "python3 .wishgraph/hooks/memory_sync.py "
-                f"codex-worker prepare {plan.task_id} "
-                f"--discussion-session-id {session_id}{profile_suffix}"
+                _memory_sync_command(
+                    config,
+                    "codex-worker",
+                    "prepare",
+                    plan.task_id,
+                    "--discussion-session-id",
+                    session_id,
+                    *_execution_profile_command_args(resolved_profile),
+                )
                 if action.action == "launch_codex_agent_worker"
                 else ""
             )
@@ -2099,8 +2321,13 @@ def user_prompt_submit_main(
             context += (
                 "\n\nClaude Worker refresh (read-only host observation; do not infer "
                 "completion from prose):\n"
-                "python3 .wishgraph/hooks/memory_sync.py claude-worker refresh "
-                f"--discussion-session-id {session_id}"
+                + _memory_sync_command(
+                    config,
+                    "claude-worker",
+                    "refresh",
+                    "--discussion-session-id",
+                    session_id,
+                )
             )
         emit(
             {
@@ -2226,16 +2453,27 @@ def user_prompt_submit_main(
             }
         )
         resolved_profile = profile_resolution.get("resolved", {})
-        profile_suffix = _execution_profile_command_suffix(resolved_profile)
         host_adapter_command = (
-            "python3 .wishgraph/hooks/memory_sync.py "
-            f"claude-worker launch {task_id} "
-            f"--discussion-session-id {session_id}{profile_suffix}"
+            _memory_sync_command(
+                config,
+                "claude-worker",
+                "launch",
+                task_id,
+                "--discussion-session-id",
+                session_id,
+                *_execution_profile_command_args(resolved_profile),
+            )
             if host_action == "launch_claude_background_worker"
             else (
-                "python3 .wishgraph/hooks/memory_sync.py "
-                f"codex-worker prepare {task_id} "
-                f"--discussion-session-id {session_id}{profile_suffix}"
+                _memory_sync_command(
+                    config,
+                    "codex-worker",
+                    "prepare",
+                    task_id,
+                    "--discussion-session-id",
+                    session_id,
+                    *_execution_profile_command_args(resolved_profile),
+                )
                 if host_action == "launch_codex_agent_worker"
                 else ""
             )
@@ -2251,10 +2489,11 @@ def user_prompt_submit_main(
             "launch_codex_agent_worker",
             "launch_claude_background_worker",
         }
-        active_run = latest_execution_run(
+        active_run = read_execution_run(
             root,
-            task_id,
-            attempt=int(resolved["task"].get("attempt") or 1),
+            execution_run_id(
+                task_id, int(resolved["task"].get("attempt") or 1)
+            ),
         )
         run_authorization = (
             active_run.get("authorization")
@@ -2266,15 +2505,28 @@ def user_prompt_submit_main(
             run_authorization.get("parent_discussion_id") or ""
         )
         current_worker_claim_command = (
-            "python3 .wishgraph/hooks/memory_sync.py "
-            f"claim acquire {task_id} --worker-id {session_id} "
-            f"--session-id {session_id} --host-thread-ref {session_id} "
-            f"--host {host} --container-kind manual_worker_window "
-            "--agent-kind formal_worker"
-            + (
-                f" --discussion-session-id {parent_discussion_id}"
-                if parent_discussion_id
-                else ""
+            _memory_sync_command(
+                config,
+                "claim",
+                "acquire",
+                task_id,
+                "--worker-id",
+                session_id,
+                "--session-id",
+                session_id,
+                "--host-thread-ref",
+                session_id,
+                "--host",
+                host,
+                "--container-kind",
+                "manual_worker_window",
+                "--agent-kind",
+                "formal_worker",
+                *(
+                    ["--discussion-session-id", parent_discussion_id]
+                    if parent_discussion_id
+                    else []
+                ),
             )
             if current_worker_session
             else ""
@@ -2361,7 +2613,37 @@ def user_prompt_submit_main(
     return 0
 
 
-def hook_main(event: str, host: str = "unknown") -> int:
+def _verified_host_observation_invocation(
+    event: str, host: str, payload: dict[str, Any]
+) -> bool:
+    """Reject receipt creation from incomplete manual CLI invocations."""
+    if event not in HOST_OBSERVATION_EVENTS or host not in {"codex", "claude"}:
+        return False
+    session_id = hook_session_id(payload)
+    if not session_id:
+        return False
+    declared_event = payload.get("hook_event_name")
+    expected_event = {
+        "session-start": "SessionStart",
+        "user-prompt-submit": "UserPromptSubmit",
+    }[event]
+    if host == "codex" and declared_event != expected_event:
+        return False
+    if host != "codex" and declared_event is not None and declared_event != expected_event:
+        return False
+    if host != "codex":
+        return True
+    if event == "session-start":
+        return payload.get("source") in {"startup", "resume", "clear", "compact"}
+    turn_id = payload.get("turn_id")
+    return bool(
+        isinstance(turn_id, str)
+        and canonical_runtime_id(turn_id)
+        and isinstance(payload.get("prompt"), str)
+    )
+
+
+def _hook_main(event: str, host: str = "unknown") -> int:
     payload = read_hook_input()
     root = find_git_root(Path(payload.get("cwd") or os.getcwd()))
     if root is None:
@@ -2391,7 +2673,11 @@ def hook_main(event: str, host: str = "unknown") -> int:
         emit(
             {
                 "hookSpecificOutput": {
-                    "hookEventName": "SessionStart",
+                    "hookEventName": (
+                        "UserPromptSubmit"
+                        if event == "user-prompt-submit"
+                        else "SessionStart"
+                    ),
                     "additionalContext": HOOK_CONFIG_DENIAL,
                 }
             }
@@ -2401,13 +2687,13 @@ def hook_main(event: str, host: str = "unknown") -> int:
         emit({})
         return 0
 
-    if event in HOST_OBSERVATION_EVENTS and host in {"codex", "claude"}:
+    session_id = hook_session_id(payload)
+    if _verified_host_observation_invocation(event, host, payload):
         # This is runtime liveness evidence, not semantic project memory. Keep it
         # outside the worktree and never add this write to high-frequency tool gates.
         record_host_observation(root, host, event, config.get("runtime_version"))
 
     if event == "session-start":
-        session_id = hook_session_id(payload)
         session_runtime = read_session_runtime(root, session_id) if session_id else None
         if session_id and session_runtime is None:
             write_session_runtime(
@@ -2589,6 +2875,42 @@ def hook_main(event: str, host: str = "unknown") -> int:
     else:
         emit({"decision": "block", "reason": HOOK_CLOSEOUT_DENIAL})
     return 0
+
+
+def hook_main(event: str, host: str = "unknown") -> int:
+    """Keep Hook failures bounded to the event's single supported output channel."""
+    try:
+        return _hook_main(event, host)
+    except Exception:
+        if event == "pre-tool-use":
+            emit(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": HOOK_RUNTIME_DENIAL,
+                    }
+                }
+            )
+            return 0
+        if event == "task-completed":
+            print(HOOK_RUNTIME_DENIAL, file=sys.stderr)
+            return 2
+        if event == "stop":
+            emit({"decision": "block", "reason": HOOK_RUNTIME_DENIAL})
+            return 0
+        hook_event_name = (
+            "UserPromptSubmit" if event == "user-prompt-submit" else "SessionStart"
+        )
+        emit(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": hook_event_name,
+                    "additionalContext": HOOK_RUNTIME_DENIAL,
+                }
+            }
+        )
+        return 0
 
 
 def check_main(scope: str) -> int:
@@ -2855,6 +3177,8 @@ def _integration_transition_selection(
             return {"ok": False, "error": "integration_task_report_mismatch"}
         if unit.get("lifecycle_status") != "completed" or unit.get("errors"):
             return {"ok": False, "error": "integration_work_unit_not_completed"}
+        revision_id = canonical_revision_id(unit.get("revision_id")) or ""
+        attempt = int(unit.get("attempt") or 1)
         if unit.get("active_claims"):
             return {"ok": False, "error": "active_worker_claim_exists"}
         matching_claims = [
@@ -2862,7 +3186,8 @@ def _integration_transition_selection(
             for claim in inspect_claims(root, task_id)
             if (
                 str(claim.get("revision_id") or "")
-                == str(unit.get("revision_id") or "")
+                == revision_id
+                and int(claim.get("attempt") or 0) == attempt
             )
         ]
         if any(
@@ -2870,20 +3195,29 @@ def _integration_transition_selection(
             for claim in matching_claims
         ):
             return {"ok": False, "error": "active_worker_claim_exists"}
-        released_claims = [
-            claim for claim in matching_claims if claim.get("lease_status") == "released"
-        ]
-        if not released_claims:
+        try:
+            bound_run_id = execution_run_id(
+                task_id, attempt, revision_id
+            )
+        except ValueError:
+            return {"ok": False, "error": "invalid_integration_run_identity"}
+        execution_run = read_execution_run(root, bound_run_id)
+        if (
+            not isinstance(execution_run, dict)
+            or execution_run.get("record_status") == "invalid"
+            or execution_run.get("run_id") != bound_run_id
+            or execution_run.get("task_id") != task_id
+            or str(execution_run.get("revision_id") or "") != revision_id
+            or int(execution_run.get("attempt") or 0) != attempt
+        ):
+            return {"ok": False, "error": "canonical_execution_run_required"}
+        bound_claim_id = str(execution_run.get("claim_id") or "")
+        if not bound_claim_id or not any(
+            claim.get("claim_id") == bound_claim_id
+            and claim.get("lease_status") == "released"
+            for claim in matching_claims
+        ):
             return {"ok": False, "error": "released_worker_claim_required"}
-        released_claims.sort(
-            key=lambda item: str(item.get("updated_at") or ""), reverse=True
-        )
-        released_claim = released_claims[0]
-        execution_run = latest_execution_run(
-            root,
-            task_id,
-            attempt=int(unit.get("attempt") or 1),
-        )
         result_commit = str(
             ((execution_run or {}).get("result") or {}).get("commit") or ""
         )
@@ -2932,6 +3266,17 @@ def _integration_transition_selection(
         "integration_id": integration_id,
         "task_ids": task_ids,
         "reports": reports,
+        "run_ids": [
+            execution_run_id(
+                task_id,
+                int(units_by_report[report_path].get("attempt") or 1),
+                canonical_revision_id(
+                    units_by_report[report_path].get("revision_id")
+                )
+                or "",
+            )
+            for task_id, report_path in zip(task_ids, reports)
+        ],
         "outcome": outcome,
         "status": status,
     }
@@ -3001,6 +3346,7 @@ def transition_session_runtime(
                     "transition_grant_id": grant["grant_id"],
                     "selected_task_ids": evidence["task_ids"],
                     "selected_reports": evidence["reports"],
+                    "selected_run_ids": evidence["run_ids"],
                     "base_branch": grant["base_branch"],
                     "worktree": grant["worktree"],
                 }
@@ -3066,6 +3412,13 @@ def _validate_integration_grant_evidence(
         return evidence
     if evidence.get("outcome") != grant.get("outcome"):
         return {"ok": False, "error": "integration_transition_outcome_changed"}
+    integration_runtime = (
+        runtime.get("integration_runtime")
+        if isinstance(runtime.get("integration_runtime"), dict)
+        else {}
+    )
+    if integration_runtime.get("selected_run_ids") != evidence.get("run_ids"):
+        return {"ok": False, "error": "integration_run_selection_changed"}
     return {"ok": True, "grant": grant, "evidence": evidence}
 
 
@@ -3129,6 +3482,74 @@ def session_main(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
+def _selected_integration_runs(
+    root: Path,
+    task_ids: list[str],
+    reports: list[str],
+    run_ids: list[str],
+    *,
+    phases: set[str],
+    integration_id: str = "",
+    lease_id: str = "",
+) -> dict[str, Any]:
+    if not task_ids or not (
+        len(task_ids) == len(reports) == len(run_ids)
+    ):
+        return {"ok": False, "error": "integration_run_selection_incomplete"}
+    selected: list[dict[str, Any]] = []
+    for task_id, report_path, run_id in zip(task_ids, reports, run_ids):
+        run = read_execution_run(root, str(run_id))
+        result = run.get("result") if isinstance(run, dict) else None
+        integration = run.get("integration") if isinstance(run, dict) else None
+        if (
+            not isinstance(run, dict)
+            or run.get("record_status") == "invalid"
+            or run.get("run_id") != run_id
+            or run.get("task_id") != task_id
+            or run.get("phase") not in phases
+            or not isinstance(result, dict)
+            or result.get("report") != report_path
+        ):
+            return {
+                "ok": False,
+                "error": "integration_run_binding_mismatch",
+                "run_id": run_id,
+            }
+        if integration_id or lease_id:
+            if (
+                not isinstance(integration, dict)
+                or integration.get("integration_id") != integration_id
+                or integration.get("lease_id") != lease_id
+                or integration.get("report") != report_path
+            ):
+                return {
+                    "ok": False,
+                    "error": "integration_run_lease_binding_mismatch",
+                    "run_id": run_id,
+                }
+        selected.append(run)
+    return {"ok": True, "runs": selected}
+
+
+def _restore_integration_runs(
+    root: Path, original_runs: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Compensate Run updates; callers keep the lease when restoration is incomplete."""
+    return [
+        update_execution_run(
+            root,
+            task_id=str(original["task_id"]),
+            attempt=int(original["attempt"]),
+            revision_id=str(original.get("revision_id") or ""),
+            patch={
+                "phase": original["phase"],
+                "integration": original.get("integration") or {},
+            },
+        )
+        for original in original_runs
+    ]
+
+
 def integration_lease_main(args: argparse.Namespace) -> int:
     root = find_git_root(Path.cwd())
     if root is None:
@@ -3165,76 +3586,197 @@ def integration_lease_main(args: argparse.Namespace) -> int:
             if not evidence.get("ok"):
                 payload = evidence
             else:
-                payload = acquire_integration_lease(
+                selected_runs = _selected_integration_runs(
                     root,
-                    session_id=args.session_id,
-                    grant_id=args.grant_id,
-                    integration_id=args.integration_id,
-                    task_ids=args.task_id,
-                    reports=args.report,
-                    require_clean=not args.allow_dirty,
+                    list(args.task_id),
+                    list(args.report),
+                    list(evidence["evidence"]["run_ids"]),
+                    phases={"succeeded", "decision_required"},
                 )
-            if payload.get("ok"):
-                persisted = apply_session_runtime_patch(
-                    root,
-                    args.session_id,
-                    {
-                        "integration_runtime": {
-                            "lease_id": payload["lease"]["lease_id"],
-                            "integration_id": args.integration_id,
-                            "base_branch": payload["lease"]["base_branch"],
-                            "worktree": payload["lease"]["worktree"],
-                            "selected_task_ids": list(args.task_id),
-                            "selected_reports": list(args.report),
-                        }
-                    },
-                )
-                if not persisted.get("ok"):
-                    update_integration_lease(
-                        root,
-                        "revoke",
-                        session_id=args.session_id,
-                    )
-                    payload = {
-                        "ok": False,
-                        "error": "integration_runtime_persistence_failed",
-                        "detail": persisted,
-                    }
+                if not selected_runs.get("ok"):
+                    payload = selected_runs
                 else:
-                    run_updates: list[dict[str, Any]] = []
-                    for task_id, report_path in zip(args.task_id, args.report):
-                        run = latest_execution_run(root, task_id)
-                        if not isinstance(run, dict):
-                            run_updates.append(
-                                {"ok": False, "error": "execution_run_not_found"}
-                            )
-                            continue
-                        run_updates.append(
-                            update_execution_run(
-                                root,
-                                task_id=task_id,
-                                attempt=int(run.get("attempt") or 1),
-                                revision_id=str(run.get("revision_id") or ""),
-                                patch={
-                                    "phase": "integrating",
-                                    "integration": {
-                                        "integration_id": args.integration_id,
-                                        "lease_id": payload["lease"]["lease_id"],
-                                        "report": report_path,
-                                        "started_at": _utc_now(),
-                                    },
+                    payload = acquire_integration_lease(
+                        root,
+                        session_id=args.session_id,
+                        grant_id=args.grant_id,
+                        integration_id=args.integration_id,
+                        task_ids=args.task_id,
+                        reports=args.report,
+                        require_clean=not args.allow_dirty,
+                    )
+            if payload.get("ok"):
+                original_runs = list(selected_runs["runs"])
+                run_updates: list[dict[str, Any]] = []
+                for run, report_path in zip(original_runs, args.report):
+                    run_updates.append(
+                        update_execution_run(
+                            root,
+                            task_id=str(run["task_id"]),
+                            attempt=int(run["attempt"]),
+                            revision_id=str(run.get("revision_id") or ""),
+                            patch={
+                                "phase": "integrating",
+                                "integration": {
+                                    "integration_id": args.integration_id,
+                                    "lease_id": payload["lease"]["lease_id"],
+                                    "report": report_path,
+                                    "started_at": _utc_now(),
                                 },
-                            )
+                            },
                         )
-                    if not all(item.get("ok") for item in run_updates):
+                    )
+                if not all(item.get("ok") for item in run_updates):
+                    rollback_updates = _restore_integration_runs(root, original_runs)
+                    rollback_ok = all(item.get("ok") for item in rollback_updates)
+                    lease_recovery = (
                         update_integration_lease(
                             root, "revoke", session_id=args.session_id
                         )
+                        if rollback_ok
+                        else {"ok": False, "error": "rollback_incomplete"}
+                    )
+                    payload = {
+                        "ok": False,
+                        "error": "integration_run_binding_failed",
+                        "detail": {
+                            "updates": run_updates,
+                            "rollback": rollback_updates,
+                            "lease_recovery": lease_recovery,
+                        },
+                        "lease_preserved": not lease_recovery.get("ok"),
+                    }
+                else:
+                    persisted = apply_session_runtime_patch(
+                        root,
+                        args.session_id,
+                        {
+                            "integration_runtime": {
+                                "lease_id": payload["lease"]["lease_id"],
+                                "integration_id": args.integration_id,
+                                "base_branch": payload["lease"]["base_branch"],
+                                "worktree": payload["lease"]["worktree"],
+                                "selected_task_ids": list(args.task_id),
+                                "selected_reports": list(args.report),
+                                "selected_run_ids": [
+                                    str(run["run_id"]) for run in original_runs
+                                ],
+                            }
+                        },
+                    )
+                    if not persisted.get("ok"):
+                        rollback_updates = _restore_integration_runs(
+                            root, original_runs
+                        )
+                        rollback_ok = all(
+                            item.get("ok") for item in rollback_updates
+                        )
+                        lease_recovery = (
+                            update_integration_lease(
+                                root, "revoke", session_id=args.session_id
+                            )
+                            if rollback_ok
+                            else {"ok": False, "error": "rollback_incomplete"}
+                        )
                         payload = {
                             "ok": False,
-                            "error": "integration_run_binding_failed",
-                            "detail": run_updates,
+                            "error": "integration_runtime_persistence_failed",
+                            "detail": {
+                                "persistence": persisted,
+                                "rollback": rollback_updates,
+                                "lease_recovery": lease_recovery,
+                            },
+                            "lease_preserved": not lease_recovery.get("ok"),
                         }
+    elif args.lease_action == "release":
+        lease = inspect_integration_lease(root)
+        runtime = read_session_runtime(root, args.session_id)
+        integration_runtime = (
+            runtime.get("integration_runtime")
+            if isinstance(runtime, dict)
+            and isinstance(runtime.get("integration_runtime"), dict)
+            else {}
+        )
+        if not isinstance(lease, dict) or lease.get("record_status") == "invalid":
+            payload = {"ok": False, "error": "integration_lease_not_found_or_invalid"}
+        elif lease.get("lease_status") != "active":
+            payload = {"ok": False, "error": "integration_lease_not_active"}
+        elif lease.get("session_id") != args.session_id:
+            payload = {"ok": False, "error": "integration_session_mismatch"}
+        else:
+            task_ids = list(lease.get("selected_task_ids") or [])
+            reports = list(lease.get("selected_reports") or [])
+            run_ids = list(integration_runtime.get("selected_run_ids") or [])
+            selected_runs = _selected_integration_runs(
+                root,
+                task_ids,
+                reports,
+                run_ids,
+                phases={"integrating"},
+                integration_id=str(lease.get("integration_id") or ""),
+                lease_id=str(lease.get("lease_id") or ""),
+            )
+            missing_reports = [
+                report_path
+                for report_path in reports
+                if read_ref_version(root, "HEAD", str(report_path)) is None
+            ]
+            if not selected_runs.get("ok"):
+                payload = selected_runs
+            elif missing_reports:
+                payload = {
+                    "ok": False,
+                    "error": "integrated_report_not_in_head",
+                    "reports": missing_reports,
+                }
+            else:
+                original_runs = list(selected_runs["runs"])
+                integration_commit = run_git(
+                    root, "rev-parse", "HEAD", check=False
+                ).stdout.decode("utf-8", errors="replace").strip()
+                run_updates: list[dict[str, Any]] = []
+                for run in original_runs:
+                    run_updates.append(
+                        update_execution_run(
+                            root,
+                            task_id=str(run["task_id"]),
+                            attempt=int(run["attempt"]),
+                            revision_id=str(run.get("revision_id") or ""),
+                            patch={
+                                "phase": "integrated",
+                                "integration": {
+                                    **(run.get("integration") or {}),
+                                    "commit": integration_commit,
+                                    "completed_at": _utc_now(),
+                                },
+                            },
+                        )
+                    )
+                if not all(item.get("ok") for item in run_updates):
+                    rollback_updates = _restore_integration_runs(root, original_runs)
+                    payload = {
+                        "ok": False,
+                        "error": "integration_run_closeout_failed",
+                        "detail": {
+                            "updates": run_updates,
+                            "rollback": rollback_updates,
+                        },
+                        "lease_preserved": True,
+                    }
+                else:
+                    payload = update_integration_lease(
+                        root,
+                        "release",
+                        session_id=args.session_id,
+                        branch=current_branch(root),
+                        worktree=str(root),
+                    )
+                    if not payload.get("ok"):
+                        rollback_updates = _restore_integration_runs(
+                            root, original_runs
+                        )
+                        payload["rollback"] = rollback_updates
+                        payload["lease_preserved"] = True
     else:
         payload = update_integration_lease(
             root,
@@ -3251,49 +3793,6 @@ def integration_lease_main(args: argparse.Namespace) -> int:
                 else None
             ),
         )
-        if payload.get("ok") and args.lease_action == "release":
-            lease = payload.get("lease") or {}
-            integration_commit = run_git(
-                root, "rev-parse", "HEAD", check=False
-            ).stdout.decode("utf-8", errors="replace").strip()
-            run_updates = []
-            for task_id, report_path in zip(
-                lease.get("selected_task_ids") or [],
-                lease.get("selected_reports") or [],
-            ):
-                run = latest_execution_run(root, str(task_id))
-                report_in_head = read_ref_version(
-                    root, "HEAD", str(report_path)
-                ) is not None
-                if not isinstance(run, dict) or not report_in_head:
-                    run_updates.append(
-                        {"ok": False, "error": "integrated_report_not_in_head"}
-                    )
-                    continue
-                run_updates.append(
-                    update_execution_run(
-                        root,
-                        task_id=str(task_id),
-                        attempt=int(run.get("attempt") or 1),
-                        revision_id=str(run.get("revision_id") or ""),
-                        patch={
-                            "phase": "integrated",
-                            "integration": {
-                                "integration_id": str(lease.get("integration_id") or ""),
-                                "lease_id": str(lease.get("lease_id") or ""),
-                                "commit": integration_commit,
-                                "completed_at": _utc_now(),
-                            },
-                        },
-                    )
-                )
-            if run_updates and not all(item.get("ok") for item in run_updates):
-                payload = {
-                    "ok": False,
-                    "error": "lease_released_but_run_closeout_failed",
-                    "lease": lease,
-                    "detail": run_updates,
-                }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if payload.get("ok") else 1
 

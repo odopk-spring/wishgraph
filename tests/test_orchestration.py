@@ -1028,6 +1028,7 @@ class WorkerReuseRevisionSpecTests(unittest.TestCase):
                 ],
                 cwd=root,
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 check=True,
             )
@@ -1058,6 +1059,7 @@ class WorkerReuseRevisionSpecTests(unittest.TestCase):
                 ],
                 cwd=root,
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 check=True,
             )
@@ -1077,6 +1079,7 @@ class WorkerReuseRevisionSpecTests(unittest.TestCase):
                 ],
                 cwd=root,
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 check=True,
             )

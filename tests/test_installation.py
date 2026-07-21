@@ -14,6 +14,7 @@ class InstallerTests(unittest.TestCase):
                 mode,
             ],
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -51,6 +52,7 @@ class InstallerTests(unittest.TestCase):
             process = subprocess.run(
                 [sys.executable, str(INSTALLER), "--target", str(root), "--json"],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -88,6 +90,7 @@ class InstallerTests(unittest.TestCase):
                         "--json",
                     ],
                     text=True,
+                    encoding="utf-8",
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
@@ -191,6 +194,7 @@ class InstallerTests(unittest.TestCase):
             upgraded = subprocess.run(
                 [sys.executable, str(INSTALLER), "--target", str(root), "--upgrade"],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -217,14 +221,17 @@ class InstallerTests(unittest.TestCase):
                     "enforce",
                 ],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
             self.assertEqual(process.returncode, 0, process.stderr)
             report = installer_module.doctor_report(root)
             self.assertEqual(set(report["host_adapters"]), {"claude"})
-            self.assertTrue(report["healthy"])
+            self.assertFalse(report["healthy"])
+            self.assertTrue(report["installation_healthy"])
             self.assertFalse(report["host_execution_confirmed"])
+            self.assertFalse(report["formal_worker_ready"])
             self.assertEqual(
                 report["host_adapters"]["claude"]["execution"]["state"],
                 "unverified",
@@ -249,6 +256,7 @@ class InstallerTests(unittest.TestCase):
             before = subprocess.run(
                 ["git", "-C", str(root), "status", "--porcelain"],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 check=True,
             ).stdout
@@ -264,6 +272,7 @@ class InstallerTests(unittest.TestCase):
                     "--json",
                 ],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -277,6 +286,7 @@ class InstallerTests(unittest.TestCase):
             after = subprocess.run(
                 ["git", "-C", str(root), "status", "--porcelain"],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 check=True,
             ).stdout
@@ -294,7 +304,7 @@ class InstallerTests(unittest.TestCase):
 
             with mock.patch.object(installer_module, "ASSET_ROOT", asset_root):
                 manifest = installer_module.bundled_runtime_manifest()
-                self.assertEqual(manifest["runtime_version"], 28)
+                self.assertEqual(manifest["runtime_version"], 29)
 
                 policy_path = asset_root / "policy.py"
                 policy_path.write_bytes(policy_path.read_bytes() + b"# changed\r\n")
@@ -302,6 +312,13 @@ class InstallerTests(unittest.TestCase):
                     ValueError, "do not match runtime-manifest"
                 ):
                     installer_module.bundled_runtime_manifest()
+
+    def test_installer_rejects_project_paths_outside_repository(self) -> None:
+        config = json.loads((HOOK_ASSETS / "config.json").read_text(encoding="utf-8"))
+        installer_module.validate_config_paths(config)
+        config["paths"]["project_status"] = "../outside.md"
+        with self.assertRaisesRegex(ValueError, "invalid paths.project_status"):
+            installer_module.validate_config_paths(config)
 
     def test_doctor_reports_a_current_installed_host(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -319,6 +336,7 @@ class InstallerTests(unittest.TestCase):
                     "warn",
                 ],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -335,12 +353,14 @@ class InstallerTests(unittest.TestCase):
                     "--json",
                 ],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=True,
             )
             payload = json.loads(process.stdout)
-            self.assertTrue(payload["healthy"])
+            self.assertFalse(payload["healthy"])
+            self.assertTrue(payload["installation_healthy"])
             self.assertEqual(payload["activation"]["state"], "active")
             self.assertEqual(payload["runtime"]["state"], "current")
             self.assertEqual(payload["python"]["state"], "available")
@@ -350,7 +370,44 @@ class InstallerTests(unittest.TestCase):
                 "unverified",
             )
             self.assertFalse(payload["host_execution_confirmed"])
-            self.assertEqual(payload["next_action"], "restart_agent_session")
+            self.assertFalse(payload["formal_worker_ready"])
+            self.assertEqual(payload["next_action"], "host_hooks_not_loaded")
+            execution = payload["host_adapters"]["codex"]["execution"]
+            self.assertEqual(execution["diagnosis"], "unsupported_or_not_loaded")
+            self.assertNotIn("troubleshooting", execution)
+            self.assertEqual(execution["fallback"]["surface"], "codex_cli")
+            self.assertEqual(
+                execution["fallback"]["verification_command"], "/hooks"
+            )
+            cli_payload = installer_module.doctor_report(
+                root, "codex", host_surface="codex-cli"
+            )
+            self.assertEqual(
+                cli_payload["host_adapters"]["codex"]["execution"][
+                    "troubleshooting"
+                ],
+                "/hooks",
+            )
+            plain = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALLER),
+                    "--target",
+                    str(root),
+                    "--host",
+                    "codex",
+                    "--doctor",
+                ],
+                text=True,
+                encoding="utf-8",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+            self.assertIn("Formal Worker: not ready", plain.stdout)
+            self.assertIn("continue from codex cli", plain.stdout)
+            self.assertIn("then run `/hooks`", plain.stdout)
+            self.assertNotIn("Supported host check: /hooks", plain.stdout)
 
     def test_doctor_confirms_a_recent_real_host_hook_invocation(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -363,6 +420,27 @@ class InstallerTests(unittest.TestCase):
                 cwd=root,
                 input=json.dumps({"cwd": str(root), "session_id": "codex-live"}),
                 text=True,
+                encoding="utf-8",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(invoked.returncode, 0, invoked.stderr)
+            unverified = installer_module.doctor_report(root, "codex")
+            self.assertFalse(unverified["host_execution_confirmed"])
+
+            invoked = subprocess.run(
+                [sys.executable, str(hook), "session-start", "--host", "codex"],
+                cwd=root,
+                input=json.dumps(
+                    {
+                        "cwd": str(root),
+                        "session_id": "codex-live",
+                        "hook_event_name": "SessionStart",
+                        "source": "startup",
+                    }
+                ),
+                text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -380,6 +458,7 @@ class InstallerTests(unittest.TestCase):
                     "--json",
                 ],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=True,
@@ -388,8 +467,11 @@ class InstallerTests(unittest.TestCase):
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["state"], "confirmed_recently")
             self.assertEqual(execution["last_event"], "session-start")
-            self.assertEqual(execution["observed_runtime_version"], 28)
+            self.assertEqual(execution["observed_runtime_version"], 29)
             self.assertTrue(payload["host_execution_confirmed"])
+            self.assertTrue(payload["installation_healthy"])
+            self.assertTrue(payload["formal_worker_ready"])
+            self.assertTrue(payload["healthy"])
             self.assertEqual(payload["next_action"], "bootstrap_project_memory")
 
     def test_doctor_routes_unverified_claude_cli_to_claude_doctor(self) -> None:
@@ -408,12 +490,15 @@ class InstallerTests(unittest.TestCase):
                     "warn",
                 ],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
             self.assertEqual(installed.returncode, 0, installed.stderr)
 
-            payload = installer_module.doctor_report(root, "claude")
+            payload = installer_module.doctor_report(
+                root, "claude", host_surface="claude-cli"
+            )
             execution = payload["host_adapters"]["claude"]["execution"]
             self.assertEqual(
                 payload["host_adapters"]["claude"]["worker_agent"]["state"],
@@ -421,6 +506,13 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertTrue(
                 (root / ".claude" / "agents" / "wishgraph-worker.md").is_file()
+            )
+            claude_agent = (
+                root / ".claude" / "agents" / "wishgraph-worker.md"
+            ).read_text(encoding="utf-8")
+            self.assertIn(str(Path(sys.executable).resolve()), claude_agent)
+            self.assertNotIn(
+                "python3 .wishgraph/hooks/memory_sync.py", claude_agent
             )
             claude_settings = json.loads(
                 (root / ".claude" / "settings.json").read_text(encoding="utf-8")
@@ -431,7 +523,7 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertEqual(execution["state"], "unverified")
             self.assertEqual(execution["troubleshooting"], "claude doctor")
-            self.assertEqual(payload["next_action"], "restart_agent_session")
+            self.assertEqual(payload["next_action"], "host_hooks_not_loaded")
 
     def test_doctor_marks_observation_stale_after_host_adapter_changes(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -452,10 +544,13 @@ class InstallerTests(unittest.TestCase):
                     {
                         "cwd": str(root),
                         "session_id": "codex-live",
+                        "hook_event_name": "UserPromptSubmit",
+                        "turn_id": "turn-1",
                         "prompt": "检查 WishGraph 状态",
                     }
                 ),
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=True,
@@ -468,9 +563,10 @@ class InstallerTests(unittest.TestCase):
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["state"], "stale")
             self.assertFalse(payload["host_execution_confirmed"])
-            self.assertEqual(payload["next_action"], "restart_agent_session")
+            self.assertEqual(payload["next_action"], "host_hooks_not_loaded")
+            self.assertEqual(execution["diagnosis"], "host_receipt_stale")
 
-    def test_pre_tool_use_does_not_write_host_observation(self) -> None:
+    def test_manual_or_non_observation_hooks_do_not_write_host_receipts(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
             subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
@@ -488,14 +584,38 @@ class InstallerTests(unittest.TestCase):
                     }
                 ),
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
             self.assertEqual(process.returncode, 0, process.stderr)
+            manual_prompt = subprocess.run(
+                [
+                    sys.executable,
+                    str(hook),
+                    "user-prompt-submit",
+                    "--host",
+                    "codex",
+                ],
+                cwd=root,
+                input=json.dumps(
+                    {
+                        "cwd": str(root),
+                        "session_id": "manual-codex-call",
+                        "prompt": "Start discussion",
+                    }
+                ),
+                text=True,
+                encoding="utf-8",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(manual_prompt.returncode, 0, manual_prompt.stderr)
             common_dir = Path(
                 subprocess.run(
                     ["git", "-C", str(root), "rev-parse", "--git-common-dir"],
                     text=True,
+                    encoding="utf-8",
                     stdout=subprocess.PIPE,
                     check=True,
                 ).stdout.strip()
@@ -529,6 +649,7 @@ class InstallerTests(unittest.TestCase):
                     "--json",
                 ],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=True,
@@ -547,6 +668,7 @@ class InstallerTests(unittest.TestCase):
                     "--json",
                 ],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -554,12 +676,12 @@ class InstallerTests(unittest.TestCase):
             payload = json.loads(upgraded.stdout)
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["after"]["state"], "current")
-            self.assertEqual(payload["after"]["installed_runtime_version"], 28)
+            self.assertEqual(payload["after"]["installed_runtime_version"], 29)
             config = json.loads(
                 (root / ".wishgraph" / "config.json").read_text(encoding="utf-8")
             )
             self.assertEqual(config["mode"], "enforce")
-            self.assertEqual(config["runtime_version"], 28)
+            self.assertEqual(config["runtime_version"], 29)
 
     def test_safe_upgrade_replaces_only_a_bundled_known_old_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -610,6 +732,7 @@ class InstallerTests(unittest.TestCase):
                     "--json",
                 ],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -697,6 +820,7 @@ class InstallerTests(unittest.TestCase):
                     "--json",
                 ],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -736,6 +860,7 @@ class InstallerTests(unittest.TestCase):
                     "--json",
                 ],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=True,
@@ -761,6 +886,7 @@ class InstallerTests(unittest.TestCase):
                     "--json",
                 ],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -775,6 +901,7 @@ class InstallerTests(unittest.TestCase):
             process = subprocess.run(
                 [sys.executable, str(INSTALLER), "--target", str(root)],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -782,6 +909,88 @@ class InstallerTests(unittest.TestCase):
             self.assertIn("git init", process.stderr)
             self.assertIn("under a second", process.stderr)
             self.assertFalse((root / ".wishgraph").exists())
+
+    def test_installer_rejects_managed_directory_links_outside_project(self) -> None:
+        for managed_dir, host in (
+            (".wishgraph", "codex"),
+            (".codex", "codex"),
+            (".claude", "claude"),
+        ):
+            with self.subTest(managed_dir=managed_dir), tempfile.TemporaryDirectory() as tempdir:
+                base = Path(tempdir)
+                root = base / "project"
+                outside = base / "outside"
+                root.mkdir()
+                outside.mkdir()
+                subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+                link = root / managed_dir
+                try:
+                    os.symlink(outside, link, target_is_directory=True)
+                except OSError:
+                    if os.name != "nt":
+                        self.skipTest("directory symlinks are unavailable")
+                    junction = subprocess.run(
+                        ["cmd", "/c", "mklink", "/J", str(link), str(outside)],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        encoding="utf-8",
+                    )
+                    if junction.returncode != 0:
+                        self.skipTest("directory junctions are unavailable")
+
+                process = subprocess.run(
+                    [
+                        sys.executable,
+                        str(INSTALLER),
+                        "--target",
+                        str(root),
+                        "--host",
+                        host,
+                        "--json",
+                    ],
+                    text=True,
+                    encoding="utf-8",
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                self.assertEqual(process.returncode, 1, process.stderr)
+                payload = json.loads(process.stdout)
+                self.assertFalse(payload["ok"])
+                self.assertIn("outside", payload["failed"][0])
+                self.assertEqual(list(outside.iterdir()), [])
+
+    def test_git_preflight_distinguishes_stale_windows_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            installed_git = Path(tempdir) / "git.exe"
+            installed_git.write_bytes(b"fixture")
+            with mock.patch.object(installer_module.shutil, "which", return_value=None):
+                diagnosis = installer_module.git_preflight_diagnosis(
+                    platform_name="nt", windows_candidates=[installed_git]
+                )
+            self.assertEqual(diagnosis["state"], "stale_path")
+            self.assertEqual(diagnosis["path"], str(installed_git.resolve()))
+
+    def test_global_host_hook_is_quiet_when_git_is_absent(self) -> None:
+        global_hook = (
+            ROOT / "skills" / "wishgraph" / "scripts" / "global_host_hook.py"
+        )
+        with tempfile.TemporaryDirectory() as tempdir:
+            env = os.environ.copy()
+            env["PATH"] = ""
+            process = subprocess.run(
+                [sys.executable, str(global_hook), "session-start", "--host", "codex"],
+                cwd=tempdir,
+                env=env,
+                input=json.dumps({"cwd": tempdir}),
+                text=True,
+                encoding="utf-8",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(process.returncode, 0, process.stderr)
+            self.assertEqual(json.loads(process.stdout), {})
+            self.assertEqual(process.stderr, "")
 
     def test_installer_uses_detected_repository_root(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -801,6 +1010,7 @@ class InstallerTests(unittest.TestCase):
                     "warn",
                 ],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -854,6 +1064,7 @@ class InstallerTests(unittest.TestCase):
                     "warn",
                 ],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -872,6 +1083,21 @@ class InstallerTests(unittest.TestCase):
             self.assertTrue(
                 all(str(Path(sys.executable).resolve()) in command for command in wishgraph_commands)
             )
+            self.assertTrue(
+                all(
+                    str((root / ".wishgraph/hooks/memory_sync.py").resolve()) in command
+                    for command in wishgraph_commands
+                )
+            )
+            self.assertTrue(all("git rev-parse" not in command for command in wishgraph_commands))
+            windows_commands = [
+                hook["commandWindows"]
+                for group in merged["hooks"]["SessionStart"]
+                for hook in group["hooks"]
+                if "memory_sync.py" in hook.get("commandWindows", "")
+            ]
+            self.assertTrue(windows_commands)
+            self.assertTrue(all("git rev-parse" not in command for command in windows_commands))
             for runtime_name in (
                 "memory_sync.py",
                 "git_state.py",
@@ -891,6 +1117,7 @@ class InstallerTests(unittest.TestCase):
                 ],
                 cwd=root,
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -898,8 +1125,8 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(json.loads(status.stdout)["kind"], "integration_status")
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
-            self.assertEqual(config["version"], 12)
-            self.assertEqual(config["runtime_version"], 28)
+            self.assertEqual(config["version"], 13)
+            self.assertEqual(config["runtime_version"], 29)
             self.assertTrue(
                 (root / ".wishgraph" / "hooks" / "runtime-manifest.json").is_file()
             )
@@ -936,16 +1163,7 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(config["project_status_max_chars"], 12000)
             self.assertTrue(config["orchestration_gate_enabled"])
             self.assertEqual(config["read_gate_mode"], "host_dependent")
-            self.assertEqual(
-                config["required_impact_rows"],
-                [
-                    "PRD.md",
-                    "ARCHITECTURE.md",
-                    "CODEMAP.md",
-                    "CONVENTIONS.md",
-                    "CUSTOM.md",
-                ],
-            )
+            self.assertNotIn("required_impact_rows", config)
 
             second = subprocess.run(
                 [
@@ -959,6 +1177,7 @@ class InstallerTests(unittest.TestCase):
                     "warn",
                 ],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -989,6 +1208,66 @@ class OneCommandInstallerTests(unittest.TestCase):
         self.assertIn('$env:PYTHONIOENCODING = "utf-8"', content)
 
     @unittest.skipUnless(shutil.which("bash"), "bash is required")
+    def test_shell_force_clone_failure_preserves_existing_skill(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            codex_home = root / "codex-home"
+            installed = codex_home / "skills" / "wishgraph"
+            installed.mkdir(parents=True)
+            marker = installed / "SKILL.md"
+            marker.write_text("existing skill\n", encoding="utf-8")
+            env = os.environ.copy()
+            env["CODEX_HOME"] = str(codex_home)
+            env["WISHGRAPH_REPO_URL"] = str(root / "missing-repository")
+            process = subprocess.run(
+                ["bash", str(TOP_LEVEL_INSTALLER), "codex", "--force"],
+                env=env,
+                text=True,
+                encoding="utf-8",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertNotEqual(process.returncode, 0)
+            self.assertEqual(marker.read_text(encoding="utf-8"), "existing skill\n")
+
+    @unittest.skipUnless(
+        shutil.which("pwsh") or shutil.which("powershell"),
+        "PowerShell is required",
+    )
+    def test_powershell_force_clone_failure_preserves_existing_skill(self) -> None:
+        shell = shutil.which("pwsh") or shutil.which("powershell")
+        assert shell is not None
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            codex_home = root / "codex-home"
+            installed = codex_home / "skills" / "wishgraph"
+            installed.mkdir(parents=True)
+            marker = installed / "SKILL.md"
+            marker.write_text("existing skill\n", encoding="utf-8")
+            env = os.environ.copy()
+            env["CODEX_HOME"] = str(codex_home)
+            env["WISHGRAPH_REPO_URL"] = str(root / "missing-repository")
+            process = subprocess.run(
+                [
+                    shell,
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(POWERSHELL_INSTALLER),
+                    "codex",
+                    "-Force",
+                ],
+                env=env,
+                text=True,
+                encoding="utf-8",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertNotEqual(process.returncode, 0)
+            self.assertEqual(marker.read_text(encoding="utf-8"), "existing skill\n")
+
+    @unittest.skipUnless(shutil.which("bash"), "bash is required")
     def test_check_mode_reports_cost_without_installing(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -1008,6 +1287,7 @@ class OneCommandInstallerTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -1038,6 +1318,7 @@ class OneCommandInstallerTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -1065,6 +1346,7 @@ class OneCommandInstallerTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -1114,11 +1396,15 @@ class OneCommandInstallerTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
             self.assertEqual(process.returncode, 0, process.stderr)
-            self.assertIn("Next: reopen the current Agent session", process.stdout)
+            self.assertIn("Next: fully quit and reopen the current Agent", process.stdout)
+            self.assertIn(
+                "warn mode does not bypass authority checks", process.stdout
+            )
             self.assertTrue((codex_home / "skills" / "wishgraph" / "SKILL.md").exists())
             self.assertTrue((project / ".codex" / "hooks.json").exists())
             self.assertTrue((project / ".claude" / "settings.json").exists())
@@ -1145,6 +1431,7 @@ class OneCommandInstallerTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -1167,6 +1454,7 @@ class OneCommandInstallerTests(unittest.TestCase):
                 cwd=project,
                 env=env,
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -1210,6 +1498,7 @@ class OneCommandInstallerTests(unittest.TestCase):
                 ["bash", str(TOP_LEVEL_INSTALLER), "claude-user"],
                 env=env,
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -1227,6 +1516,7 @@ class OneCommandInstallerTests(unittest.TestCase):
         process = subprocess.run(
             ["bash", str(TOP_LEVEL_INSTALLER), "codex", "--strict"],
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -1245,6 +1535,9 @@ class OneCommandInstallerTests(unittest.TestCase):
             "adds no Python packages",
             "wishgraph-worker.md",
             "wishgraph-managed: wishgraph-worker",
+            "current process PATH is stale",
+            "Fully quit Codex (not only this task)",
+            "WishGraph did not change PATH",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, content)

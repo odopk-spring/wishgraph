@@ -32,17 +32,18 @@ jobs:
         run: git diff --check
 
   windows-installer:
-    name: Windows PowerShell installer smoke test
+    name: Windows runtime and installer
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - name: Verify fresh-session Chinese Hook I/O
-        run: python -m unittest tests.test_integration_status.IntegrationStatusTests.test_hook_cli_normalizes_legacy_stdio_to_utf8
+      - name: Run full test suite with the native Windows encoding
+        run: python -m unittest discover
       - name: Install from the checked-out revision
-        shell: pwsh
+        shell: powershell
         run: |
           git checkout -B ci-source $env:GITHUB_SHA
           $project = Join-Path $env:RUNNER_TEMP "wishgraph-project"

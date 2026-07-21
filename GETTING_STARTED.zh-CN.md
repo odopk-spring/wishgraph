@@ -194,9 +194,9 @@ WishGraph 默认使用 native-lite：
 | `更新这个项目的 WishGraph` | 根据文件指纹安全升级，失败时原子回滚。 |
 | `修复当前宿主的 WishGraph Hooks` | 只修复当前宿主，保留无关 Hooks。 |
 
-重新打开会话后，如果“开始讨论”没有响应，先运行 Doctor。只有 Codex 宿主调用仍未确认时才检查 `/hooks`；Claude Code CLI 用户还可以运行 `claude doctor`。
+完整重开会话一次后，如果“开始讨论”仍没有响应，再运行 Doctor。在 Codex Desktop 中不要把 `/hooks` 输入聊天框；请在同一项目打开 Codex CLI，并在那里用 `/hooks` 审查和信任精确项目 Hook。Claude Code CLI 用户还可以运行 `claude doctor`。
 
-Doctor 默认检查配置中的全部 `required_hosts`，并把 Adapter 静态状态与会话回执分开。“adapter current；execution unverified”表示安装成功，只是该 Agent 尚未重新打开。单端项目不会因为未选择的另一端缺失而失败。
+Doctor 默认检查配置中的全部 `required_hosts`，并分别报告 `installation_healthy`、`host_execution_confirmed` 和 `formal_worker_ready`。静态文件可以已安装而 Formal Worker 仍不可执行；此时顶层 `healthy` 为 false。单端项目不会因为未选择的另一端缺失而失败。
 
 更新全局 Skill 不会静默覆盖已有项目的 `.wishgraph/hooks/`。项目 runtime 应走安全升级路径；未知或本地修改过的生成文件会停止并交给用户检查。
 

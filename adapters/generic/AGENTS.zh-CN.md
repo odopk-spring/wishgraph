@@ -72,7 +72,7 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - 只实现已批准任务。
 - 保持 patch 最小、可回滚。
 - 运行任务列出的验证。
-- 核对授权，把规范 Run 推进到真实终态，并新增一个不可变的 `reports/runs/<work-unit-id>.md`。不在 task-state 中镜像临时执行状态。
+- 核对授权，把规范 Run 推进到真实终态，并新增一个不可变的 `reports/runs/<work-unit-id>-attempt-N.md`。不在 task-state 中镜像临时执行状态。
 - 填写 Integrate 或 N/A 建议，不直接修改共享项目记忆。
 - 存在 `.wishgraph/hooks/memory_sync.py` 时，完成前运行 worktree 检查。
 - 除非用户明确说不提交，否则创建一个原子 commit。

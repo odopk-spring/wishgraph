@@ -18,13 +18,18 @@ def emit_noop() -> int:
 
 
 def git_root(start: Path) -> Optional[Path]:
-    result = subprocess.run(
-        ["git", "-C", str(start), "rev-parse", "--show-toplevel"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(start), "rev-parse", "--show-toplevel"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    except OSError:
+        return None
     if result.returncode != 0 or not result.stdout.strip():
         return None
     return Path(result.stdout.strip()).resolve()
@@ -72,14 +77,19 @@ def main() -> int:
     runtime = project_runtime if project_runtime.is_file() else bundled_runtime
     if not runtime.is_file():
         return emit_noop()
-    result = subprocess.run(
-        [sys.executable, str(runtime), args.event, "--host", args.host],
-        input=raw,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            [sys.executable, str(runtime), args.event, "--host", args.host],
+            input=raw,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except OSError:
+        return emit_noop()
     sys.stdout.write(result.stdout or "{}\n")
     sys.stderr.write(result.stderr)
     return result.returncode

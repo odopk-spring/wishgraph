@@ -7,8 +7,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PROJECT_DIR}/.wishgraph/hooks/memory_sync.py\" session-start --host claude",
-            "timeout": 30,
-            "statusMessage": "Checking WishGraph handoff state"
+            "timeout": 30
           }
         ]
       }
@@ -19,8 +18,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PROJECT_DIR}/.wishgraph/hooks/memory_sync.py\" user-prompt-submit --host claude",
-            "timeout": 10,
-            "statusMessage": "Routing WishGraph command"
+            "timeout": 10
           }
         ]
       }
@@ -32,8 +30,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PROJECT_DIR}/.wishgraph/hooks/memory_sync.py\" pre-tool-use --host claude",
-            "timeout": 30,
-            "statusMessage": "Checking WishGraph memory sync"
+            "timeout": 30
           }
         ]
       }
@@ -44,8 +41,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PROJECT_DIR}/.wishgraph/hooks/memory_sync.py\" stop --host claude",
-            "timeout": 30,
-            "statusMessage": "Verifying WishGraph closeout"
+            "timeout": 30
           }
         ]
       }
@@ -56,8 +52,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PROJECT_DIR}/.wishgraph/hooks/memory_sync.py\" task-completed --host claude",
-            "timeout": 30,
-            "statusMessage": "Verifying WishGraph task closeout"
+            "timeout": 30
           }
         ]
       }

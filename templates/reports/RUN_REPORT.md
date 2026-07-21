@@ -1,6 +1,6 @@
 # Run Report
 
-Create one new file from this template for each worker execution. Use `reports/runs/<work-unit-id>.md`. Never reuse or overwrite an earlier run report.
+Create one new file from this template for each worker execution. Use the configured `paths.run_report_template` (default: `reports/runs/<work-unit-id>-attempt-N.md`). Never reuse or overwrite an earlier run report.
 
 ## Work Unit
 
@@ -86,7 +86,7 @@ Briefly describe what changed and why.
 
 ## Shared Memory Impact Proposal
 
-Workers do not edit shared project memory. Use exactly `Integrate` when the Discussion-local Integration phase should update the file, or `N/A` with a concrete reason.
+Workers do not edit shared project memory. Use one row for each configured stable-memory path (`paths.prd`, `paths.architecture`, `paths.codemap`, and `paths.conventions`). The rows below are the default layout; replace their paths when a native-lite project reuses other files. Use exactly `Integrate` when the Discussion-local Integration phase should update the file, or `N/A` with a concrete reason.
 
 | File | Result | Reason |
 |---|---|---|

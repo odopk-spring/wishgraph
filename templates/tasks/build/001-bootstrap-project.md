@@ -56,7 +56,7 @@ Create the first durable project frame before feature implementation. This Task 
 - Keep the first implementation task small enough for one atomic commit.
 - Include "Do Not Do" boundaries in the first implementation task.
 - If the repository is empty, map planned files instead of pretending they exist.
-- When hooks are requested, use the bundled installer and tell Codex users to review project hooks with `/hooks`.
+- When hooks are requested, use the bundled installer. Codex CLI users can review exact project hooks with `/hooks`; Codex Desktop users should open the CLI in the same project instead of typing `/hooks` into chat.
 
 ## Do Not Do
 

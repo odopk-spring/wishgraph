@@ -14,6 +14,7 @@ from git_state import (
     canonical_repo_path,
     changed_path_statuses,
     changed_paths,
+    configured_memory_impact_paths,
     configured_revision_glob,
     configured_task_globs,
     inspect_claims,
@@ -1942,7 +1943,7 @@ def validate_run_report(
             + "; ".join(mechanical_report_errors(state))
         )
     impact_rows = parse_impact_rows(content)
-    for memory_path in config.get("required_impact_rows", []):
+    for memory_path in configured_memory_impact_paths(config):
         row = impact_rows.get(memory_path)
         if row is None:
             result.errors.append(f"{report_path} is missing an impact row for {memory_path}")

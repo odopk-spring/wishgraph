@@ -28,7 +28,7 @@
 - Discussion session 把工作判断为 discussion、sequential、parallel_batch 或 high_risk，推荐执行形态并由用户确认。
 - 执行 session 只实现已批准任务规格。
 - 任务规格必须自包含；不要依赖聊天历史。
-- Worker session 使用独立 branch 或 worktree，创建一个不可变的 `reports/runs/<work-unit-id>.md`，填写 Integrate 或 N/A 建议，不修改共享记忆。
+- Worker session 使用独立 branch 或 worktree，创建一个不可变的 `reports/runs/<work-unit-id>-attempt-N.md`，填写 Integrate 或 N/A 建议，不修改共享记忆。
 - Discussion-local Integration 持有绑定 lease，使用 `--no-commit` 合并，把 `reports/PROJECT_STATUS.md` 重写为当前快照，并在同一个集成提交中更新受影响共享记忆。
 - 创建 Worker 必须有人类明确命令。Discussion 中优先在独立 Worktree 使用受管后台 Worker；普通 neutral 窗口则在取得 Claim 后直接绑定当前可检查会话，不再创建第二个 Worker。Host Adapter 会临时增加 `--worktree` 和 `--settings`，不改写用户设置。原生启动不可用时，输出项目目录、Codex/Claude 启动命令及最后的 `执行 <task-id> 任务`，Discussion 不得降级为实现者。
 - 宿主能检查和引导原 Worker 时，把轻量 Revision 路由回该 Worker；否则创建合法 Worker 路由或输出准确 Revision 交接。复用前必须释放旧 Claim，再获取 Revision 的新 scope/validation 绑定。

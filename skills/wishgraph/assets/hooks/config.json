@@ -1,6 +1,6 @@
 {
-  "version": 12,
-  "runtime_version": 28,
+  "version": 13,
+  "runtime_version": 29,
   "mode": "enforce",
   "required_hosts": [
     "codex",
@@ -20,12 +20,6 @@
     ],
     "revision_glob": "tasks/revisions/*.md"
   },
-  "required_impact_rows": [
-    "PRD.md",
-    "ARCHITECTURE.md",
-    "CODEMAP.md",
-    "CONVENTIONS.md"
-  ],
   "ignore_globs": [
     ".git/**",
     ".wishgraph",

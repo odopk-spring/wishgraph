@@ -25,7 +25,7 @@ Default existing repositories to **native-lite** adoption. Choose one simple out
 
 Do not replace or delete a user's existing document without explicit confirmation. Do not create two competing sources for one concept.
 
-The first usable entry should stay human-visible and small: add a short WishGraph section to the existing root README stating that the project has explicitly opted in, with links to Project Status and the three post-activation commands `开始讨论`, `刷新项目状态`, and `执行 NNN 任务`. Do not create a second landing-page document. If no README exists, create one concise README rather than a WishGraph-specific manual.
+Activation must not edit or create a root README merely to advertise WishGraph. If the user explicitly wants a human-facing entry, add a short section to their existing README with a Project Status link and the three post-activation commands `开始讨论`, `刷新项目状态`, and `执行 NNN 任务`. Never create a second landing page or a WishGraph-specific root manual.
 
 ## Language Mode
 

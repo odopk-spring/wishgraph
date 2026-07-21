@@ -61,6 +61,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
                 ["git", "-C", str(root), "remote"],
                 check=True,
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
             )
             self.assertEqual(remotes.stdout, "")
@@ -441,6 +442,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
             base,
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -452,6 +454,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
             base + ["--authorized-by-user"],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -477,6 +480,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -937,6 +941,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -959,6 +964,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -1034,17 +1040,20 @@ class ClaimAndHookTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
         )
         context = json.loads(routed.stdout)["hookSpecificOutput"]["additionalContext"]
-        command = (
-            "python3 .wishgraph/hooks/memory_sync.py claude-worker launch "
-            f"{task_id} --discussion-session-id {discussion_id}"
-        )
+        route = json.loads(context.split("WishGraph explicit route:\n", 1)[1])
+        command = route["host_adapter_command"]
         self.assertIn("current Discussion session, directly run", context)
-        self.assertIn(command, context)
+        self.assertIn(str(sys.executable), command)
+        self.assertIn("claude-worker", command)
+        self.assertIn("launch", command)
+        self.assertIn(task_id, command)
+        self.assertIn(discussion_id, command)
         self.assertIn("Do not use Task, Agent, /fork", context)
         self.assertIn("managed wishgraph-worker", context)
         self.assertIn('"authorization_commit_required":false', context)
@@ -1132,6 +1141,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -1155,6 +1165,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -1197,6 +1208,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
                     }
                 ),
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=True,
@@ -1248,6 +1260,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
                     }
                 ),
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 check=True,
             )
@@ -1279,6 +1292,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             check=True,
         )
@@ -1323,6 +1337,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             check=True,
         )
@@ -1377,6 +1392,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             check=True,
         )
@@ -1412,6 +1428,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -1448,6 +1465,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -1495,6 +1513,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -1543,6 +1562,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
                     }
                 ),
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 check=True,
             )
@@ -1560,6 +1580,102 @@ class ClaimAndHookTests(MemorySyncTestCase):
         self.assertEqual(
             opaque_shell["hookSpecificOutput"]["permissionDecision"], "deny"
         )
+
+    def test_powershell_write_commands_and_aliases_enter_existing_gate(self) -> None:
+        commands = {
+            "Set-Content -Path src/app.py -Value updated": {"src/app.py"},
+            "'value' | Out-File -FilePath src/output.txt": {"src/output.txt"},
+            "Add-Content src/app.py updated": {"src/app.py"},
+            "Remove-Item -LiteralPath src/old.py -Force": {"src/old.py"},
+            "Copy-Item -Path src/app.py -Destination src/copy.py": {
+                "src/app.py",
+                "src/copy.py",
+            },
+            "Move-Item src/old.py src/new.py": {"src/old.py", "src/new.py"},
+            "New-Item -Path src -Name generated.py -ItemType File": {
+                "src/generated.py"
+            },
+            "Clear-Content -Path src/app.py": {"src/app.py"},
+            "Rename-Item -Path src/old.py -NewName new.py": {
+                "src/old.py",
+                "src/new.py",
+            },
+            "'value' | Tee-Object -FilePath src/tee.txt": {"src/tee.txt"},
+            "Invoke-WebRequest https://example.invalid -OutFile src/download.bin": {
+                "src/download.bin"
+            },
+            'powershell -NoProfile -Command "Set-Content -Path src/wrapped.py -Value updated"': {
+                "src/wrapped.py"
+            },
+            'pwsh -Command "Move-Item src/old.py src/wrapped-new.py"': {
+                "src/old.py",
+                "src/wrapped-new.py",
+            },
+        }
+        for command, expected_paths in commands.items():
+            with self.subTest(command=command):
+                classified = memory_sync.classify_tool_operation(
+                    self.root,
+                    self.config,
+                    {"tool_name": "Bash", "tool_input": {"command": command}},
+                )
+                self.assertIsNotNone(classified)
+                assert classified is not None
+                self.assertEqual(classified[0], "business_write")
+                self.assertEqual(
+                    set(classified[1].removeprefix("business_paths:").splitlines()),
+                    expected_paths,
+                )
+
+        aliases = (
+            "sc src/app.py updated",
+            "ac src/app.py updated",
+            "ri src/app.py",
+            "cpi src/app.py src/copy.py",
+            "mi src/app.py src/moved.py",
+            "ni src/generated.py",
+            "del src/app.py",
+            "erase src/app.py",
+            "rd src/generated",
+            "rmdir src/generated",
+            "copy src/app.py src/copy.py",
+            "move src/app.py src/moved.py",
+            "clc src/app.py",
+            "rni src/app.py renamed.py",
+            "ren src/app.py renamed.py",
+            "iwr https://example.invalid -OutFile src/download.bin",
+        )
+        for command in aliases:
+            with self.subTest(alias=command):
+                classified = memory_sync.classify_tool_operation(
+                    self.root,
+                    self.config,
+                    {"tool_name": "shell", "tool_input": {"command": command}},
+                )
+                self.assertIsNotNone(classified)
+                assert classified is not None
+                self.assertEqual(classified[0], "business_write")
+
+    def test_opaque_powershell_write_fails_closed_as_business_write(self) -> None:
+        classified = memory_sync.classify_tool_operation(
+            self.root,
+            self.config,
+            {
+                "tool_name": "exec_command",
+                "tool_input": {"command": "Set-Content -Value updated"},
+            },
+        )
+        self.assertEqual(classified, ("business_write", ""))
+
+        encoded = memory_sync.classify_tool_operation(
+            self.root,
+            self.config,
+            {
+                "tool_name": "exec_command",
+                "tool_input": {"command": "powershell -EncodedCommand ZgBvAG8A"},
+            },
+        )
+        self.assertEqual(encoded, ("opaque_write", ""))
 
     def test_pre_tool_use_rejects_forged_worker_runtime_without_live_claim(self) -> None:
         memory_sync.write_session_runtime(
@@ -1597,6 +1713,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -1652,6 +1769,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
                     }
                 ),
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=True,
@@ -1687,6 +1805,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -1698,6 +1817,109 @@ class ClaimAndHookTests(MemorySyncTestCase):
         self.assertEqual(
             runtime["integration_runtime"]["lease_id"], payload["lease"]["lease_id"]
         )
+        run = memory_sync.read_execution_run(self.root, "002-attempt-1")
+        assert run is not None
+        self.assertEqual(run["phase"], "integrating")
+        self.assertEqual(
+            run["integration"]["lease_id"], payload["lease"]["lease_id"]
+        )
+
+        premature_release = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "integration-lease",
+                "release",
+                "--session-id",
+                "discussion-cli",
+            ],
+            cwd=self.root,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(premature_release.returncode, 1)
+        self.assertEqual(
+            json.loads(premature_release.stdout)["error"],
+            "integrated_report_not_in_head",
+        )
+        lease = memory_sync.inspect_integration_lease(self.root)
+        assert lease is not None
+        self.assertEqual(lease["lease_status"], "active")
+        run = memory_sync.read_execution_run(self.root, "002-attempt-1")
+        assert run is not None
+        self.assertEqual(run["phase"], "integrating")
+
+        self.git("cherry-pick", run["result"]["commit"])
+        released = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "integration-lease",
+                "release",
+                "--session-id",
+                "discussion-cli",
+            ],
+            cwd=self.root,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        self.assertTrue(json.loads(released.stdout)["ok"])
+        run = memory_sync.read_execution_run(self.root, "002-attempt-1")
+        assert run is not None
+        self.assertEqual(run["phase"], "integrated")
+        lease = memory_sync.inspect_integration_lease(self.root)
+        assert lease is not None
+        self.assertEqual(lease["lease_status"], "released")
+
+    def test_integration_acquire_preserves_lease_when_run_rollback_fails(self) -> None:
+        transition = self.prepare_safe_integration(
+            "002", "discussion-rollback", "integration-rollback"
+        )
+        args = mock.Mock(
+            lease_action="acquire",
+            session_id="discussion-rollback",
+            grant_id=transition["grant"]["grant_id"],
+            integration_id="integration-rollback",
+            task_id=["002"],
+            report=["reports/runs/002-attempt-1.md"],
+            allow_dirty=True,
+        )
+        host_adapter_module = sys.modules["host_adapter"]
+        with (
+            mock.patch.object(
+                host_adapter_module,
+                "find_git_root",
+                return_value=self.root,
+            ),
+            mock.patch.object(
+                host_adapter_module,
+                "update_execution_run",
+                return_value={"ok": False, "error": "injected_update_failure"},
+            ),
+            mock.patch.object(
+                host_adapter_module,
+                "_restore_integration_runs",
+                return_value=[{"ok": False, "error": "injected_rollback_failure"}],
+            ),
+            mock.patch.object(
+                host_adapter_module, "update_integration_lease"
+            ) as lease_update,
+            mock.patch("builtins.print") as printed,
+        ):
+            exit_code = host_adapter_module.integration_lease_main(args)
+
+        self.assertEqual(exit_code, 1)
+        lease_update.assert_not_called()
+        payload = json.loads(printed.call_args.args[0])
+        self.assertTrue(payload["lease_preserved"])
+        lease = memory_sync.inspect_integration_lease(self.root)
+        assert lease is not None
+        self.assertEqual(lease["lease_status"], "active")
 
     def test_integration_transition_rejects_missing_task_and_report(self) -> None:
         memory_sync.write_session_runtime(
@@ -1932,6 +2154,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -1969,6 +2192,7 @@ class ClaimAndHookTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,

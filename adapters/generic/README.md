@@ -47,7 +47,7 @@ CONVENTIONS.md
 tasks/*.md
 tasks/revisions/*.md
 reports/PROJECT_STATUS.md
-reports/runs/<work-unit-id>.md
+reports/runs/<work-unit-id>-attempt-N.md
 ```
 
 A new window in the same project continues with `Start discussion`; an active Discussion uses `Refresh project status`. Do not copy a full prompt or previous chat as the normal handoff.

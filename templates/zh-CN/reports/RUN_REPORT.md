@@ -1,6 +1,6 @@
 # 执行报告
 
-每次 Worker 执行都从本模板创建一个新文件：`reports/runs/<work-unit-id>.md`。不要复用或覆盖已有执行报告。
+每次 Worker 执行都从本模板创建一个新文件，并使用配置中的 `paths.run_report_template`（默认：`reports/runs/<work-unit-id>-attempt-N.md`）。不要复用或覆盖已有执行报告。
 
 ## 工作单元
 
@@ -86,7 +86,7 @@
 
 ## Shared Memory Impact Proposal
 
-Worker 不直接修改共享项目记忆。需要 Discussion-local Integration 更新时使用 `Integrate`；无需更新时使用 `N/A` 并给出具体理由。
+Worker 不直接修改共享项目记忆。每个已配置的稳定记忆路径（`paths.prd`、`paths.architecture`、`paths.codemap`、`paths.conventions`）各写一行。下表是默认布局；native-lite 项目复用其他文件时应替换为实际路径。需要 Discussion-local Integration 更新时使用 `Integrate`；无需更新时使用 `N/A` 并给出具体理由。
 
 | File | Result | Reason |
 |---|---|---|

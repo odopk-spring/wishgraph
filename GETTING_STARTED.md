@@ -196,9 +196,9 @@ Normal users can use these natural-language requests:
 | `Update this project's WishGraph` | Fingerprint-verified, atomic runtime upgrade with rollback. |
 | `Repair WishGraph hooks for this host` | Repairs only the active host adapter and preserves unrelated Hooks. |
 
-If `Start discussion` does not respond after reopening the session, run Doctor first. Check `/hooks` in Codex only when host invocation remains unverified; Claude Code CLI users may additionally run `claude doctor`.
+If `Start discussion` does not respond after fully reopening the session once, run Doctor. In Codex Desktop, do not type `/hooks` into chat; open Codex CLI in the same project and use `/hooks` there to review and trust the exact project Hook. Claude Code CLI users may additionally run `claude doctor`.
 
-Doctor checks configured `required_hosts` by default. It reports Adapter static state separately from execution receipts, so “adapter current; execution unverified” means installation succeeded but that Agent has not yet been reopened. A single-host project does not fail because the unselected Adapter is absent.
+Doctor checks configured `required_hosts` by default. It reports `installation_healthy`, `host_execution_confirmed`, and `formal_worker_ready` separately. Static files can be current while Formal Worker execution is unavailable; the top-level `healthy` value is false in that case. A single-host project does not fail because the unselected Adapter is absent.
 
 Updating a global Skill does not silently rewrite project-local `.wishgraph/hooks/`. Use the safe project update path for an existing runtime. Locally modified or unknown generated files stop for review instead of being overwritten.
 

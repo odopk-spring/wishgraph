@@ -224,7 +224,7 @@ No. Hooks can gate writes, builds, commits, and lifecycle events exposed by the 
 - **Evidence-based completion:** a natural-language “done” message is insufficient. Task state, Run Report, validation, and Claim closeout must agree.
 - **Local coordination boundary:** Claims coordinate worktrees sharing one local Git common directory; they are not distributed locks across machines.
 
-WishGraph is a **v0.1 public beta**. CI exercises the complete test suite on Ubuntu and macOS with Python 3.9 and 3.13, plus a Windows installation smoke path. A bundled cold-process benchmark checks Hook latency and source-tree scaling separately. Broader real-project and host-version testing is still required before a stable v1.
+WishGraph is a **v0.1 public beta**. CI exercises the complete test suite on Ubuntu and macOS with Python 3.9 and 3.13, and runs the complete suite plus the PowerShell installer path on Windows with Python 3.13. A bundled cold-process benchmark checks Hook latency and source-tree scaling separately. Broader real-project and host-version testing is still required before a stable v1.
 
 ## Where project memory lives
 

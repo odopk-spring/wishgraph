@@ -1,6 +1,21 @@
 from tests.wishgraph_test_support import *  # noqa: F401,F403
 
 class RuntimeBoundaryTests(unittest.TestCase):
+    def test_benchmark_fixture_matches_the_host_receipt_contract(self) -> None:
+        benchmark_path = (
+            ROOT / "skills" / "wishgraph" / "scripts" / "benchmark_hooks.py"
+        )
+        spec = importlib.util.spec_from_file_location(
+            "wishgraph_benchmark_hooks", benchmark_path
+        )
+        assert spec and spec.loader
+        benchmark = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(benchmark)
+        with tempfile.TemporaryDirectory() as tempdir:
+            root, runtime = benchmark.setup_fixture(Path(tempdir))
+            self.assertTrue((root / ".git" / "wishgraph" / "claims").is_dir())
+            self.assertTrue(runtime.is_file())
+
     def test_runtime_dependencies_follow_the_four_boundaries(self) -> None:
         local_modules = {
             "git_state",
@@ -110,6 +125,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
             installed = subprocess.run(
                 [sys.executable, str(installer), "--host", "claude", "--config-home", str(home)],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -132,6 +148,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
                 cwd=project,
                 input=json.dumps({"cwd": str(project), "session_id": "plain"}),
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -160,6 +177,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
                         str(home),
                     ],
                     text=True,
+                    encoding="utf-8",
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
@@ -196,6 +214,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
                         cwd=project,
                         input=json.dumps({"cwd": str(project)}),
                         text=True,
+                        encoding="utf-8",
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                     )
@@ -400,6 +419,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
                         }
                     ),
                     text=True,
+                    encoding="utf-8",
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     check=True,

@@ -47,7 +47,7 @@ CONVENTIONS.md
 tasks/*.md
 tasks/revisions/*.md
 reports/PROJECT_STATUS.md
-reports/runs/<work-unit-id>.md
+reports/runs/<work-unit-id>-attempt-N.md
 ```
 
 同一项目的新窗口通过“开始讨论”继续；已经处于 Discussion 时使用“刷新项目状态”。正常交接不复制完整提示词或旧聊天记录。

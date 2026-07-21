@@ -56,7 +56,7 @@ Task state 只记录 Task Lifecycle。Session Role、Flow Phase 与 `expected_tr
 - 首个实现任务必须小到能用一个原子 commit 完成。
 - 首个实现任务必须包含 "Do Not Do" 边界。
 - 如果仓库为空，映射计划文件，不要假装文件已经存在。
-- 要求 hooks 时使用 bundled installer，并提醒 Codex 用户通过 `/hooks` 审阅项目 hooks。
+- 要求 hooks 时使用 bundled installer。Codex CLI 用户可用 `/hooks` 审阅精确项目 Hook；Codex Desktop 用户应在同一项目打开 CLI，不要把 `/hooks` 输入聊天框。
 
 ## Do Not Do
 

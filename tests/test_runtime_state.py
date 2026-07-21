@@ -25,6 +25,7 @@ class UnbornRepositoryTests(unittest.TestCase):
                 cwd=root,
                 input=json.dumps({"cwd": str(root)}),
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=True,
@@ -372,6 +373,7 @@ class RuntimeStateTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -399,6 +401,7 @@ class RuntimeStateTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -421,6 +424,7 @@ class RuntimeStateTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -574,6 +578,184 @@ class RuntimeStateTests(MemorySyncTestCase):
         )
         self.assertTrue(replacement["ok"], replacement)
 
+    def test_authority_timestamps_treat_naive_values_as_utc(self) -> None:
+        parsed = memory_sync.parse_timestamp("2026-07-21T12:34:56")
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.utcoffset().total_seconds(), 0)
+        self.assertEqual(parsed.isoformat(), "2026-07-21T12:34:56+00:00")
+
+    def test_corrupt_claim_is_visible_and_blocks_replacement_authority(self) -> None:
+        claim_dir = memory_sync.claim_root(self.root) / "028c"
+        claim_dir.mkdir(parents=True)
+        claim_path = claim_dir / "broken-claim.json"
+        claim_path.write_text("{", encoding="utf-8")
+
+        claims = memory_sync.inspect_claims(self.root, "028c")
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0]["record_status"], "invalid")
+        self.assertEqual(claims[0]["invalid_reason"], "claim_record_invalid_json")
+        self.assertEqual(claims[0]["record_path"], str(claim_path))
+
+        blocked = memory_sync.acquire_claim(
+            self.root, "028c", 1, "replacement-worker", require_clean=True
+        )
+        self.assertFalse(blocked["ok"], blocked)
+        self.assertEqual(blocked["error"], "invalid_claim_record")
+
+    def test_initial_claim_record_uses_existing_atomic_writer(self) -> None:
+        git_state_module = sys.modules["git_state"]
+        with mock.patch.object(
+            git_state_module,
+            "_atomic_claim_update",
+            wraps=git_state_module._atomic_claim_update,
+        ) as atomic_write:
+            acquired = memory_sync.acquire_claim(
+                self.root, "028d", 1, "atomic-worker", require_clean=True
+            )
+        self.assertTrue(acquired["ok"], acquired)
+        claim_id = acquired["claim"]["claim_id"]
+        destinations = [call.args[0] for call in atomic_write.call_args_list]
+        self.assertIn(
+            memory_sync.claim_root(self.root) / "028d" / f"{claim_id}.json",
+            destinations,
+        )
+
+    def test_mutex_release_checks_owner_token_after_stale_takeover(self) -> None:
+        git_state_module = sys.modules["git_state"]
+        mutex_dir = memory_sync.git_common_dir(self.root) / "wishgraph" / "mutex-test"
+        original = git_state_module._claim_mutex(mutex_dir)
+        mutex_path = original[0]
+        stale_time = time.time() - 60
+        os.utime(mutex_path, (stale_time, stale_time))
+        replacement = git_state_module._claim_mutex(mutex_dir)
+        try:
+            git_state_module._release_claim_mutex(original)
+            self.assertTrue(mutex_path.is_file())
+            self.assertEqual(
+                mutex_path.read_text(encoding="utf-8").split(maxsplit=1)[0],
+                replacement[1],
+            )
+        finally:
+            git_state_module._release_claim_mutex(replacement)
+        self.assertFalse(mutex_path.exists())
+
+    def test_detached_head_cannot_acquire_worker_claim(self) -> None:
+        wrong_branch = memory_sync.acquire_claim(
+            self.root,
+            "028e",
+            1,
+            "wrong-branch-worker",
+            branch="not-the-current-branch",
+            require_clean=True,
+        )
+        self.assertFalse(wrong_branch["ok"], wrong_branch)
+        self.assertEqual(wrong_branch["error"], "claim_branch_mismatch")
+        wrong_worktree = memory_sync.acquire_claim(
+            self.root,
+            "028e",
+            1,
+            "wrong-worktree-worker",
+            worktree=str(self.root.parent),
+            require_clean=True,
+        )
+        self.assertFalse(wrong_worktree["ok"], wrong_worktree)
+        self.assertEqual(wrong_worktree["error"], "claim_worktree_mismatch")
+
+        self.git("checkout", "--detach", "-q")
+        blocked = memory_sync.acquire_claim(
+            self.root, "028e", 1, "detached-worker", require_clean=True
+        )
+        self.assertFalse(blocked["ok"], blocked)
+        self.assertEqual(blocked["error"], "detached_head_not_supported")
+
+        memory_sync.write_session_runtime(
+            self.root,
+            "detached-discussion",
+            {
+                "session": {
+                    "session_id": "detached-discussion",
+                    "role": "discussion",
+                    "phase": "integrating",
+                },
+                "session_provenance": {
+                    "initial_role": "neutral",
+                    "discussion_authorized": True,
+                },
+            },
+        )
+        grant = memory_sync.create_integration_transition_grant(
+            self.root,
+            session_id="detached-discussion",
+            integration_id="detached-integration",
+            task_ids=["028e"],
+            reports=["reports/runs/028e-attempt-1.md"],
+            outcome="safe",
+        )
+        self.assertFalse(grant["ok"], grant)
+        self.assertEqual(grant["error"], "detached_head_not_supported")
+
+    def test_corrupt_execution_run_is_visible_and_cannot_be_recreated(self) -> None:
+        run_id = "028f-attempt-1"
+        run_path = memory_sync.execution_run_root(self.root) / f"{run_id}.json"
+        run_path.parent.mkdir(parents=True)
+        run_path.write_text("{", encoding="utf-8")
+
+        run = memory_sync.read_execution_run(self.root, run_id)
+        assert run is not None
+        self.assertEqual(run["record_status"], "invalid")
+        self.assertEqual(run["invalid_reason"], "execution_run_invalid_json")
+        visible = memory_sync.inspect_execution_runs(self.root, "028f")
+        self.assertEqual([item["run_id"] for item in visible], [run_id])
+        latest = memory_sync.latest_execution_run(self.root, "028f", attempt=1)
+        assert latest is not None
+        self.assertEqual(latest["record_status"], "invalid")
+
+        blocked = memory_sync.update_execution_run(
+            self.root,
+            task_id="028f",
+            attempt=1,
+            patch={"phase": "dispatching"},
+            create=True,
+        )
+        self.assertFalse(blocked["ok"], blocked)
+        self.assertEqual(blocked["error"], "invalid_execution_run_record")
+
+    def test_corrupt_integration_lease_is_visible_and_blocks_new_claim(self) -> None:
+        lease_path = memory_sync.integration_runtime_root(self.root) / "lease.json"
+        lease_path.parent.mkdir(parents=True)
+        lease_path.write_text("{", encoding="utf-8")
+
+        lease = memory_sync.inspect_integration_lease(self.root)
+        assert lease is not None
+        self.assertEqual(lease["record_status"], "invalid")
+        self.assertEqual(lease["invalid_reason"], "integration_lease_invalid_json")
+
+        blocked = memory_sync.acquire_claim(
+            self.root, "028g", 1, "worker-with-corrupt-lease", require_clean=True
+        )
+        self.assertFalse(blocked["ok"], blocked)
+        self.assertEqual(blocked["error"], "invalid_integration_lease_record")
+
+    def test_incomplete_integration_lease_identity_fails_closed(self) -> None:
+        lease_path = memory_sync.integration_runtime_root(self.root) / "lease.json"
+        lease_path.parent.mkdir(parents=True)
+        lease_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "kind": "integration_lease",
+                    "lease_status": "active",
+                    "updated_at": "2026-07-18T00:00:00Z",
+                }
+            ),
+            encoding="utf-8",
+        )
+        lease = memory_sync.inspect_integration_lease(self.root)
+        assert lease is not None
+        self.assertEqual(lease["record_status"], "invalid")
+        self.assertEqual(lease["invalid_reason"], "integration_lease_identity_invalid")
+
     def test_status_uses_active_claim_as_running_evidence(self) -> None:
         task_path = "tasks/build/028b-running.md"
         self.write(
@@ -699,6 +881,7 @@ class RuntimeStateTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -754,6 +937,7 @@ class RuntimeStateTests(MemorySyncTestCase):
             cwd=self.root,
             input=json.dumps({"cwd": str(self.root), "session_id": discussion_id}),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -780,9 +964,34 @@ class RuntimeStateTests(MemorySyncTestCase):
         )
         for task_id, lifecycle, work_type, expected_event, report_options in cases:
             with self.subTest(task_id=task_id):
+                task_path = f"tasks/build/{task_id}-notification.md"
                 report_path = f"reports/runs/{task_id}-attempt-1.md"
                 self.write(
-                    f"tasks/build/{task_id}-notification.md",
+                    task_path,
+                    self.structured_task(
+                        task_id,
+                        status="approved",
+                        work_type=work_type,
+                        worker_authorized=True,
+                        integration_policy=(
+                            "requires_explicit_user_confirmation"
+                            if work_type == "high_risk"
+                            else "inherited_task_approval"
+                        ),
+                        run_report=report_path,
+                    ),
+                )
+                self.git("add", task_path)
+                self.git("commit", "-qm", f"authorize terminal evidence {task_id}")
+                self.authorize_execution_run(
+                    task_id,
+                    task_path,
+                    "discussion-terminal",
+                    host="codex",
+                    report_path=report_path,
+                )
+                self.write(
+                    task_path,
                     self.structured_task(
                         task_id,
                         status=lifecycle,
@@ -810,7 +1019,7 @@ class RuntimeStateTests(MemorySyncTestCase):
                 )
                 self.git(
                     "add",
-                    f"tasks/build/{task_id}-notification.md",
+                    task_path,
                     report_path,
                 )
                 self.git("commit", "-qm", f"terminal evidence {task_id}")
@@ -865,6 +1074,15 @@ class RuntimeStateTests(MemorySyncTestCase):
         )
         self.git("add", task_path)
         self.git("commit", "-qm", "notification task")
+        self.authorize_execution_run(
+            task_id,
+            task_path,
+            "discussion-029f",
+            host="codex",
+            report_path=report_path,
+            dispatch_mode="current_window",
+            source_session_id="worker-029f",
+        )
         acquired = subprocess.run(
             [
                 sys.executable,
@@ -883,6 +1101,7 @@ class RuntimeStateTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -917,6 +1136,7 @@ class RuntimeStateTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -949,6 +1169,7 @@ class RuntimeStateTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -974,6 +1195,15 @@ class RuntimeStateTests(MemorySyncTestCase):
         )
         self.git("add", task_path)
         self.git("commit", "-qm", "prepare uncommitted report task")
+        self.authorize_execution_run(
+            task_id,
+            task_path,
+            "discussion-029h",
+            host="codex",
+            report_path=report_path,
+            dispatch_mode="current_window",
+            source_session_id="worker-029h",
+        )
         acquired = subprocess.run(
             [
                 sys.executable,
@@ -1040,6 +1270,15 @@ class RuntimeStateTests(MemorySyncTestCase):
         )
         self.git("add", task_path)
         self.git("commit", "-qm", "prepare multi commit task")
+        self.authorize_execution_run(
+            task_id,
+            task_path,
+            "discussion-029j",
+            host="codex",
+            report_path=report_path,
+            dispatch_mode="current_window",
+            source_session_id="worker-029j",
+        )
         acquired = subprocess.run(
             [
                 sys.executable,
@@ -1114,6 +1353,15 @@ class RuntimeStateTests(MemorySyncTestCase):
         )
         self.git("add", task_path)
         self.git("commit", "-qm", "prepare dirty worker task")
+        self.authorize_execution_run(
+            task_id,
+            task_path,
+            "discussion-029k",
+            host="codex",
+            report_path=report_path,
+            dispatch_mode="current_window",
+            source_session_id="worker-029k",
+        )
         acquired = subprocess.run(
             [
                 sys.executable,
@@ -1185,6 +1433,45 @@ class RuntimeStateTests(MemorySyncTestCase):
         with self.assertRaises(ValueError):
             memory_sync.canonical_repo_path("reports/../outside.md")
 
+    def test_run_report_impact_rows_follow_configured_memory_paths(self) -> None:
+        config = json.loads(json.dumps(self.config))
+        replacements = {
+            "PRD.md": "docs/product/PRD.md",
+            "ARCHITECTURE.md": "docs/engineering/ARCHITECTURE.md",
+            "CODEMAP.md": "docs/engineering/CODEMAP.md",
+            "CONVENTIONS.md": "docs/engineering/CONVENTIONS.md",
+        }
+        for name, path in zip(
+            ("prd", "architecture", "codemap", "conventions"),
+            replacements.values(),
+        ):
+            config["paths"][name] = path
+        self.assertEqual(
+            memory_sync.configured_memory_impact_paths(config),
+            list(replacements.values()),
+        )
+
+        report_path = "reports/runs/029m-attempt-1.md"
+        content = self.structured_run_report("029m-attempt-1", task_id="029m")
+        for old_path, new_path in replacements.items():
+            content = content.replace(old_path, new_path)
+        self.write(report_path, content)
+        result = memory_sync.CheckResult()
+        memory_sync.validate_run_report(
+            self.root, config, "worktree", report_path, result
+        )
+        self.assertFalse(
+            [error for error in result.errors if "missing an impact row" in error],
+            result.errors,
+        )
+
+    def test_load_config_rejects_repository_escape_paths(self) -> None:
+        config = json.loads(json.dumps(self.config))
+        config["paths"]["project_status"] = "../outside.md"
+        self.write(".wishgraph/config.json", json.dumps(config))
+        with self.assertRaisesRegex(ValueError, "invalid paths.project_status"):
+            memory_sync.load_config(self.root)
+
     def test_stop_hook_blocks_worker_until_active_claim_is_closed_out(self) -> None:
         acquired = memory_sync.acquire_claim(
             self.root,
@@ -1203,6 +1490,7 @@ class RuntimeStateTests(MemorySyncTestCase):
                 {"cwd": str(self.root), "session_id": "worker-session-029i"}
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -1240,6 +1528,7 @@ class RuntimeStateTests(MemorySyncTestCase):
             command,
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -1260,6 +1549,7 @@ class RuntimeStateTests(MemorySyncTestCase):
             second_command,
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -1346,6 +1636,7 @@ class RuntimeStateTests(MemorySyncTestCase):
                 str(config_home),
             ],
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -1368,6 +1659,24 @@ class RuntimeStateTests(MemorySyncTestCase):
         self.assertEqual(state["state"], "current")
         self.assertEqual(state["scope"], "global")
         self.assertEqual(Path(state["agent_path"]), global_agent)
+
+    def test_materialized_windows_hook_command_matches_exact_event_contract(self) -> None:
+        host_adapter_module = sys.modules["host_adapter"]
+        command = (
+            "& 'C:\\Program Files\\Python313\\python.exe' "
+            "'C:\\project\\.wishgraph\\hooks\\memory_sync.py' "
+            "'session-start' '--host' 'codex'"
+        )
+        self.assertTrue(
+            host_adapter_module._command_matches_host_event(
+                command, "SessionStart", "codex"
+            )
+        )
+        self.assertFalse(
+            host_adapter_module._command_matches_host_event(
+                command, "UserPromptSubmit", "codex"
+            )
+        )
 
     def test_global_claude_install_launches_without_project_settings(self) -> None:
         task_id = "057"
@@ -1393,6 +1702,7 @@ class RuntimeStateTests(MemorySyncTestCase):
                     str(config_home),
                 ],
                 text=True,
+                encoding="utf-8",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -1632,7 +1942,9 @@ class RuntimeStateTests(MemorySyncTestCase):
         )
         self.assertFalse(missing_receipt["ok"])
         self.assertEqual(missing_receipt["error"], "current_host_receipt_not_recent")
-        self.assertIn("请重开当前 Agent 会话后重试", missing_receipt["message"])
+        self.assertEqual(missing_receipt["next_action"], "open_supported_cli_session")
+        self.assertEqual(missing_receipt["fallback_command"], "codex")
+        self.assertFalse(missing_receipt["retry_same_session"])
         memory_sync.write_session_runtime(
             self.root,
             "worker-without-receipt",
@@ -1669,6 +1981,7 @@ class RuntimeStateTests(MemorySyncTestCase):
                 }
             ),
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=True,
@@ -1764,6 +2077,7 @@ class RuntimeStateTests(MemorySyncTestCase):
             ],
             cwd=self.root,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -1951,6 +2265,7 @@ class RuntimeStateTests(MemorySyncTestCase):
             ],
             cwd=worker_path,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -2056,6 +2371,7 @@ class RuntimeStateTests(MemorySyncTestCase):
             ],
             cwd=worker_path,
             text=True,
+            encoding="utf-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )

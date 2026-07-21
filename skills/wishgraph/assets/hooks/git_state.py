@@ -16,8 +16,8 @@ from typing import Any, Optional
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "version": 12,
-    "runtime_version": 28,
+    "version": 13,
+    "runtime_version": 29,
     "mode": "enforce",
     "required_hosts": ["codex", "claude"],
     "paths": {
@@ -32,12 +32,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "task_globs": ["tasks/*.md"],
         "revision_glob": "tasks/revisions/*.md",
     },
-    "required_impact_rows": [
-        "PRD.md",
-        "ARCHITECTURE.md",
-        "CODEMAP.md",
-        "CONVENTIONS.md",
-    ],
     "ignore_globs": [
         ".git/**",
         ".wishgraph",
@@ -144,9 +138,12 @@ def parse_timestamp(value: Any) -> Optional[datetime]:
     if not isinstance(value, str):
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def claim_root(root: Path) -> Path:
@@ -162,14 +159,68 @@ def _task_claim_dir(root: Path, task_id: str) -> Path:
     return claim_root(root) / task_id
 
 
+def _invalid_record(
+    record_kind: str, path: Path, reason: str, **identity: Any
+) -> dict[str, Any]:
+    """Expose corrupt authority as bounded evidence instead of hiding it."""
+    return {
+        "kind": f"invalid_{record_kind}",
+        "record_status": "invalid",
+        "invalid_reason": reason,
+        "record_path": str(path),
+        **identity,
+    }
+
+
 def _read_claim(path: Path, stale_after_seconds: int = 3600) -> Optional[dict[str, Any]]:
     try:
         claim = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except FileNotFoundError:
         return None
-    if not isinstance(claim, dict):
-        return None
+    except OSError:
+        return _invalid_record(
+            "worker_claim",
+            path,
+            "claim_record_unreadable",
+            claim_id=path.stem,
+            task_id=path.parent.name,
+            effective_lease_status="invalid",
+        )
+    except json.JSONDecodeError:
+        return _invalid_record(
+            "worker_claim",
+            path,
+            "claim_record_invalid_json",
+            claim_id=path.stem,
+            task_id=path.parent.name,
+            effective_lease_status="invalid",
+        )
+    if (
+        not isinstance(claim, dict)
+        or claim.get("schema_version") != 1
+        or claim.get("kind") != "worker_claim"
+        or claim.get("claim_id") != path.stem
+        or claim.get("task_id") != path.parent.name
+        or claim.get("lease_status") not in {"active", "released", "revoked"}
+    ):
+        return _invalid_record(
+            "worker_claim",
+            path,
+            "claim_record_identity_invalid",
+            claim_id=path.stem,
+            task_id=path.parent.name,
+            effective_lease_status="invalid",
+        )
     updated_at = parse_timestamp(claim.get("updated_at"))
+    if updated_at is None:
+        return _invalid_record(
+            "worker_claim",
+            path,
+            "claim_record_timestamp_invalid",
+            claim_id=path.stem,
+            task_id=path.parent.name,
+            effective_lease_status="invalid",
+        )
     stale = updated_at is None or (
         datetime.now(timezone.utc) - updated_at
     ).total_seconds() > stale_after_seconds
@@ -196,9 +247,10 @@ def inspect_claims(
     return claims
 
 
-def _claim_mutex(task_dir: Path) -> Path:
+def _claim_mutex(task_dir: Path) -> tuple[Path, str]:
     task_dir.mkdir(parents=True, exist_ok=True)
     mutex = task_dir / ".operation.lock"
+    owner_token = uuid.uuid4().hex
     try:
         descriptor = os.open(mutex, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     except FileExistsError as exc:
@@ -215,8 +267,25 @@ def _claim_mutex(task_dir: Path) -> Path:
         else:
             raise RuntimeError("claim_operation_in_progress") from exc
     with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-        handle.write(f"{os.getpid()} {utc_now()}\n")
-    return mutex
+        handle.write(f"{owner_token} {os.getpid()} {utc_now()}\n")
+    return mutex, owner_token
+
+
+def _release_claim_mutex(mutex: Optional[tuple[Path, str]]) -> None:
+    """Release only the exact lock generation acquired by this caller."""
+    if mutex is None:
+        return
+    path, owner_token = mutex
+    try:
+        current_token = path.read_text(encoding="utf-8").split(maxsplit=1)[0]
+    except (OSError, IndexError):
+        return
+    if current_token != owner_token:
+        return
+    try:
+        path.unlink()
+    except OSError:
+        pass
 
 
 def _atomic_claim_update(path: Path, claim: dict[str, Any]) -> None:
@@ -259,23 +328,33 @@ def acquire_claim(
         return {"ok": False, "error": "invalid_attempt"}
     if require_clean and not worktree_is_clean(root):
         return {"ok": False, "error": "worktree_not_clean"}
-    bound_branch = branch or current_branch(root)
-    bound_worktree = str(Path(worktree).resolve()) if worktree else str(root.resolve())
+    actual_branch = current_branch(root)
+    if actual_branch == "DETACHED":
+        return {"ok": False, "error": "detached_head_not_supported"}
+    if branch is not None and branch != actual_branch:
+        return {"ok": False, "error": "claim_branch_mismatch"}
+    actual_worktree = str(root.resolve())
+    if worktree is not None and str(Path(worktree).resolve()) != actual_worktree:
+        return {"ok": False, "error": "claim_worktree_mismatch"}
+    bound_branch = actual_branch
+    bound_worktree = actual_worktree
     task_dir = _task_claim_dir(root, task_id)
-    authority_mutex: Optional[Path] = None
-    task_mutex: Optional[Path] = None
+    authority_mutex: Optional[tuple[Path, str]] = None
+    task_mutex: Optional[tuple[Path, str]] = None
     try:
         authority_mutex = _claim_mutex(authority_runtime_root(root))
         task_mutex = _claim_mutex(task_dir)
     except (OSError, RuntimeError) as exc:
-        if authority_mutex is not None:
-            try:
-                authority_mutex.unlink()
-            except OSError:
-                pass
+        _release_claim_mutex(authority_mutex)
         return {"ok": False, "error": str(exc)}
     try:
         integration_lease = inspect_integration_lease(root)
+        if integration_lease and integration_lease.get("record_status") == "invalid":
+            return {
+                "ok": False,
+                "error": "invalid_integration_lease_record",
+                "lease": integration_lease,
+            }
         if (
             integration_lease
             and integration_lease.get("effective_lease_status") == "active"
@@ -286,6 +365,17 @@ def acquire_claim(
                 "lease": integration_lease,
             }
         existing_claims = inspect_claims(root, task_id, stale_after_seconds)
+        invalid_claims = [
+            claim
+            for claim in existing_claims
+            if claim.get("record_status") == "invalid"
+        ]
+        if invalid_claims:
+            return {
+                "ok": False,
+                "error": "invalid_claim_record",
+                "claims": invalid_claims,
+            }
         stale_claims = [claim for claim in existing_claims if claim.get("stale")]
         if stale_claims:
             return {
@@ -358,20 +448,13 @@ def acquire_claim(
             "agent_kind": agent_kind,
         }
         path = task_dir / f"{claim_id}.json"
-        descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(claim, handle, ensure_ascii=False, indent=2)
-            handle.write("\n")
+        _atomic_claim_update(path, claim)
         claim["stale"] = False
         claim["effective_lease_status"] = "active"
         return {"ok": True, "claim": claim}
     finally:
         for mutex in (task_mutex, authority_mutex):
-            if mutex is not None:
-                try:
-                    mutex.unlink()
-                except OSError:
-                    pass
+            _release_claim_mutex(mutex)
 
 
 def update_claim(
@@ -389,21 +472,17 @@ def update_claim(
     if len(matches) != 1:
         return {"ok": False, "error": "claim_not_found"}
     path = matches[0]
-    authority_mutex: Optional[Path] = None
-    claim_mutex: Optional[Path] = None
+    authority_mutex: Optional[tuple[Path, str]] = None
+    claim_mutex: Optional[tuple[Path, str]] = None
     try:
         authority_mutex = _claim_mutex(authority_runtime_root(root))
         claim_mutex = _claim_mutex(path.parent)
     except (OSError, RuntimeError) as exc:
-        if authority_mutex is not None:
-            try:
-                authority_mutex.unlink()
-            except OSError:
-                pass
+        _release_claim_mutex(authority_mutex)
         return {"ok": False, "error": str(exc)}
     try:
         claim = _read_claim(path)
-        if claim is None:
+        if claim is None or claim.get("record_status") == "invalid":
             return {"ok": False, "error": "invalid_claim_record"}
         if branch is not None and claim.get("branch") != branch:
             return {"ok": False, "error": "claim_branch_mismatch", "claim": claim}
@@ -421,11 +500,7 @@ def update_claim(
         return {"ok": True, "claim": _read_claim(path)}
     finally:
         for mutex in (claim_mutex, authority_mutex):
-            if mutex is not None:
-                try:
-                    mutex.unlink()
-                except OSError:
-                    pass
+            _release_claim_mutex(mutex)
 
 
 def rebind_worker_claim(
@@ -754,10 +829,7 @@ def apply_session_runtime_patch(
                 merged[key] = patch[key]
         return write_session_runtime(root, session_id, merged)
     finally:
-        try:
-            mutex.unlink()
-        except OSError:
-            pass
+        _release_claim_mutex(mutex)
 
 
 def execution_run_root(root: Path) -> Path:
@@ -787,15 +859,44 @@ def content_fingerprint(content: str) -> str:
 def read_execution_run(root: Path, run_id: str) -> Optional[dict[str, Any]]:
     """Read one canonical Run; session/runtime projections are never consulted."""
     try:
-        value = json.loads(_execution_run_path(root, run_id).read_text(encoding="utf-8"))
-    except (ValueError, OSError, json.JSONDecodeError):
+        path = _execution_run_path(root, run_id)
+    except ValueError:
         return None
+    work_unit_id = run_id.rsplit("-attempt-", 1)[0]
+    expected_attempt = int(run_id.rsplit("-attempt-", 1)[1])
+    revision_match = re.fullmatch(r"(?P<task>\d{3,}[a-z]*)-r[1-9]\d*", work_unit_id)
+    identity = {
+        "run_id": run_id,
+        "task_id": revision_match.group("task") if revision_match else work_unit_id,
+        "revision_id": work_unit_id if revision_match else None,
+        "attempt": expected_attempt,
+        "phase": "invalid",
+    }
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return _invalid_record(
+            "execution_run", path, "execution_run_unreadable", **identity
+        )
+    except json.JSONDecodeError:
+        return _invalid_record(
+            "execution_run", path, "execution_run_invalid_json", **identity
+        )
     if (
         not isinstance(value, dict)
+        or value.get("schema_version") != 1
         or value.get("kind") != "execution_run"
         or value.get("run_id") != run_id
+        or value.get("task_id") != identity["task_id"]
+        or value.get("revision_id") != identity["revision_id"]
+        or value.get("attempt") != expected_attempt
+        or value.get("phase") not in EXECUTION_RUN_PHASES
     ):
-        return None
+        return _invalid_record(
+            "execution_run", path, "execution_run_identity_invalid", **identity
+        )
     return value
 
 
@@ -858,6 +959,12 @@ def update_execution_run(
         return {"ok": False, "error": str(exc)}
     try:
         current = read_execution_run(root, run_id)
+        if current is not None and current.get("record_status") == "invalid":
+            return {
+                "ok": False,
+                "error": "invalid_execution_run_record",
+                "run": current,
+            }
         if current is None and not create:
             return {"ok": False, "error": "execution_run_not_found"}
         if current is None:
@@ -907,10 +1014,7 @@ def update_execution_run(
         _atomic_claim_update(path, merged)
         return {"ok": True, "run": read_execution_run(root, run_id)}
     finally:
-        try:
-            mutex.unlink()
-        except OSError:
-            pass
+        _release_claim_mutex(mutex)
 
 
 def read_ref_version(root: Path, ref: str, path: str) -> Optional[str]:
@@ -1074,10 +1178,7 @@ def enqueue_worker_notification(
             "detail": str(exc),
         }
     finally:
-        try:
-            mutex.unlink()
-        except OSError:
-            pass
+        _release_claim_mutex(mutex)
 
 
 def consume_worker_notifications(
@@ -1172,10 +1273,7 @@ def consume_worker_notifications(
             "detail": str(exc),
         }
     finally:
-        try:
-            mutex.unlink()
-        except OSError:
-            pass
+        _release_claim_mutex(mutex)
 
 
 def integration_runtime_root(root: Path) -> Path:
@@ -1238,25 +1336,29 @@ def create_integration_transition_grant(
         return {"ok": False, "error": "verified_discussion_transition_required"}
     bound_branch = branch or current_branch(root)
     bound_worktree = str(Path(worktree).resolve()) if worktree else str(root.resolve())
+    if bound_branch == "DETACHED":
+        return {"ok": False, "error": "detached_head_not_supported"}
     if bound_branch != current_branch(root):
         return {"ok": False, "error": "integration_branch_mismatch"}
     if bound_worktree != str(root.resolve()):
         return {"ok": False, "error": "integration_worktree_mismatch"}
 
-    authority_mutex: Optional[Path] = None
-    integration_mutex: Optional[Path] = None
+    authority_mutex: Optional[tuple[Path, str]] = None
+    integration_mutex: Optional[tuple[Path, str]] = None
     try:
         authority_mutex = _claim_mutex(authority_runtime_root(root))
         integration_mutex = _claim_mutex(integration_runtime_root(root))
     except (OSError, RuntimeError) as exc:
-        if authority_mutex is not None:
-            try:
-                authority_mutex.unlink()
-            except OSError:
-                pass
+        _release_claim_mutex(authority_mutex)
         return {"ok": False, "error": str(exc)}
     try:
         existing = inspect_integration_lease(root)
+        if existing and existing.get("record_status") == "invalid":
+            return {
+                "ok": False,
+                "error": "invalid_integration_lease_record",
+                "lease": existing,
+            }
         if existing and existing.get("effective_lease_status") == "active":
             return {
                 "ok": False,
@@ -1285,11 +1387,7 @@ def create_integration_transition_grant(
         return {"ok": True, "grant": grant}
     finally:
         for mutex in (integration_mutex, authority_mutex):
-            if mutex is not None:
-                try:
-                    mutex.unlink()
-                except OSError:
-                    pass
+            _release_claim_mutex(mutex)
 
 
 def inspect_integration_lease(
@@ -1298,11 +1396,72 @@ def inspect_integration_lease(
     path = _integration_lease_path(root)
     try:
         lease = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except FileNotFoundError:
         return None
-    if not isinstance(lease, dict):
-        return None
+    except OSError:
+        return _invalid_record(
+            "integration_lease",
+            path,
+            "integration_lease_unreadable",
+            effective_lease_status="invalid",
+        )
+    except json.JSONDecodeError:
+        return _invalid_record(
+            "integration_lease",
+            path,
+            "integration_lease_invalid_json",
+            effective_lease_status="invalid",
+        )
+    selected_task_ids = (
+        lease.get("selected_task_ids") if isinstance(lease, dict) else None
+    )
+    selected_reports = (
+        lease.get("selected_reports") if isinstance(lease, dict) else None
+    )
+    identity_valid = bool(
+        isinstance(lease, dict)
+        and lease.get("schema_version") == 1
+        and lease.get("kind") == "integration_lease"
+        and lease.get("lease_status") in {"active", "released", "revoked"}
+        and isinstance(lease.get("lease_id"), str)
+        and RUNTIME_ID_RE.fullmatch(lease["lease_id"])
+        and isinstance(lease.get("session_id"), str)
+        and RUNTIME_ID_RE.fullmatch(lease["session_id"])
+        and isinstance(lease.get("integration_id"), str)
+        and RUNTIME_ID_RE.fullmatch(lease["integration_id"])
+        and isinstance(lease.get("base_branch"), str)
+        and bool(lease["base_branch"])
+        and isinstance(lease.get("worktree"), str)
+        and bool(lease["worktree"])
+        and isinstance(selected_task_ids, list)
+        and isinstance(selected_reports, list)
+        and bool(selected_task_ids)
+        and len(selected_task_ids) == len(selected_reports)
+        and all(isinstance(item, str) and item for item in selected_task_ids)
+    )
+    if identity_valid:
+        try:
+            identity_valid = all(
+                canonical_repo_path(item) == item for item in selected_reports
+            )
+        except ValueError:
+            identity_valid = False
+    if not identity_valid:
+        return _invalid_record(
+            "integration_lease",
+            path,
+            "integration_lease_identity_invalid",
+            effective_lease_status="invalid",
+        )
     updated_at = parse_timestamp(lease.get("updated_at"))
+    if updated_at is None:
+        return _invalid_record(
+            "integration_lease",
+            path,
+            "integration_lease_timestamp_invalid",
+            lease_id=str(lease.get("lease_id") or ""),
+            effective_lease_status="invalid",
+        )
     stale = updated_at is None or (
         datetime.now(timezone.utc) - updated_at
     ).total_seconds() > stale_after_seconds
@@ -1334,17 +1493,13 @@ def acquire_integration_lease(
     if require_clean and not worktree_is_clean(root):
         return {"ok": False, "error": "worktree_not_clean"}
     runtime_root = integration_runtime_root(root)
-    authority_mutex: Optional[Path] = None
-    integration_mutex: Optional[Path] = None
+    authority_mutex: Optional[tuple[Path, str]] = None
+    integration_mutex: Optional[tuple[Path, str]] = None
     try:
         authority_mutex = _claim_mutex(authority_runtime_root(root))
         integration_mutex = _claim_mutex(runtime_root)
     except (OSError, RuntimeError) as exc:
-        if authority_mutex is not None:
-            try:
-                authority_mutex.unlink()
-            except OSError:
-                pass
+        _release_claim_mutex(authority_mutex)
         return {"ok": False, "error": str(exc)}
     try:
         grant = inspect_integration_grant(root, grant_id)
@@ -1354,6 +1509,8 @@ def acquire_integration_lease(
         bound_worktree = (
             str(Path(worktree).resolve()) if worktree else str(root.resolve())
         )
+        if bound_branch == "DETACHED":
+            return {"ok": False, "error": "detached_head_not_supported"}
         expected_binding = {
             "discussion_session_id": session_id,
             "integration_id": integration_id,
@@ -1373,10 +1530,25 @@ def acquire_integration_lease(
             return {"ok": False, "error": "integration_transition_grant_consumed"}
         if grant.get("outcome") not in {"safe", "decision_confirmed"}:
             return {"ok": False, "error": "integration_transition_grant_invalid"}
-        active_claims = [
+        selected_claims = [
             claim
             for task_id in task_ids
             for claim in inspect_claims(root, task_id, stale_after_seconds)
+        ]
+        invalid_claims = [
+            claim
+            for claim in selected_claims
+            if claim.get("record_status") == "invalid"
+        ]
+        if invalid_claims:
+            return {
+                "ok": False,
+                "error": "invalid_claim_record",
+                "claims": invalid_claims,
+            }
+        active_claims = [
+            claim
+            for claim in selected_claims
             if claim.get("effective_lease_status") == "active"
         ]
         if active_claims:
@@ -1386,6 +1558,12 @@ def acquire_integration_lease(
                 "claims": active_claims,
             }
         existing = inspect_integration_lease(root, stale_after_seconds)
+        if existing and existing.get("record_status") == "invalid":
+            return {
+                "ok": False,
+                "error": "invalid_integration_lease_record",
+                "lease": existing,
+            }
         if existing and existing.get("effective_lease_status") == "stale":
             return {
                 "ok": False,
@@ -1423,11 +1601,7 @@ def acquire_integration_lease(
         return {"ok": True, "lease": lease}
     finally:
         for mutex in (integration_mutex, authority_mutex):
-            if mutex is not None:
-                try:
-                    mutex.unlink()
-                except OSError:
-                    pass
+            _release_claim_mutex(mutex)
 
 
 def update_integration_lease(
@@ -1441,29 +1615,31 @@ def update_integration_lease(
     if action not in {"heartbeat", "release", "revoke"}:
         return {"ok": False, "error": "invalid_integration_lease_action"}
     runtime_root = integration_runtime_root(root)
-    authority_mutex: Optional[Path] = None
-    integration_mutex: Optional[Path] = None
+    authority_mutex: Optional[tuple[Path, str]] = None
+    integration_mutex: Optional[tuple[Path, str]] = None
     try:
         authority_mutex = _claim_mutex(authority_runtime_root(root))
         integration_mutex = _claim_mutex(runtime_root)
     except (OSError, RuntimeError) as exc:
-        if authority_mutex is not None:
-            try:
-                authority_mutex.unlink()
-            except OSError:
-                pass
+        _release_claim_mutex(authority_mutex)
         return {"ok": False, "error": str(exc)}
     try:
         lease = inspect_integration_lease(root)
         if lease is None:
             return {"ok": False, "error": "integration_lease_not_found"}
+        if lease.get("record_status") == "invalid":
+            return {
+                "ok": False,
+                "error": "invalid_integration_lease_record",
+                "lease": lease,
+            }
         if lease.get("session_id") != session_id:
             return {"ok": False, "error": "integration_session_mismatch", "lease": lease}
         if branch is not None and lease.get("base_branch") != branch:
             return {"ok": False, "error": "integration_branch_mismatch", "lease": lease}
         if worktree is not None and lease.get("worktree") != str(Path(worktree).resolve()):
             return {"ok": False, "error": "integration_worktree_mismatch", "lease": lease}
-        if action == "heartbeat" and lease.get("lease_status") != "active":
+        if action in {"heartbeat", "release"} and lease.get("lease_status") != "active":
             return {"ok": False, "error": "integration_lease_not_active", "lease": lease}
         lease.pop("stale", None)
         lease.pop("effective_lease_status", None)
@@ -1475,11 +1651,7 @@ def update_integration_lease(
         return {"ok": True, "lease": inspect_integration_lease(root)}
     finally:
         for mutex in (integration_mutex, authority_mutex):
-            if mutex is not None:
-                try:
-                    mutex.unlink()
-                except OSError:
-                    pass
+            _release_claim_mutex(mutex)
 
 
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -1523,6 +1695,30 @@ def load_config(root: Path) -> Optional[dict[str, Any]]:
     config = deep_merge(DEFAULT_CONFIG, data)
     config["required_hosts"] = normalize_required_hosts(config.get("required_hosts"))
     config["required_hosts_source"] = "configured"
+    paths = config.get("paths")
+    if not isinstance(paths, dict):
+        raise ValueError("paths must be a JSON object")
+    for name in (
+        "prd",
+        "architecture",
+        "codemap",
+        "conventions",
+        "project_status",
+        "task_glob",
+        "revision_glob",
+        "run_report_glob",
+    ):
+        try:
+            paths[name] = canonical_repo_path(paths.get(name))
+        except ValueError as exc:
+            raise ValueError(f"invalid paths.{name}: {exc}") from exc
+    task_globs = paths.get("task_globs")
+    if not isinstance(task_globs, list) or not task_globs:
+        raise ValueError("paths.task_globs must be a non-empty array")
+    try:
+        paths["task_globs"] = [canonical_repo_path(item) for item in task_globs]
+    except ValueError as exc:
+        raise ValueError(f"invalid paths.task_globs: {exc}") from exc
     try:
         allocate_run_report_path(config, "001", 1)
     except ValueError as exc:
@@ -1582,6 +1778,17 @@ def configured_task_globs(config: dict[str, Any]) -> list[str]:
     return list(
         dict.fromkeys(
             pattern for pattern in candidates if isinstance(pattern, str) and pattern
+        )
+    )
+
+
+def configured_memory_impact_paths(config: dict[str, Any]) -> list[str]:
+    """Derive Run Report impact rows from the four configured stable memories."""
+    paths = config.get("paths", {})
+    return list(
+        dict.fromkeys(
+            canonical_repo_path(paths.get(name))
+            for name in ("prd", "architecture", "codemap", "conventions")
         )
     )
 

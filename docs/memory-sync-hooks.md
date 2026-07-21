@@ -94,7 +94,7 @@ The installer writes the exact Python executable used during setup into the host
 
 For an enabled project, the bundled installer also provides three bounded maintenance actions: `--doctor --json` performs a fixed-path read-only health check; `--upgrade --json` repairs missing metadata for current files or atomically replaces a bundled-known generated runtime and rolls back on failure; `--repair-host-adapter --host codex|claude --json` repairs only the selected current-host adapter while preserving unrelated hooks. Unknown or locally modified runtime files stop for review instead of being overwritten.
 
-Normal users only enable WishGraph, reopen the current Agent session, and say `Start discussion`. If that does not respond, Doctor distinguishes static installation health from host execution observed through bounded `SessionStart` and `UserPromptSubmit` receipts under `.git/wishgraph/host-observations/`. Receipts never enter the worktree and are not written by `PreToolUse`. An unverified Codex session is routed to `/hooks`; Claude Code CLI may additionally use `claude doctor`.
+Normal users only enable WishGraph, reopen the current Agent session, and say `Start discussion`. If that does not respond, Doctor reports static installation, recent host execution, and Formal Worker readiness separately through bounded `SessionStart` and `UserPromptSubmit` receipts under `.git/wishgraph/host-observations/`. Receipts never enter the worktree, are not written by `PreToolUse`, and require a valid host event payload. An unverified Codex Desktop session is routed to Codex CLI in the same project, where `/hooks` can review and trust the exact Hook definition; `/hooks` is not a Desktop chat command. Claude Code CLI may additionally use `claude doctor`.
 
 `memory_sync.py` is a stable entrypoint over four public boundaries: `workflow_state.py` defines typed state; `policy.py` implements pure transitions; `host_adapter.py` maps one authorized action to the current host; `git_state.py` persists Git facts, canonical Runs, Claims, sessions, and Integration leases. `codex_worker_provider.py`, `claude_worker_provider.py`, and `tool_gate_provider.py` are private implementations behind `host_adapter.py`, not additional public boundaries. Semantic project truth remains in Markdown and Git.
 
@@ -102,7 +102,7 @@ Start with `warn`. After one successful Task-backed Worker closeout and one Disc
 
 `warn` and `enforce` are enforced only through an installed and loaded host Adapter; neither is an operating-system sandbox. A missing Claude Adapter cannot block a normal Claude Code session. The optional Git hook is commit-time fallback protection, not a write-time gate.
 
-Codex project Hooks do not run before repository trust is granted; this detail is surfaced through Doctor only when normal entry fails.
+Codex project Hooks do not run before the project layer and exact Hook definition are trusted; this detail is surfaced through Doctor only when normal entry fails.
 
 ## Parallel closeout rules
 

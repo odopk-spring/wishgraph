@@ -227,7 +227,9 @@ esac
 reuse_existing=0
 if [[ -e "$dest" ]]; then
   if [[ "$force" -eq 1 ]]; then
-    rm -rf "$dest"
+    # Keep the working installation until the replacement is downloaded and
+    # passes the minimum layout validation below.
+    :
   elif [[ "$setup_project" -eq 1 && -f "$dest/scripts/install_project_hooks.py" ]]; then
     reuse_existing=1
     echo "WishGraph skill already exists at $dest; reusing it for project setup."
@@ -249,8 +251,31 @@ if [[ "$reuse_existing" -eq 0 ]]; then
   git clone --depth 1 --filter=blob:none --sparse --branch "$repo_ref" "$repo_url" "$tmpdir" >/dev/null
   git -C "$tmpdir" sparse-checkout set skills/wishgraph >/dev/null
 
+  staged_skill="$tmpdir/skills/wishgraph"
+  for required in SKILL.md scripts/install_project_hooks.py; do
+    if [[ ! -f "$staged_skill/$required" ]]; then
+      echo "Downloaded WishGraph Skill is incomplete: missing $required" >&2
+      exit 1
+    fi
+  done
+
   mkdir -p "$(dirname "$dest")"
-  cp -R "$tmpdir/skills/wishgraph" "$dest"
+  backup=""
+  if [[ -e "$dest" ]]; then
+    backup="${dest}.wishgraph-backup.$$"
+    mv "$dest" "$backup"
+  fi
+  if ! mv "$staged_skill" "$dest"; then
+    rm -rf "$dest"
+    if [[ -n "$backup" && -e "$backup" ]]; then
+      mv "$backup" "$dest"
+    fi
+    echo "WishGraph Skill replacement failed; the previous installation was restored." >&2
+    exit 1
+  fi
+  if [[ -n "$backup" && -e "$backup" ]]; then
+    rm -rf "$backup"
+  fi
 
   echo "Installed WishGraph skill to $dest"
   echo "Restart your agent tool if it does not pick up new skills immediately."
