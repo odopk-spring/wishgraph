@@ -1,17 +1,27 @@
 {
   "schema_version": 1,
-  "runtime_version": 29,
+  "runtime_version": 30,
   "files": {
     "memory_sync.py": "1b23d23318a014aea4f92b881b768f0dc174745c8bfd562e465a3e9ebcd1d3d6",
-    "git_state.py": "5747638a9532f4f43ce4115b758a82f7b000741d733eb4c3ffe3312f93948654",
+    "git_state.py": "a511f51098c580ebcd16dd66a0d96c2480fe028fd8ca4b0f03f24a8e31f9b8d8",
     "workflow_state.py": "38d4dd3431936419abcce9bd594b4082ce6cfe8bf66b11c8c111b16ac3288faa",
     "policy.py": "9c8177cce096667a9a046fa9669aaec1819a012d83ebe387cc4d0d845aabf1d6",
-    "host_adapter.py": "397aac2c901635e4d4ae5150c5387f9f90ba24a1a620fcb873459b6cc1418447",
-    "codex_worker_provider.py": "cb0cbe2ee0c0385b9708490edd234284d2c27239bfae8b77515cab1453f7c1a5",
-    "claude_worker_provider.py": "5db74c48607b033f0633ac41fc19ec17dc25b5d876f44303c1dac4a704c2ed3b",
-    "tool_gate_provider.py": "b67ba4f04e3727d6838f7af32e68eb263b81f64c2ac2920f18d56bbb7501e4cf"
+    "host_adapter.py": "2e456c8e4f2d93370ac69e5d72d54cdead979a9f6b2e65985bcb8ae0662c05ef",
+    "codex_worker_provider.py": "3ba60efdf01dc0327b683e0570a59833771fadc167f03715f063ced7dee63677",
+    "claude_worker_provider.py": "a063db8fb77d848222c235fb451227f90061de1769d25f6f7b82bf47898dba48",
+    "tool_gate_provider.py": "000a431550a20fae6d2dcb6f7b5b5b170ce3f5c1af1e4390ed8f7f22d8a1393e"
   },
   "known_versions": {
+    "29": {
+      "memory_sync.py": "1b23d23318a014aea4f92b881b768f0dc174745c8bfd562e465a3e9ebcd1d3d6",
+      "git_state.py": "5747638a9532f4f43ce4115b758a82f7b000741d733eb4c3ffe3312f93948654",
+      "workflow_state.py": "38d4dd3431936419abcce9bd594b4082ce6cfe8bf66b11c8c111b16ac3288faa",
+      "policy.py": "9c8177cce096667a9a046fa9669aaec1819a012d83ebe387cc4d0d845aabf1d6",
+      "host_adapter.py": "397aac2c901635e4d4ae5150c5387f9f90ba24a1a620fcb873459b6cc1418447",
+      "codex_worker_provider.py": "cb0cbe2ee0c0385b9708490edd234284d2c27239bfae8b77515cab1453f7c1a5",
+      "claude_worker_provider.py": "5db74c48607b033f0633ac41fc19ec17dc25b5d876f44303c1dac4a704c2ed3b",
+      "tool_gate_provider.py": "b67ba4f04e3727d6838f7af32e68eb263b81f64c2ac2920f18d56bbb7501e4cf"
+    },
     "28": {
       "memory_sync.py": "1b23d23318a014aea4f92b881b768f0dc174745c8bfd562e465a3e9ebcd1d3d6",
       "git_state.py": "1561f4ba1c8bcb5b559e2cfc1d8044fee8bef058428f62d819cb8a65186ab6f5",

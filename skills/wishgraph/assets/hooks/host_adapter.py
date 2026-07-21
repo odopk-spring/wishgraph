@@ -488,11 +488,24 @@ def current_host_execution_guard(
     *,
     bound_claim: bool = False,
 ) -> dict[str, Any]:
-    """Fail closed while giving an executable, non-looping recovery route."""
+    """Keep host verification advisory in warn and blocking only in enforce."""
     result = _current_host_execution_guard_unadorned(
         root, config, host, bound_claim=bound_claim
     )
+    if config.get("mode") == "warn" and not result.get("ok"):
+        return {
+            "ok": True,
+            "formal_worker_ready": True,
+            "host_execution_confirmed": False,
+            "advisory_only": True,
+            "advisory": {
+                "code": str(result.get("error") or "current_host_unverified"),
+                "message": str(result.get("message") or ""),
+                "adapter": result.get("adapter", {}),
+            },
+        }
     result["formal_worker_ready"] = bool(result.get("ok"))
+    result["host_execution_confirmed"] = bool(result.get("ok"))
     if result.get("ok"):
         return result
     error = str(result.get("error") or "current_host_unverified")
@@ -899,6 +912,32 @@ def _local_git_baseline(root: Path) -> dict[str, Any]:
             "请确认当前起点后创建首个本地 commit，再重新执行该任务。"
         ),
     }
+
+
+def _bounded_linear_result(
+    root: Path, base_commit: str, result_commit: str
+) -> bool:
+    """Accept one or more linear Worker commits without accepting merged history."""
+    if not base_commit or not result_commit or base_commit == result_commit:
+        return False
+    ancestor = run_git(
+        root,
+        "merge-base",
+        "--is-ancestor",
+        base_commit,
+        result_commit,
+        check=False,
+    )
+    if ancestor.returncode != 0:
+        return False
+    merges = run_git(
+        root,
+        "rev-list",
+        "--merges",
+        f"{base_commit}..{result_commit}",
+        check=False,
+    )
+    return merges.returncode == 0 and not merges.stdout.strip()
 
 
 
@@ -1454,21 +1493,12 @@ def enqueue_terminal_notification_from_claim(
         return {"ok": False, "error": "terminal_run_report_differs_from_commit"}
     if not worktree_is_clean(root):
         return {"ok": False, "error": "terminal_worktree_not_clean"}
-    parents_result = run_git(
-        root, "rev-list", "--parents", "-n", "1", result_commit, check=False
-    )
-    commit_parts = parents_result.stdout.decode(
-        "utf-8", errors="replace"
-    ).strip().split()
-    if parents_result.returncode != 0 or len(commit_parts) != 2:
-        return {"ok": False, "error": "terminal_result_commit_must_be_atomic"}
-    result_parent = commit_parts[1]
     recorded_base_commit = str(
         (existing_run or {}).get("base_commit") or claim.get("base_commit") or ""
     )
-    if recorded_base_commit and recorded_base_commit != result_parent:
-        return {"ok": False, "error": "terminal_result_commit_not_based_on_run"}
-    base_commit = recorded_base_commit or result_parent
+    if not _bounded_linear_result(root, recorded_base_commit, result_commit):
+        return {"ok": False, "error": "terminal_result_not_bounded_linear_history"}
+    base_commit = recorded_base_commit
     report = report_state(run_report, report_content)
     lifecycle = {
         "completed": "completed",
@@ -1723,6 +1753,32 @@ def read_hook_input() -> dict[str, Any]:
         return value if isinstance(value, dict) else {}
     except json.JSONDecodeError:
         return {}
+
+
+def _configured_hook_mode(root: Path) -> str:
+    """Read only the mode needed to choose advisory or strict failure behavior."""
+    path = root / ".wishgraph" / "config.json"
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return "enforce" if re.search(r'"mode"\s*:\s*"enforce"', raw) else ""
+    mode = value.get("mode") if isinstance(value, dict) else ""
+    return mode if mode in {"off", "warn", "enforce"} else ""
+
+
+def _configured_hook_mode_from_payload(payload: dict[str, Any]) -> str:
+    start = Path(payload.get("cwd") or os.getcwd()).resolve(strict=False)
+    if start.is_file():
+        start = start.parent
+    for candidate in (start, *start.parents):
+        mode = _configured_hook_mode(candidate)
+        if mode:
+            return mode
+    return ""
 
 
 def emit(value: dict[str, Any]) -> None:
@@ -2017,6 +2073,7 @@ def formal_worker_launch_context(
     host_adapter_command: str,
     task_path: str = "",
     authorization_patch_required: bool = False,
+    mode: str = "enforce",
 ) -> str:
     """Give the current Discussion one unambiguous, non-delegable launch action."""
     if host_action not in {
@@ -2024,6 +2081,21 @@ def formal_worker_launch_context(
         "launch_claude_background_worker",
     }:
         return ""
+    if mode != "enforce":
+        adapter_step = (
+            f"Use this Host Adapter command when available: {host_adapter_command}"
+            if host_adapter_command
+            else "Create the visible Worker directly; runtime routing is unavailable"
+        )
+        return (
+            "WishGraph Worker handoff:\n"
+            f"1. Send only Task {task_id} to one visible, inspectable Worker.\n"
+            f"2. {adapter_step}.\n"
+            "3. If the Adapter, Hook receipt, launch context, or Claim is unavailable, "
+            "continue the same approved Task without retrying setup. Keep the Task scope, "
+            "validation, Run Report, and result commit.\n"
+            "4. Discussion does not implement the Task itself."
+        )
     record = task_path or "the exact resolved Task record"
     return (
         "WishGraph Formal Worker launch contract (mandatory):\n"
@@ -2047,8 +2119,19 @@ def current_worker_binding_context(
     session_id: str,
     host: str,
     claim_command: str,
+    mode: str = "enforce",
 ) -> str:
     """Return the one-step Neutral -> current Formal Worker handoff."""
+    if mode != "enforce":
+        return (
+            "WishGraph current-window Worker handoff:\n"
+            f"1. This visible window executes only Task {task_id}.\n"
+            f"2. Try this Claim command when available: {claim_command}\n"
+            "3. Claim automation is optional in warn mode. Continue from the approved "
+            "Task if it is unavailable; preserve scope, validation, Run Report, and the "
+            "result commit.\n"
+            f"4. Worker session ID: {session_id}; host: {host}."
+        )
     return (
         "WishGraph current-window Worker contract (mandatory):\n"
         f"1. This neutral window is the Worker container for Task {task_id}; do not "
@@ -2099,6 +2182,7 @@ def user_prompt_submit_main(
         denial_reason = plan.denial_reason
         contextual_task: dict[str, Any] = {}
         authorization_patch_required = False
+        direct_worker_handoff = False
         if plan.accepted and session_id and action.state_patch:
             resolved_contextual = resolve_task(root, config, plan.task_id)
             if not resolved_contextual.get("ok"):
@@ -2128,8 +2212,12 @@ def user_prompt_submit_main(
                         dispatch_mode="background_worker",
                     )
                     if not persisted.get("ok"):
-                        accepted = False
-                        denial_reason = "authorization_runtime_persistence_failed"
+                        if config.get("mode") == "enforce":
+                            accepted = False
+                            denial_reason = "authorization_runtime_persistence_failed"
+                        else:
+                            denial_reason = "runtime_advisory_direct_worker_handoff"
+                            direct_worker_handoff = True
                 authorization_patch_required = False
         if not accepted:
             action = HostAction(action="no_action", stop_after_action=True)
@@ -2164,7 +2252,10 @@ def user_prompt_submit_main(
                 session_id,
                 *_execution_profile_command_args(resolved_profile),
             )
-            if action.action == "launch_claude_background_worker"
+            if (
+                action.action == "launch_claude_background_worker"
+                and not direct_worker_handoff
+            )
             else (
                 _memory_sync_command(
                     config,
@@ -2175,7 +2266,10 @@ def user_prompt_submit_main(
                     session_id,
                     *_execution_profile_command_args(resolved_profile),
                 )
-                if action.action == "launch_codex_agent_worker"
+                if (
+                    action.action == "launch_codex_agent_worker"
+                    and not direct_worker_handoff
+                )
                 else ""
             )
         )
@@ -2192,6 +2286,7 @@ def user_prompt_submit_main(
                             host_adapter_command,
                             str(contextual_task.get("task_path") or ""),
                             authorization_patch_required,
+                            str(config.get("mode") or "warn"),
                         ),
                         "WishGraph contextual route:\n"
                         + json.dumps(
@@ -2204,6 +2299,8 @@ def user_prompt_submit_main(
                                 "execution_profile": profile_resolution,
                                 "manual_launch_instructions": manual_launch_instructions,
                                 "launch_must_run_in_current_discussion": (
+                                    config.get("mode") == "enforce"
+                                    and
                                     action.action
                                     in {
                                         "launch_codex_agent_worker",
@@ -2211,6 +2308,8 @@ def user_prompt_submit_main(
                                     }
                                 ),
                                 "delegation_forbidden": (
+                                    config.get("mode") == "enforce"
+                                    and
                                     action.action
                                     in {
                                         "launch_codex_agent_worker",
@@ -2366,6 +2465,30 @@ def user_prompt_submit_main(
         route = resolved
     else:
         role = str(((runtime or {}).get("session") or {}).get("role") or "neutral")
+        runtime_task = (
+            (runtime or {}).get("task")
+            if isinstance((runtime or {}).get("task"), dict)
+            else {}
+        )
+        active_session_claim = any(
+            claim.get("effective_lease_status") == "active"
+            and session_id
+            in {
+                str(claim.get("worker_id") or ""),
+                str(claim.get("host_thread_ref") or ""),
+            }
+            for claim in inspect_claims(root)
+        )
+        warn_reusable_worker = bool(
+            config.get("mode") == "warn"
+            and role == "worker"
+            and not active_session_claim
+            and runtime_task.get("lifecycle")
+            in {"completed", "blocked", "incomplete", "integrated", "reviewed"}
+            and runtime_task.get("task_id") != task_id
+        )
+        if warn_reusable_worker:
+            role = "neutral"
         if role == "worker":
             host_action = "continue_or_rebind_current_worker"
             accepted = True
@@ -2432,11 +2555,16 @@ def user_prompt_submit_main(
                         ),
                     )
                     if not persisted.get("ok"):
-                        accepted = False
-                        host_action = "no_action"
-                        plan_payload["denial_reason"] = (
-                            "authorization_runtime_persistence_failed"
-                        )
+                        if config.get("mode") == "enforce":
+                            accepted = False
+                            host_action = "no_action"
+                            plan_payload["denial_reason"] = (
+                                "authorization_runtime_persistence_failed"
+                            )
+                        else:
+                            plan_payload["runtime_advisory"] = (
+                                "direct_worker_handoff"
+                            )
                         plan_payload["persistence_error"] = persisted.get("error")
         requested_profile = (
             plan_payload.get("work_payload", {}).get("execution_profile", {})
@@ -2463,7 +2591,11 @@ def user_prompt_submit_main(
                 session_id,
                 *_execution_profile_command_args(resolved_profile),
             )
-            if host_action == "launch_claude_background_worker"
+            if (
+                host_action == "launch_claude_background_worker"
+                and plan_payload.get("runtime_advisory")
+                != "direct_worker_handoff"
+            )
             else (
                 _memory_sync_command(
                     config,
@@ -2474,7 +2606,11 @@ def user_prompt_submit_main(
                     session_id,
                     *_execution_profile_command_args(resolved_profile),
                 )
-                if host_action == "launch_codex_agent_worker"
+                if (
+                    host_action == "launch_codex_agent_worker"
+                    and plan_payload.get("runtime_advisory")
+                    != "direct_worker_handoff"
+                )
                 else ""
             )
         )
@@ -2560,9 +2696,18 @@ def user_prompt_submit_main(
             "stop_after_action": dispatch_session or current_worker_session,
             "authorization_patch_required": authorization_patch_required,
             "authorization_commit_required": False,
-            "launch_must_run_in_current_discussion": native_launch,
-            "delegation_forbidden": native_launch or current_worker_session,
-            "required_before_business_work": "execution_preflight_and_worker_claim",
+            "launch_must_run_in_current_discussion": (
+                native_launch and config.get("mode") == "enforce"
+            ),
+            "delegation_forbidden": (
+                (native_launch and config.get("mode") == "enforce")
+                or current_worker_session
+            ),
+            "required_before_business_work": (
+                "execution_preflight_and_worker_claim"
+                if config.get("mode") == "enforce"
+                else "exact_approved_task_and_execution_preflight"
+            ),
             "read_boundary": "exact_task_scope_and_explicit_context_only",
             "user_output_contract": {
                 "after_real_worker_created": (
@@ -2595,12 +2740,14 @@ def user_prompt_submit_main(
                         host_adapter_command,
                         str(resolved["task"].get("task_path") or ""),
                         authorization_patch_required,
+                        str(config.get("mode") or "warn"),
                     ),
                     current_worker_binding_context(
                         task_id,
                         session_id,
                         host,
                         current_worker_claim_command,
+                        str(config.get("mode") or "warn"),
                     )
                     if current_worker_session
                     else "",
@@ -2643,8 +2790,12 @@ def _verified_host_observation_invocation(
     )
 
 
-def _hook_main(event: str, host: str = "unknown") -> int:
-    payload = read_hook_input()
+def _hook_main(
+    event: str,
+    host: str = "unknown",
+    payload: Optional[dict[str, Any]] = None,
+) -> int:
+    payload = read_hook_input() if payload is None else payload
     root = find_git_root(Path(payload.get("cwd") or os.getcwd()))
     if root is None:
         emit({})
@@ -2653,6 +2804,9 @@ def _hook_main(event: str, host: str = "unknown") -> int:
     try:
         config = load_config(root)
     except ValueError:
+        if _configured_hook_mode(root) != "enforce":
+            emit({})
+            return 0
         if event == "pre-tool-use":
             emit(
                 {
@@ -2684,6 +2838,9 @@ def _hook_main(event: str, host: str = "unknown") -> int:
         )
         return 0
     if config is None or config.get("mode") == "off":
+        emit({})
+        return 0
+    if event == "pre-tool-use" and config.get("mode") == "warn":
         emit({})
         return 0
 
@@ -2755,6 +2912,9 @@ def _hook_main(event: str, host: str = "unknown") -> int:
             worker_policy_mutation_plan(root, payload),
         ):
             if authority_plan is not None and not authority_plan.accepted:
+                if config.get("mode") != "enforce":
+                    emit({})
+                    return 0
                 emit(
                     {
                         "hookSpecificOutput": {
@@ -2769,6 +2929,9 @@ def _hook_main(event: str, host: str = "unknown") -> int:
             str(command)
         )
         if commit_command and commit_uses_implicit_staging(str(command)):
+            if config.get("mode") != "enforce":
+                emit({})
+                return 0
             reason = (
                 "WishGraph blocks git commit options that stage implicitly (-a/--all, "
                 "-i/--include, -o/--only). Stage the bounded code and external-memory "
@@ -2829,6 +2992,9 @@ def _hook_main(event: str, host: str = "unknown") -> int:
             root, config, hook_session_id(payload)
         )
         if not terminal_notification.get("ok"):
+            if config.get("mode") == "warn":
+                emit({})
+                return 0
             if event == "task-completed":
                 print(HOOK_CLOSEOUT_DENIAL, file=sys.stderr)
                 return 2
@@ -2879,9 +3045,17 @@ def _hook_main(event: str, host: str = "unknown") -> int:
 
 def hook_main(event: str, host: str = "unknown") -> int:
     """Keep Hook failures bounded to the event's single supported output channel."""
+    payload = read_hook_input()
     try:
-        return _hook_main(event, host)
+        mode = _configured_hook_mode_from_payload(payload)
+    except OSError:
+        mode = ""
+    try:
+        return _hook_main(event, host, payload)
     except Exception:
+        if mode != "enforce":
+            emit({})
+            return 0
         if event == "pre-tool-use":
             emit(
                 {
@@ -3224,22 +3398,8 @@ def _integration_transition_selection(
         if not result_commit:
             return {"ok": False, "error": "canonical_execution_run_incomplete"}
         base_commit = str((execution_run or {}).get("base_commit") or "")
-        parents_result = run_git(
-            root, "rev-list", "--parents", "-n", "1", result_commit, check=False
-        ) if result_commit else None
-        commit_parts = (
-            parents_result.stdout.decode("utf-8", errors="replace").strip().split()
-            if parents_result is not None
-            else []
-        )
-        if (
-            not base_commit
-            or parents_result is None
-            or parents_result.returncode != 0
-            or len(commit_parts) != 2
-            or commit_parts[1] != base_commit
-        ):
-            return {"ok": False, "error": "integration_result_commit_not_atomic"}
+        if not _bounded_linear_result(root, base_commit, result_commit):
+            return {"ok": False, "error": "integration_result_not_bounded_linear_history"}
         report_content = (
             read_ref_version(root, result_commit, report_path)
             if result_commit
@@ -4300,7 +4460,12 @@ def claim_main(args: argparse.Namespace) -> int:
                             if terminal_config is not None
                             else {"ok": False, "error": "wishgraph_not_installed"}
                         )
-            if not terminal_preflight.get("ok"):
+            warn_terminal_fallback = (
+                args.claim_action == "release"
+                and isinstance(terminal_config, dict)
+                and terminal_config.get("mode") == "warn"
+            )
+            if not terminal_preflight.get("ok") and not warn_terminal_fallback:
                 payload = {
                     "ok": False,
                     "error": "terminal_notification_preflight_failed",
@@ -4314,6 +4479,13 @@ def claim_main(args: argparse.Namespace) -> int:
                     branch=current_branch(root) if enforce_binding else None,
                     worktree=str(root) if enforce_binding else None,
                 )
+                if (
+                    payload.get("ok")
+                    and warn_terminal_fallback
+                    and not terminal_preflight.get("ok")
+                ):
+                    payload["advisory_only"] = True
+                    payload["notification_preflight"] = terminal_preflight
             if payload.get("ok") and args.claim_action == "release":
                 released_claim = payload.get("claim", {})
                 persisted = {"ok": True}
@@ -4349,13 +4521,20 @@ def claim_main(args: argparse.Namespace) -> int:
                 )
                 payload["notification"] = notification
                 if not persisted.get("ok") or not notification.get("ok"):
-                    payload = {
-                        "ok": False,
-                        "error": "claim_released_but_closeout_signal_failed",
-                        "claim": released_claim,
-                        "runtime": persisted,
-                        "notification": notification,
-                    }
+                    if (
+                        isinstance(terminal_config, dict)
+                        and terminal_config.get("mode") == "warn"
+                    ):
+                        payload["advisory_only"] = True
+                        payload["runtime"] = persisted
+                    else:
+                        payload = {
+                            "ok": False,
+                            "error": "claim_released_but_closeout_signal_failed",
+                            "claim": released_claim,
+                            "runtime": persisted,
+                            "notification": notification,
+                        }
     elif args.claim_action == "rebind":
         try:
             config = load_config(root)
@@ -4581,7 +4760,20 @@ def claim_main(args: argparse.Namespace) -> int:
                             or execution_run.get("base_commit") != actual_head
                         ):
                             launch_context_error = "authorized_execution_run_stale"
-                    if launch_context_error:
+                    if config.get("mode") == "warn" and (
+                        launch_context_error or not isinstance(execution_run, dict)
+                    ):
+                        payload = {
+                            "ok": True,
+                            "advisory_only": True,
+                            "claim_status": "unavailable",
+                            "task": task,
+                            "reason": (
+                                launch_context_error
+                                or "canonical_execution_run_unavailable"
+                            ),
+                        }
+                    elif launch_context_error:
                         payload = {"ok": False, "error": launch_context_error}
                     else:
                         payload = acquire_claim(
@@ -4604,8 +4796,20 @@ def claim_main(args: argparse.Namespace) -> int:
                             agent_kind=args.agent_kind,
                             stale_after_seconds=args.stale_after,
                         )
+                        if config.get("mode") == "warn" and not payload.get("ok"):
+                            payload = {
+                                "ok": True,
+                                "advisory_only": True,
+                                "claim_status": "unavailable",
+                                "task": task,
+                                "reason": str(
+                                    payload.get("error")
+                                    or "claim_automation_unavailable"
+                                ),
+                            }
                     if (
-                        args.container_kind != MANUAL_WORKER_WINDOW
+                        config.get("mode") == "enforce"
+                        and args.container_kind != MANUAL_WORKER_WINDOW
                         and not payload.get("ok")
                     ):
                         _record_worker_claim_failure(
@@ -4617,7 +4821,10 @@ def claim_main(args: argparse.Namespace) -> int:
                         )
                     if payload.get("ok"):
                         payload["task"] = task
-                        if isinstance(execution_run, dict):
+                        if (
+                            not payload.get("advisory_only")
+                            and isinstance(execution_run, dict)
+                        ):
                             run_persisted = update_execution_run(
                                 root,
                                 task_id=task["task_id"],
@@ -4638,17 +4845,29 @@ def claim_main(args: argparse.Namespace) -> int:
                                 },
                             )
                             if not run_persisted.get("ok"):
-                                update_claim(
+                                revoked = update_claim(
                                     root,
                                     payload["claim"]["claim_id"],
                                     "revoke",
                                 )
                                 payload = {
-                                    "ok": False,
-                                    "error": "claim_acquired_but_run_persistence_failed",
+                                    "ok": config.get("mode") == "warn",
+                                    "advisory_only": config.get("mode") == "warn",
+                                    "error": (
+                                        ""
+                                        if config.get("mode") == "warn"
+                                        else "claim_acquired_but_run_persistence_failed"
+                                    ),
+                                    "claim_status": "unavailable",
+                                    "task": task,
                                     "detail": run_persisted,
+                                    "claim_cleanup": revoked,
                                 }
-                        if payload.get("ok") and session_id:
+                        if (
+                            payload.get("ok")
+                            and not payload.get("advisory_only")
+                            and session_id
+                        ):
                             runtime_payload = _persist_runtime_with_complete_task(
                                 root,
                                 session_id,
@@ -4714,17 +4933,28 @@ def claim_main(args: argparse.Namespace) -> int:
                                 },
                             )
                             if not runtime_payload.get("ok"):
-                                update_claim(
+                                revoked = update_claim(
                                     root,
                                     payload["claim"]["claim_id"],
                                     "revoke",
                                 )
                                 payload = {
-                                    "ok": False,
-                                    "error": "worker_runtime_persistence_failed",
+                                    "ok": config.get("mode") == "warn",
+                                    "advisory_only": config.get("mode") == "warn",
+                                    "error": (
+                                        ""
+                                        if config.get("mode") == "warn"
+                                        else "worker_runtime_persistence_failed"
+                                    ),
+                                    "claim_status": "unavailable",
+                                    "task": task,
                                     "detail": runtime_payload,
+                                    "claim_cleanup": revoked,
                                 }
-                                if args.container_kind != MANUAL_WORKER_WINDOW:
+                                if (
+                                    config.get("mode") == "enforce"
+                                    and args.container_kind != MANUAL_WORKER_WINDOW
+                                ):
                                     _record_worker_claim_failure(
                                         root,
                                         str(args.session_id or ""),

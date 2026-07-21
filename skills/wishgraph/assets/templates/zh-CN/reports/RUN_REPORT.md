@@ -12,7 +12,7 @@
 
 下面的 JSON 块是生命周期状态的机器可读真相源；叙述性证据继续写在后续章节中。串行任务的 `batch_id` 使用 `null`。
 
-`integration_recommendation` 只向 Discussion 提供路由建议，不给 Worker 集成权限。真正的集成权限只来自 reducer 生成的一次性 transition grant 和绑定 Discussion 的 Integration lease。
+`integration_recommendation` 只向 Discussion 提供路由建议，不给 Worker 集成权限。`enforce` 还要求 reducer 生成的一次性 transition grant 和绑定 Discussion 的 Integration lease；`warn` 由 Discussion 核验已批准 Task、本报告、结果 commit、验证和风险后直接集成。
 
 `change_class: revision` 只用于边界明确的 Task Revision，其他工作使用 `formal`。只有 Task 定义了完整客观评分表时，竞争候选才填写分数；涉及偏好或接近的取舍时设 `selection_requires_judgment: true`。
 

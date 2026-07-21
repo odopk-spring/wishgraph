@@ -13,7 +13,7 @@ Use this reference when configuring, inspecting, debugging, or benchmarking the 
 
 ## Runtime Boundary
 
-Hooks enforce mechanical authority and external-memory closeout. They do not write semantic project memory, choose product meaning, select parallelism, launch Workers, merge branches, replace human review, or persist ordinary diagnostics.
+Hooks provide advisory checks in `warn` and enforce mechanical authority and closeout only in `enforce`. They do not write semantic project memory, choose product meaning, select parallelism, launch Workers, merge branches, replace human review, or persist ordinary diagnostics.
 
 The stable entrypoint is `.wishgraph/hooks/memory_sync.py`. Its implementation keeps four public boundaries. Native Worker and tool-gate providers remain private behind the Host Adapter:
 
@@ -31,7 +31,7 @@ git_state.py              Git facts, canonical Runs, Claims, sessions, and Integ
 
 ### UserPromptSubmit
 
-Only after `.wishgraph/config.json` enables the project, route explicit entry commands. Low-risk Discussion entry and status refresh may normalize case, whitespace, terminal punctuation, and bounded polite wrappers; Task authority remains strict and exact. In Discussion, an exact Task command creates an authorized Run and asks the current host to route an independent Formal Worker. In an ordinary neutral window, it creates the same Run and binds the current window as Worker after Claim acquisition, without spawning another Worker. Hooks never create Agents themselves. Short approvals are accepted only through one persisted `expected_transition`.
+Only after `.wishgraph/config.json` enables the project, route explicit entry commands. Low-risk Discussion entry and status refresh may normalize case, whitespace, terminal punctuation, and bounded polite wrappers; Task authority remains strict and exact. In Discussion, an exact Task command asks the current host to route an independent Formal Worker. In an ordinary neutral window, it binds the current window as Worker without spawning another Worker. `enforce` requires the authorized Run and Claim first; `warn` may continue from the exact approved Task when that automation is unavailable. Hooks never create Agents themselves. Short approvals are accepted only through one persisted `expected_transition`.
 
 When the Hook cannot resolve the whole prompt to one allowed command, it emits no route and does not mutate session state. The original prompt continues to the Agent. The Agent may ask whether the user wants Discussion or refresh, but an ambiguous execution request must be answered with a request for the exact command, such as `执行 012 任务`; Agent interpretation cannot manufacture authorization.
 
@@ -45,7 +45,7 @@ Use explicit `开始讨论` / `Start discussion` or project refresh to load Disc
 
 ### PreToolUse
 
-Gate:
+In `enforce`, gate:
 
 - Business writes.
 - Implementation build/test commands.
@@ -53,11 +53,11 @@ Gate:
 - Task, Revision, and shared-state writes.
 - Merge and commit operations.
 
-Ordinary non-commit operations use the current Session Role, live Worker Claim, or Integration lease. Commit operations also check staged closeout. Deny implicit-staging commit flags such as `git commit -a` because they bypass bounded staging review.
+In `warn`, classify the same operations only for diagnostics and never deny the tool. In `enforce`, ordinary non-commit operations use the current Session Role, live Worker Claim, or Integration lease. Commit operations also check staged closeout and deny implicit-staging flags such as `git commit -a`.
 
 ### Stop And TaskCompleted
 
-Inspect closeout before an agent stops. In `enforce`, block when required Task/Revision state, Run Report, validation, or shared-memory impact is missing. In `warn`, ordinary closeout incompleteness stays non-blocking and silent. Authority and state-integrity boundaries still fail closed in every active mode.
+Inspect closeout before an agent stops. In `enforce`, block when required Task/Revision state, Run Report, validation, or shared-memory impact is missing. In `warn`, every closeout and authority finding stays non-blocking and silent.
 
 Claude Code may also expose `TaskCompleted`; keep it as a host adapter event rather than portable workflow meaning.
 
@@ -95,11 +95,11 @@ Updating the global Codex or Claude Skill refreshes the bundled runtime for futu
 
 The two host files are thin adapters over the same `.wishgraph/hooks/` runtime. Claude setup defaults an unset Worktree `baseRef` to `head` and adds `.wishgraph` to `worktree.symlinkDirectories`, preserving existing entries and an explicit existing baseRef. Native background launch is available only with `baseRef: head` and an authorized Task record already matching current `HEAD`; otherwise it uses the manual command. This lets an isolated Worker run the same local runtime while its Claim binds the actual Worker branch/worktree. A Worker Claim records both the machine hostname and `agent_platform`; an idle thread is reusable only by the same agent platform. Switching between Codex and Claude keeps repository truth, Tasks, reports, Claims, and status portable, but never sends a Codex route to a Claude thread ID or vice versa.
 
-`required_hosts` in project config is the selected protection scope; `current_host` is only the Agent invoking this Hook. Before a Formal Worker is created or acquires/rebinds a Claim, the current host must be selected, its Adapter and managed Worker definition must be present, and a recent `SessionStart` or `UserPromptSubmit` receipt must match the current runtime version and postdate Adapter installation. A Worker write/build request is denied when that check fails. Helper agents never gain authority from this check.
+`required_hosts` in project config is the selected automation scope; `current_host` is only the Agent invoking this Hook. In `enforce`, Worker creation and Claim acquisition require the selected host, current Adapter and Worker definition, and a recent matching receipt. In `warn`, these facts remain visible in Doctor but never block distribution, Claim attempts, writes, or builds.
 
 The canonical execution record lives at `.git/wishgraph/runs/<work-unit>-attempt-N.json`. It alone owns authorization, Worker binding, Claim ID, terminal commit/report evidence, risk outcome, and Integration result. Session runtime, host observation, Project Status, and notifications are bounded projections. Worker reminders still use one inbox; Claim release writes the Run first and then one idempotent notification. Hooks never launch a daemon, poll another terminal, open a popup, or parse prose as terminal evidence.
 
-A normal terminal Hook blocks while the Worker still holds an active Claim. Forced process termination can bypass every Hook; with daemon and polling explicitly excluded, the remaining recoverable signal is the stale Claim or structured host-session state discovered at the next Discussion inspection.
+In `enforce`, a normal terminal Hook blocks while the Worker still holds an active Claim. In `warn`, it stays silent. Forced termination leaves a stale Claim as recovery evidence; stale evidence is preserved but does not lock future distribution.
 
 `SessionStart` and `UserPromptSubmit` record bounded host-liveness evidence outside the worktree:
 
@@ -110,7 +110,7 @@ A normal terminal Hook blocks while the Worker still holds an active Claim. Forc
 
 Each receipt contains only host, event, runtime version, and observation time. Before writing it, the adapter requires a valid stable session identity and an event payload consistent with the invoked lifecycle event; a bare manual CLI call is not a receipt. Doctor reports `unverified`, `stale`, `observed`, or `confirmed_recently` by comparing these receipts with the installed runtime and current host adapter. This proves only that the host recently invoked WishGraph; it is not a permanent trust guarantee. Do not write a receipt from `PreToolUse`, enumerate logs, or add files to the worktree.
 
-Use `warn` for first adoption. Use `enforce` only after a clean successful closeout. Add the Git pre-commit fallback for strict enforcement outside host lifecycle hooks. Follow `installation.md` for commands and prerequisites.
+Use `warn` for first adoption and distribution-first operation, including hosts that do not run Hooks. Use `enforce` only when the user explicitly wants mechanical blocking. Add the Git pre-commit fallback only for strict enforcement outside host lifecycle hooks.
 
 ## Configuration
 
@@ -148,26 +148,26 @@ python3 .wishgraph/hooks/memory_sync.py claude-worker launch 012 --discussion-se
 python3 .wishgraph/hooks/memory_sync.py claude-worker refresh --discussion-session-id <discussion-session-id>
 ```
 
-Codex `prepare` returns the bounded native-Agent payload but does not create an Agent. The active host creates the thread and calls `register` only with the real stable ID and control attestations; only then does Discussion enter `waiting_for_worker`. `observe` accepts a structured host state, but Integration still requires the durable Task terminal state, Run Report, and released Claim. Spawn failure uses `codex-worker fail` and prints the compact cross-host manual handoff.
+Codex `prepare` returns the bounded native-Agent payload but does not create an Agent. The active host creates the thread and calls `register` with the real stable ID when runtime automation is available. In `enforce`, Integration requires the durable Task terminal state, Run Report, canonical result commit, and released Claim. In `warn`, a failed prepare/register/observe path falls back to the visible Worker report and result commit without a retry loop.
 
-The current Discussion runs the Claude Host Adapter command directly; it must not delegate that command to `Task`, `Agent`, `/fork`, or an ordinary background subagent. The adapter invokes the equivalent of `claude --bg --agent wishgraph-worker --worktree <unique> --settings <ephemeral-worktree-json> "执行 012 任务"` only after the Discussion runtime and the exact Task record in HEAD both prove authorization. The managed Worker stays `starting` / `awaiting_claim` until its Claim matches the real full Claude session ID, originating Discussion ID, actual branch, and absolute worktree. Claim failure stops execution and records a recoverable failure state. The extra mechanics stay hidden from users and never rewrite their settings. Capability or launch failure prints the project directory, copy-ready Codex and Claude Code startup commands with resolved profiles, and the final Task phrase. Refresh queries `claude agents --json --all --cwd <project>` and never parses conversation prose as terminal evidence. Current Claude Code exposes interactive inspection and control through `claude agents --cwd <project>` and conversation recovery through `claude --resume <full-session-id>`; do not advertise nonexistent `claude logs`, `claude attach`, or `claude stop` subcommands.
+The current Discussion runs the Claude Host Adapter command directly when available; it must not delegate implementation to an ordinary helper. The adapter invokes the equivalent of `claude --bg --agent wishgraph-worker --worktree <unique> --settings <ephemeral-worktree-json> "执行 012 任务"` only after the Discussion runtime and the exact Task record in HEAD both prove authorization. In `enforce`, the managed Worker stays `starting` / `awaiting_claim` until its Claim matches the real full Claude session ID, originating Discussion ID, actual branch, and absolute worktree; Claim failure stops execution and records a recoverable failure. In `warn`, missing launch or Claim automation falls back to the same exact Task in a visible Worker without retry loops. The extra mechanics stay hidden from users and never rewrite their settings. Capability or launch failure prints one usable handoff. Refresh queries `claude agents --json --all --cwd <project>` and never parses conversation prose as terminal evidence. Current Claude Code exposes interactive inspection and control through `claude agents --cwd <project>` and conversation recovery through `claude --resume <full-session-id>`; do not advertise nonexistent `claude logs`, `claude attach`, or `claude stop` subcommands.
 
 Use `flow-plan` for read-only reducer inspection. Public `session set` cannot establish roles or phases, and public `session apply` accepts diagnostic metadata only. Use `session transition SESSION_ID EVENT --data-json ...` for a semantic Discussion transition; it reads current state, invokes the reducer, persists only its patch, and creates a one-time Integration grant only after durable evidence passes. Internal host code may call the atomic patch primitive after it already owns an accepted reducer plan.
 
-PreToolUse classifies bounded WishGraph control commands before ordinary write/build checks. Workers may control only their own Claim; Discussion may control only its own semantic transition and Integration lease; Helpers cannot acquire either. Direct role promotion, another session's runtime, mixed control actions, and Worker lease control are denied even in `warn` mode.
+PreToolUse classifies bounded WishGraph control commands before ordinary write/build checks. In `enforce`, Workers may control only their own Claim, Discussion only its own transition and lease, and Helpers neither. In `warn`, the same findings are advisory and produce no denial.
 
 Use `status` as read-only evidence. Its default active view reads current Task/Revision candidates, changed local reports, Claims, and exact report paths across refs. `--task` filters one exact Task; only `--full` enumerates historical report trees. No status view authorizes a merge.
 
 ## Mechanical Gate Boundary
 
-Require:
+In `enforce`, require:
 
 ```text
 write/build gate: required
 read gate: host capability dependent
 ```
 
-Business writes and implementation validation require a Claim bound to the current work unit, branch, absolute worktree, and session. Merge resolution, combined validation, shared-state writes, and integration commit require a bound Discussion-local Integration lease.
+In `warn`, an exact approved Task, bounded scope, validation plan, immutable Run Report, and visible Worker are sufficient; Claim and lease automation is best-effort. In `enforce`, business writes and validation require the bound Claim, while Integration actions require the bound lease.
 
 Native write tools, recognized shell build/write commands, and MCP tools whose names expose write/edit/create/delete/update intent are gated. A shell script or opaque MCP tool can hide side effects from name-based interception, so this is a host-tool gate rather than an operating-system sandbox. An uninstalled Adapter cannot intercept anything in that host, even when project config says `mode: enforce`. Do not describe prompt instructions or opaque tools as hard enforcement. When a host cannot intercept every source-read tool, report that limitation honestly.
 
@@ -185,7 +185,7 @@ Discussion dispatch p95         < 3,000 ms
 non-commit PreToolUse bulk delta <= 25 ms
 ```
 
-Dispatch latency means exact user command to durable Run authorization plus a copy-ready Host Adapter route. Native host thread creation and model startup happen after this boundary and are reported as `starting` until a real thread/session ID and Claim exist.
+Dispatch latency means exact user command to durable Run authorization plus a copy-ready Host Adapter route. Native host thread creation and model startup happen after this boundary. Strict mode reports `starting` until a real thread/session ID and Claim exist; warn mode may continue without that automation.
 
 Run cold Python subprocesses and nearest-rank p95 with the bundled script:
 
@@ -216,10 +216,10 @@ Do not put wall-clock assertions in ordinary unit tests. If absolute p95 fails b
 
 - Invalid configuration: report the specific field and stop semantic claims.
 - Missing or outdated current-host adapter: repair only that host after Doctor confirms a current runtime.
-- Current adapter with no recent host receipt: fully reopen the Agent once and run Doctor. If it still does not respond, continue in the same project from the reported CLI fallback; use `/hooks` only inside Codex CLI, or `claude doctor` inside Claude Code CLI.
+- Current adapter with no recent host receipt: in `warn`, continue distribution and show the fact only in Doctor; in `enforce`, reopen once and use the reported CLI fallback if still unconfirmed.
 - Recognized older runtime: use the atomic safe upgrade; a failed write restores the previous runtime, manifest, and config.
 - Modified generated runtime: compare before using `--force-assets`; preserve intentional local changes.
 - Incorrect repository rule: switch to `warn` while repairing configuration rather than fabricating reports.
 - Missing or malformed structured block: repair the durable record; do not silently fall back when a block is present but invalid.
-- Stale Claim or lease: preserve it as evidence and use the explicit recovery action.
+- Stale Claim: preserve it as evidence but allow a new Claim. A stale Integration lease still requires explicit recovery before strict Integration.
 - Performance regression: run the bundled benchmark and I/O-contract tests before changing thresholds or Hook behavior.

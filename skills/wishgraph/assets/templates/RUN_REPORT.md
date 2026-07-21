@@ -12,7 +12,7 @@ Create one new file from this template for each worker execution. Use the config
 
 The JSON block below is the machine-readable source for lifecycle state. Keep narrative evidence in the sections that follow. Use `null` for a sequential Batch ID.
 
-`integration_recommendation` is evidence for Discussion routing, never Worker authorization. Only a reducer-issued transition grant plus a Discussion-local Integration lease can authorize integration.
+`integration_recommendation` is evidence for Discussion routing, never Worker authorization. `enforce` additionally requires a reducer-issued transition grant and Discussion-local Integration lease. In `warn`, Discussion may integrate after verifying the approved Task, this report, the result commit, validation, and risk.
 
 Use `change_class: revision` only for a bounded Task Revision; otherwise use `formal`. Competitive candidates record their objective score only when the Task defines a complete scorecard; set `selection_requires_judgment: true` for preferences or close tradeoffs.
 

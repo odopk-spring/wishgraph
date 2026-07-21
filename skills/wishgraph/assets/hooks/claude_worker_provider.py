@@ -759,6 +759,18 @@ def refresh_claude_worker(
         sync_status = "waiting_for_worker" if claim else "waiting_for_claim"
         worker_availability = "busy" if claim else "starting"
         recovery_reason = ""
+    elif config.get("mode") == "warn" and structured_state in (
+        CLAUDE_BLOCKED_STATES | CLAUDE_COMPLETED_STATES | CLAUDE_FAILED_STATES
+    ):
+        phase = "waiting_for_worker"
+        expected_transition = {"kind": "wait_for_worker", "task_id": task_id}
+        sync_status = "awaiting_visible_result"
+        worker_availability = (
+            "failed"
+            if structured_state in CLAUDE_FAILED_STATES
+            else "terminal"
+        )
+        recovery_reason = ""
     elif structured_state in CLAUDE_BLOCKED_STATES:
         phase = "waiting_for_worker"
         expected_transition = {"kind": "wait_for_worker", "task_id": task_id}

@@ -23,7 +23,7 @@ active   = mode: warn or mode: enforce
 
 - `use_wishgraph` must come from a user request that explicitly names WishGraph. It may start safe project setup, but successful setup leaves the session `neutral`.
 - `start_discussion` is accepted only for an active project and changes `neutral -> discussion`.
-- An exact `执行 NNN 任务` in Discussion authorizes and routes an independent Formal Worker. The same exact command in an ordinary neutral session authorizes the Run and binds that current inspectable window as the Formal Worker after Claim acquisition; it must not create another Worker.
+- An exact `执行 NNN 任务` in Discussion authorizes and routes an independent Formal Worker. The same exact command in an ordinary neutral session binds that current inspectable window as the Worker; `enforce` requires the Run and Claim first, while `warn` may continue from the exact approved Task when that automation is unavailable. It must not create another Worker.
 - In an inactive project, generic `开始讨论`, `刷新项目状态`, and `执行 NNN 任务` text must not become WishGraph events.
 - Global Skill availability, a governance-looking repository, or pre-existing project documents do not imply activation.
 - This gate reads only the exact config path. It never scans the repository to guess whether WishGraph should be active.
@@ -147,11 +147,12 @@ Events must come from structured user commands, persisted runtime facts, validat
 
 - `neutral + exact Task authority -> current window routing_worker`; no prior `start_discussion` command and no nested Worker are required.
 - `discussion + exact Task authority -> routing_worker + independent Worker launch`.
-- Explicit authority atomically creates one canonical Run; no authorization commit is required.
-- `authorized Run + exact inspectable Worker binding + acquired Claim -> Run running`.
-- `Run running + committed immutable report + released Claim -> Run succeeded|failed|decision_required`.
+- In `warn`, unavailable Hook routing may be replaced by a direct visible Worker launch from the exact approved Task; in `enforce`, the canonical Run and Claim path remains mandatory.
+- In `enforce`, explicit authority atomically creates one canonical Run; no authorization commit is required. In `warn`, use that Run when available without making it a distribution prerequisite.
+- In `enforce`: `authorized Run + exact inspectable Worker binding + acquired Claim -> Run running`.
+- In `enforce`: `Run running + committed immutable report + released Claim -> Run succeeded|failed|decision_required`. In `warn`, the visible Worker may instead return the immutable report path, bounded result commit, validation, and terminal outcome directly.
 - Any Worker terminal result first enters `integration_pending`.
-- Safe completed evidence produces a one-time reducer transition grant, then the bound Discussion acquires the lease and enters local `integrating`.
+- In `enforce`, safe completed evidence produces a one-time reducer transition grant, then the bound Discussion acquires the lease and enters local `integrating`. In `warn`, Discussion may verify and integrate the returned evidence directly.
 - Material risk or ambiguity enters `decision_required` with one concrete question.
 - Missing evidence or failed validation enters Worker repair rather than integration.
 - Successful integration moves the durable Task from `draft` or `approved` to `integrated`; human acceptance moves it to `reviewed`.
@@ -197,10 +198,10 @@ The reducer asks whether the Formal Worker contract can be met. The Host Adapter
 - Low-risk aliases require full normalized equality; conversational and compound prose stays unmatched.
 - High-risk commands never inherit low-risk politeness stripping.
 - Exact ID parsing prevents prefix collisions.
-- Discussion business writes and implementation builds are denied.
+- Discussion still must not implement business work; only `enforce` turns that rule into a tool denial.
 - A Worker session can never transition to Discussion; public `session set/apply` cannot write role, phase, expected transition, Worker identity, or Integration authority.
-- Worker entry requires approval, dependency checks, correct branch/worktree, and a fresh Claim.
-- Integration lease acquisition requires the bound Discussion's unconsumed transition grant plus fresh Task, Report, released-Claim, branch, and worktree evidence.
+- Worker entry always requires approval, dependency checks, scope, validation, and correct branch/worktree; `enforce` additionally requires a fresh Claim.
+- Strict Integration lease acquisition requires the bound Discussion's unconsumed transition grant plus fresh Task, Report, released-Claim, branch, and worktree evidence. `warn` may integrate after the same semantic evidence check without a lease.
 - Integration never creates a user-visible window.
 - Safe integration never asks permission twice.
 - High-risk integration asks about the risk, not whether to start the process.

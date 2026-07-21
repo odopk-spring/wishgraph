@@ -31,12 +31,12 @@ continue without chat history.
 
 ## Role Boundaries
 
-- Treat every new host window as `neutral`. `开始讨论` enters Discussion for planning. In Discussion, an exact Task command routes an independent Formal Worker; in an ordinary neutral window, the same exact command binds that current window as the Formal Worker after Claim acquisition. Never create a second Worker from the neutral direct-execution path.
+- Treat every new host window as `neutral`. `开始讨论` enters Discussion for planning. In Discussion, an exact Task command routes an independent Formal Worker; in an ordinary neutral window, the same exact command binds that current window as the Worker. `enforce` requires Claim acquisition first; `warn` continues from the exact approved Task if Claim automation is unavailable. Never create a second Worker from the neutral direct-execution path.
 - Use `discussion` for planning, Task creation, Worker routing, integration, and result presentation.
 - Use `worker` only in a separate user-visible and inspectable Agent thread or window bound to one Task or Revision.
 - Treat Integration as an automatically triggered, Discussion-local Flow Phase, never a role or separate window.
 - Treat Review as result presentation inside Discussion, never a fourth Agent.
-- A Formal Worker is authorized, Claim-bound, gated, inspectable, controllable, and produces structured terminal evidence. A Helper Subagent is read-only exploration, retrieval, log analysis, or review. A Hidden/Internal Agent cannot become a Worker.
+- A Worker is explicitly authorized, inspectable, bounded by one Task, and produces structured terminal evidence. In `enforce`, it is also Claim-bound and mechanically gated. In `warn`, missing Hook, receipt, or Claim automation must not prevent a visible Worker from receiving and completing the Task.
 - Agent or subagent identity never creates authority. Never give Explorer, Reviewer, Helper, or Hidden/Internal Agents a Worker Claim.
 - Never let Discussion implement business code, run implementation builds/tests, or become the Worker fallback.
 
@@ -51,23 +51,25 @@ runtime mechanics unless failure, recovery, or an explicit user request requires
 3. Create only the minimum durable project-state graph and bounded executable work units.
 4. Classify work, record one exact expected transition, and obtain the required human authority.
 5. Route from Discussion to a separate inspectable Worker, or bind an explicitly addressed neutral window as the Worker; never let Discussion implement the Task.
-6. Require scoped implementation, prescribed validation, immutable evidence, and safe Claim closeout.
+6. Require scoped implementation, prescribed validation, and immutable evidence; require Claim closeout when strict automation is active.
 7. Send every terminal result to Discussion-local integration automatically; ask only material decisions.
 8. Present the integrated result, evidence, residual risk, and next action without erasing history.
+
+When `warn` is active and the host does not run Hooks, Discussion may send the exact approved Task directly to one user-visible, inspectable Worker. The Task scope, validation plan, allocated Run Report, and returned commit remain required; Hook receipts, Claims, and leases are optional automation on this path. Do not ask the user to restart repeatedly or move to another host merely to obtain a receipt.
 
 ## Mandatory Gates
 
 - Resolve IDs exactly from structured state. Never prefix-match `012`, `012b`, and `012ba`.
 - Interpret short approvals only when one unique structured `expected_transition` exists; explicit commands take priority.
 - Require explicit human authority before creating a Formal Worker. Persist `waiting_for_worker` only after a real stable thread/session ID is saved. Host limitations never expand Discussion authority.
-- Require a live Worker Claim bound to work unit, session, branch, absolute worktree, scope, and validation before implementation.
-- Treat the Git-common-dir execution Run as the canonical transient fact for dispatching, running, terminal evidence, and Integration. Session state, notifications, Task lifecycle labels, and host observations are projections, not competing authority sources.
-- Before Formal Worker creation or Claim acquisition, require the current host to be listed in `required_hosts`, its Adapter to be current, and a recent matching `SessionStart` or `UserPromptSubmit` receipt from this runtime.
-- Release or revoke the old Claim before Worker rebind. Never let one window hold two active work units or inherit stale scope.
-- Require a reducer-issued one-time transition grant and bound Discussion-local Integration lease before merge resolution, combined validation, shared-state writes, or integration commit.
+- In `enforce`, require a live Worker Claim bound to work unit, session, branch, absolute worktree, scope, and validation before implementation. In `warn`, keep Claim acquisition best-effort and continue from the approved Task when host automation is unavailable.
+- In `enforce`, treat the Git-common-dir execution Run as the canonical transient fact for dispatching, running, terminal evidence, and Integration. In `warn`, use it when available; otherwise the approved Task, immutable report, bounded result commit, and validation are the direct handoff. Session state, notifications, Task lifecycle labels, and host observations never override either evidence path.
+- In `enforce`, require the selected current host, current Adapter, and recent matching Hook receipt before Worker creation or Claim acquisition. In `warn`, report those facts only in explicit diagnostics and continue distribution.
+- Release or revoke any still-active acquired Claim before Worker rebind. Preserve stale Claim records as evidence, but never let them block a replacement Worker or carry old scope forward.
+- In `enforce`, require a reducer-issued one-time transition grant and bound Discussion-local Integration lease before merge resolution, combined validation, shared-state writes, or integration commit. In `warn`, try that path when available; otherwise Discussion verifies the visible Worker report, result commit, and validation, then integrates directly.
 - Keep shared project memory single-writer: Workers propose updates in Run Reports; Integration applies them.
 - Preserve immutable Task, attempt, Claim, Revision, Run Report, and losing competitive evidence.
-- Use `write/build gate: required`. Describe source-read enforcement as `read gate: host capability dependent` unless the host can intercept every read path.
+- Use `write/build gate: required` only for `enforce`. In `warn`, Hooks are advisory and must never deny ordinary tools. Describe source-read enforcement as `read gate: host capability dependent` unless the host can intercept every read path.
 - Treat hooks as mechanical gates and state readers, never as product decision-makers or hidden executors.
 - Run prescribed validation and the WishGraph checker before claiming completion; record skipped checks and residual risk.
 - Keep routine non-commit `PreToolUse` bounded to configured state and the requested operation; never enumerate the business source tree.

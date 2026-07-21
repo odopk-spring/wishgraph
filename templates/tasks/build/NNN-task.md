@@ -73,7 +73,7 @@ Summarize the relevant repo facts discovered from files, tests, logs, or docs.
 - [ ] Worker did not modify shared project memory or `reports/PROJECT_STATUS.md`.
 - [ ] Run report records work type, batch ID, integration readiness, scope check, conflict status, and new-decision status.
 - [ ] `python3 .wishgraph/hooks/memory_sync.py check --scope worktree` passes when hooks are installed.
-- [ ] One atomic commit created for this task, unless the user explicitly requested no commit.
+- [ ] One or more bounded linear commits created for this task, unless the user explicitly requested no commit.
 - [ ] No unrelated diffs staged.
 
 ## Rollback Boundary

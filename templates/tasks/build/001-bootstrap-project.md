@@ -53,7 +53,7 @@ Create the first durable project frame before feature implementation. This Task 
 ## Implementation Notes
 
 - Use repository-native naming and framework conventions.
-- Keep the first implementation task small enough for one atomic commit.
+- Keep the first implementation task small enough for one bounded linear commit series.
 - Include "Do Not Do" boundaries in the first implementation task.
 - If the repository is empty, map planned files instead of pretending they exist.
 - When hooks are requested, use the bundled installer. Codex CLI users can review exact project hooks with `/hooks`; Codex Desktop users should open the CLI in the same project instead of typing `/hooks` into chat.
@@ -74,11 +74,11 @@ Create the first durable project frame before feature implementation. This Task 
 - [ ] `reports/PROJECT_STATUS.md` lists the bootstrap run report and summarizes the initial integrated state.
 - [ ] The Task or Project Status records any delivery-specific language requirement.
 - [ ] If hooks were requested, `.wishgraph/config.json` uses `warn` initially and the direct worktree check runs.
-- [ ] One atomic commit created unless the user explicitly says not to commit.
+- [ ] One or more bounded linear commits created unless the user explicitly says not to commit.
 
 ## Rollback Boundary
 
-Revert this task's single commit to remove the initial WishGraph governance skeleton.
+Revert this task's bounded linear commit series to remove the initial WishGraph governance skeleton.
 
 ## Execution Report Requirements
 

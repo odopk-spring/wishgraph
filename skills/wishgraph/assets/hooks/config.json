@@ -1,6 +1,6 @@
 {
   "version": 13,
-  "runtime_version": 29,
+  "runtime_version": 30,
   "mode": "enforce",
   "required_hosts": [
     "codex",

@@ -36,14 +36,14 @@ If Discussion is inactive, persist `integration_pending`. Resume evaluation on t
 The cross-host wake-up contract is file-backed and activation-driven:
 
 ```text
-Worker terminal evidence + released Claim
--> one pending notification in the Git common directory
--> bound Discussion consumes it on SessionStart or its next prompt
+Worker terminal evidence + optional released Claim
+-> one pending runtime notification or the visible Worker result
+-> bound Discussion consumes that handoff
 -> explicit Start discussion / Refresh project status may adopt it after a host switch
 -> notification is marked read
 ```
 
-Completed results request `auto_integrate`; blocked or incomplete results report `failed`; high-risk, competitive, or materially undecided results report `decision_required`. The notification is a routing signal, not completion evidence: Integration still reads the Task/Revision, Run Report, Claim, branch, and worktree. Do not add a daemon, polling loop, cross-terminal IPC, automatic popup, or natural-language completion inference.
+Completed results request `auto_integrate`; blocked or incomplete results report `failed`; high-risk, competitive, or materially undecided results report `decision_required`. The notification is a routing signal, not completion evidence: Integration still reads the Task/Revision, Run Report, result commit, branch, and worktree. In `enforce`, it also requires the released Claim and canonical Run. Do not add a daemon, polling loop, cross-terminal IPC, or automatic popup.
 
 ## Safe Integration Gates
 
@@ -64,7 +64,9 @@ Task `integration_route` describes future routing only: `auto_in_discussion` or 
 
 ## Integration Lease
 
-The legal authority chain is:
+The lease is required only in `enforce`. In `warn`, the originating Discussion may integrate a safe result directly after checking the approved Task, immutable report, result commit, scope, validation, and risk.
+
+The strict authority chain is:
 
 ```text
 Discussion integration_pending
@@ -77,7 +79,7 @@ Discussion integration_pending
 
 The grant is short-lived runtime evidence, not project truth. Bind it to the Discussion session, Integration ID, selected Task/Revision IDs, selected reports, evaluation or confirmed-decision outcome, base branch, and absolute worktree. Never generate it from a direct runtime patch. A Worker, Helper, neutral session, different Discussion, changed selection, or replayed grant must be rejected.
 
-Before entering `integrating`, atomically acquire one lease bound to:
+In `enforce`, before entering `integrating`, atomically acquire one lease bound to:
 
 ```text
 discussion session
@@ -91,14 +93,14 @@ optional Revision ID
 lease status and heartbeat
 ```
 
-Use the lease as the single-writer authority for merge resolution, combined validation, shared-state writes, and the integration commit. Do not use it to implement new product work.
+In `enforce`, use the lease as the single-writer authority for merge resolution, combined validation, shared-state writes, and the integration commit. In `warn`, keep those writes Discussion-local and use the verified report and result commit as the boundary. Do not use either path to implement new product work.
 
-Lease acquisition reads each report from the exact Worker result commit recorded by the canonical Run; it does not require the report to appear in main first. It rechecks terminal Run evidence, validation, released Claims, risk outcome, and branch/worktree binding. Only one active lease may exist in the Git common directory. This removes the old report-before-merge circular dependency while retaining single-writer authority.
+In `enforce`, lease acquisition reads each report from the exact Worker result commit recorded by the canonical Run; it does not require the report to appear in main first. It rechecks terminal Run evidence, validation, released Claims, risk outcome, and branch/worktree binding. Only one active lease may exist in the Git common directory. Warn mode verifies the returned report and result commit directly in Discussion.
 
 ## Merge And Combined Validation
 
 1. Start from the intended clean integration worktree and branch.
-2. Merge or cherry-pick Worker commits with `--no-commit` or an equivalent no-commit operation.
+2. Squash or merge the bounded linear Worker commit range without creating an intermediate commit.
 3. Keep new Run Reports visible in the integration diff.
 4. Resolve only bounded merge conflicts that do not require a new product or architecture choice.
 5. Run combined validation across the selected results.
@@ -125,11 +127,11 @@ After Project Status is complete, do not copy its dynamic facts into a prompt. R
 
 ## Completion
 
-Fill the `wishgraph:integration-state` block with the integration ID, status, kind, authority, and exactly the absorbed reports. Create the integration commit while the lease is active.
+Fill the `wishgraph:integration-state` block with the integration ID, status, kind, authority, and exactly the absorbed reports. Create the integration commit while the lease is active in `enforce`, or after the same evidence check in `warn`.
 
 - Move absorbed formal Tasks from `draft` or `approved` directly to `integrated` when canonical Run evidence proves the execution path.
 - Move absorbed Revisions from `completed` to `integrated` without regressing their parent lifecycle.
-- Release the Integration lease.
+- Release the Integration lease when one was acquired.
 - Enter `presenting_result` and show the compressed result and evidence.
 - After human acceptance, move only the relevant formal Task from `integrated` to `reviewed`.
 

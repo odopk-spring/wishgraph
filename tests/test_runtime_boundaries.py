@@ -89,7 +89,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
         self.assertIn("session get <full-session-id>", content)
         self.assertIn("Do not read unrelated Tasks", content)
         self.assertIn("Write exactly one immutable Run Report", content)
-        self.assertIn("Release the Claim", content)
+        self.assertIn("Release an acquired Claim", content)
 
     def test_global_host_adapter_preserves_settings_and_is_noop_when_project_disabled(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -515,7 +515,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
         for expected in (
             "Do not ask whether to create the Revision Worker",
             "worker_creation_authorized\": true",
-            "Acquire a fresh Claim",
+            "In `enforce`, acquire a fresh Claim",
             "Runs only the targeted validation",
             "Every terminal Revision enters `integration_pending` automatically",
             "## Exception Routing",

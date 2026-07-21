@@ -643,6 +643,47 @@ class WorkerReuseRevisionSpecTests(unittest.TestCase):
             self.assertEqual(result["old_claim"]["lease_status"], "released")
             self.assertEqual(result["claim"]["task_id"], "013")
 
+    def test_reuse_03b_stale_claim_does_not_block_rebind(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            old = memory_sync.acquire_claim(
+                root,
+                "012",
+                1,
+                "worker-1",
+                allowed_scope=["src/012/**"],
+                validation_plan=["test 012"],
+                require_clean=False,
+            )
+            old_claim_id = old["claim"]["claim_id"]
+            old_path = memory_sync.claim_root(root) / "012" / f"{old_claim_id}.json"
+            old_record = json.loads(old_path.read_text(encoding="utf-8"))
+            old_record["updated_at"] = "2000-01-01T00:00:00Z"
+            old_path.write_text(json.dumps(old_record), encoding="utf-8")
+            self.assertTrue(memory_sync.inspect_claims(root, "012")[0]["stale"])
+
+            result = memory_sync.rebind_worker_claim(
+                root,
+                session_id="worker-1",
+                old_claim_id=old_claim_id,
+                old_task_status="completed",
+                next_task_id="013",
+                attempt=1,
+                worker_id="worker-1",
+                allowed_scope=["src/013/**"],
+                validation_plan=["test 013"],
+                require_clean=False,
+            )
+
+            self.assertTrue(result["ok"], result)
+            self.assertEqual(result["old_claim"]["lease_status"], "released")
+            self.assertNotEqual(result["claim"]["claim_id"], old_claim_id)
+            self.assertEqual(result["claim"]["effective_lease_status"], "active")
+            preserved = memory_sync.inspect_claims(root, "012")[0]
+            self.assertEqual(preserved["claim_id"], old_claim_id)
+            self.assertEqual(preserved["lease_status"], "released")
+
     def test_reuse_04_rebind_resets_scope_and_validation(self) -> None:
         plan = memory_sync.reduce_orchestration(
             self.state(

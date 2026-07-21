@@ -304,7 +304,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
         self.assertIn("Check WishGraph status", blocked_payload["reason"])
         self.assertNotIn("Do not remove unresolved risks", blocked_payload["reason"])
 
-    def test_warn_pretool_sync_advice_is_silent_but_authority_still_denies(self) -> None:
+    def test_warn_pretool_is_silent_and_never_denies_authority_findings(self) -> None:
         config_path = self.root / ".wishgraph" / "config.json"
         config = json.loads(config_path.read_text(encoding="utf-8"))
         config["mode"] = "warn"
@@ -361,10 +361,8 @@ class IntegrationStatusTests(MemorySyncTestCase):
             stderr=subprocess.PIPE,
             check=True,
         )
-        payload = json.loads(denied.stdout)
-        self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
-        self.assertNotIn("additionalContext", payload["hookSpecificOutput"])
-        self.assertNotIn("systemMessage", payload)
+        self.assertEqual(json.loads(denied.stdout), {})
+        self.assertEqual(denied.stderr, "")
 
     def test_project_status_character_limit_is_enforced(self) -> None:
         self.prepare_integration("005d-long-chars")

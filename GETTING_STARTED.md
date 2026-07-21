@@ -52,7 +52,7 @@ Claude Code:
 & ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/main/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
 ```
 
-The installer checks Git, Python, and the repository root before writing. It keeps the Agent running setup (`current_host`) separate from the project scope (`required_hosts`). By default it atomically installs both Codex and Claude Code adapters, while preserving unrelated Hook groups. The default `warn` mode keeps ordinary workflow advice silent and non-blocking; authority and state-integrity boundaries still block.
+The installer checks Git, Python, and the repository root before writing. It keeps the Agent running setup (`current_host`) separate from the project scope (`required_hosts`). By default it atomically installs both Codex and Claude Code adapters, while preserving unrelated Hook groups. The default `warn` mode is fully advisory: missing Hook automation or workflow findings never block Task distribution or ordinary tools.
 
 For a deliberate single-host project, add `--project-hosts codex` or `--project-hosts claude` (PowerShell: `-ProjectHosts codex|claude`). The other Adapter is not required, and ordinary sessions in that host are not protected. Agent-guided setup asks the same three-way question instead of inferring the answer from the current Agent.
 
@@ -108,7 +108,7 @@ It then asks for execution authority. Use an exact command:
 Execute task 012
 ```
 
-In Discussion, this command routes an independent Worker. In an ordinary neutral window already opened on the same enabled project, the current inspectable window binds itself as Worker after Claim acquisition; it does not create a second Worker.
+In Discussion, this command routes an independent Worker. In an ordinary neutral window already opened on the same enabled project, the current inspectable window binds itself as Worker; `enforce` requires Claim acquisition first, while `warn` treats it as best-effort automation.
 
 Authorization does not let Discussion implement the Task. It asks the current host for the best valid Worker route.
 
@@ -118,9 +118,9 @@ Authorization does not let Discussion implement the Task. It asks the current ho
 | Claude Code CLI with compatible background-agent support | The Host Adapter starts the managed background Agent in a unique Worktree, injects only the per-launch Worktree settings, and records the stable session ID. |
 | Native creation unavailable or failed | Discussion shows the project directory, Codex/Claude startup commands with their profiles, and `执行 012`; copy either host block. |
 
-The new Worker is not `running` merely because a process or thread was requested. It must pass exact Task preflight and acquire a Claim bound to its session, branch, absolute worktree, allowed scope, and validation plan.
+The new Worker is not `running` merely because a process or thread was requested. It must pass the exact Task preflight. `enforce` additionally requires a Claim bound to its session, branch, absolute worktree, allowed scope, and validation plan.
 
-The dispatch p95 target under three seconds covers command parsing, canonical-Run authorization, and a ready host route. Native thread/session creation and model startup are outside that boundary; until the real ID and Claim exist, status remains `starting` or `awaiting_claim`.
+The dispatch p95 target under three seconds covers command parsing, canonical-Run authorization, and a ready host route. Native thread/session creation and model startup are outside that boundary. Strict mode remains `starting` or `awaiting_claim` until the real ID and Claim exist; warn mode may continue from the exact approved Task without that automation.
 
 The global Claude Adapter and Worker Agent may serve every explicitly enabled project. A project `.claude/settings.json` is optional; per-launch settings do not overwrite global or project configuration.
 
@@ -136,17 +136,17 @@ Stable role rules come from the installed Skill and Host Adapter, so WishGraph d
 
 It does not load unrelated Tasks, historical Run Reports, or the entire source tree by default. If the Task requires a public API, schema, persistence, dependency, permission, security, privacy, or new product decision that was not authorized, the Worker stops and returns the decision to Discussion.
 
-At closeout it runs prescribed validation, creates one immutable Run Report, records project-memory impact, moves the work to a real terminal state, makes a bounded commit unless told otherwise, and releases its Claim.
+At closeout it runs prescribed validation, creates one immutable Run Report, records project-memory impact, moves the work to a real terminal state, makes a bounded linear commit series unless told otherwise, and releases any acquired Claim.
 
 ## Integration and completion
 
-Every Worker terminal event enters `integration_pending`.
+With runtime automation, every Worker terminal event enters `integration_pending`. In `warn`, a Worker without that automation returns the report path and result commit directly to Discussion.
 
-For a safe result, Discussion-local Integration obtains a lease, merges without committing first, checks the Run Report and affected files, runs combined validation, updates shared project state, rewrites `reports/PROJECT_STATUS.md`, and creates the integration commit.
+For a safe result, Discussion-local Integration merges without committing first, checks the Run Report and affected files, runs combined validation, updates shared project state, rewrites `reports/PROJECT_STATUS.md`, and creates the integration commit. `enforce` requires a lease for those actions; `warn` keeps them Discussion-local without blocking on lease automation.
 
 The user is not asked “should I start integration?” twice. A question appears only when a concrete conflict, risk, compatibility choice, or product decision needs human judgment.
 
-If Discussion is not active when the Worker finishes, Claim release writes one pending notification in the Git-common runtime. Discussion consumes it on the next SessionStart, prompt, or explicit status refresh. WishGraph does not use a daemon, terminal polling, cross-window IPC, or automatic popup.
+If Discussion is not active when the Worker finishes, an acquired Claim can write one pending notification in the Git-common runtime. Without that automation in `warn`, the visible Worker result is the handoff. WishGraph does not use a daemon, terminal polling, cross-window IPC, or automatic popup.
 
 ## Continue in another window or host
 
@@ -164,13 +164,13 @@ In an already active Discussion:
 Refresh project status
 ```
 
-When changing from Codex to Claude Code or back, first confirm that host is in `required_hosts`. If it is not, explicitly reactivate with both hosts; then reopen the newly enabled Agent and use the same command. Durable project state is shared; host-specific thread/session IDs are not.
+When changing from Codex to Claude Code or back, strict mode requires that host in `required_hosts` and its Adapter installed. In `warn`, missing host automation is advisory; hand the exact Task to a visible Worker without a reopen loop. Durable project state is shared; host-specific thread/session IDs are not.
 
 ## Revisions and Worker reuse
 
 A clear low-risk correction linked to an existing Task uses `tasks/revisions/<task-id>-rN.md`. It records only the parent Task, exact request, allowed scope, targeted validation, state, and report path.
 
-A Worker thread may be reused after its old work is terminal, its old Claim is released, old scope is cleared, and a fresh Claim binds the new Task or Revision. One Worker can hold only one active work unit at a time.
+A Worker thread may be reused after its old work is terminal and old scope is cleared. Any acquired Claim must be released; strict mode binds a fresh Claim to the new Task or Revision. One Worker can hold only one active work unit at a time.
 
 Any API, schema, persistence, migration, dependency, permission, security, privacy, or new product decision becomes a formal follow-up Task.
 
@@ -196,9 +196,9 @@ Normal users can use these natural-language requests:
 | `Update this project's WishGraph` | Fingerprint-verified, atomic runtime upgrade with rollback. |
 | `Repair WishGraph hooks for this host` | Repairs only the active host adapter and preserves unrelated Hooks. |
 
-If `Start discussion` does not respond after fully reopening the session once, run Doctor. In Codex Desktop, do not type `/hooks` into chat; open Codex CLI in the same project and use `/hooks` there to review and trust the exact project Hook. Claude Code CLI users may additionally run `claude doctor`.
+In `warn`, a missing Hook response does not block discussion or Worker distribution; use Doctor only when you want diagnostics. In `enforce`, reopen once and then use the supported CLI Hook review route if the receipt is still absent.
 
-Doctor checks configured `required_hosts` by default. It reports `installation_healthy`, `host_execution_confirmed`, and `formal_worker_ready` separately. Static files can be current while Formal Worker execution is unavailable; the top-level `healthy` value is false in that case. A single-host project does not fail because the unselected Adapter is absent.
+Doctor checks configured `required_hosts` by default. It reports installation and Hook execution separately. In `warn`, top-level `healthy` follows the core runtime and remains true without a receipt; in `enforce`, it also requires current Adapters and recent receipts.
 
 Updating a global Skill does not silently rewrite project-local `.wishgraph/hooks/`. Use the safe project update path for an existing runtime. Locally modified or unknown generated files stop for review instead of being overwritten.
 
@@ -223,7 +223,7 @@ WishGraph is working when:
 - `Start discussion` enters Discussion only in the enabled project.
 - A fresh Discussion understands current state without full-tree scanning.
 - An exact execution command creates or routes a separate inspectable Worker.
-- The Worker cannot write or build before Claim acquisition.
+- In `enforce`, the Worker cannot write or build before Claim acquisition. In `warn`, exact Task scope and validation remain required, but missing Claim automation does not block.
 - One immutable Run Report records the real validation result.
 - Safe Integration updates affected project facts and rewrites current status.
 - A new window can continue with `Start discussion`, without copied chat or prompt text.

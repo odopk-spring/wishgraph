@@ -720,7 +720,9 @@ def doctor_report(
             required_hosts = normalize_required_hosts(config["required_hosts"])
             validate_config_paths(config)
             required_hosts_source = "configured"
-            config_state = "active" if config.get("mode") in {"warn", "enforce"} else "off"
+            if config.get("mode") not in {"off", "warn", "enforce"}:
+                raise ValueError("mode is required and must be off, warn, or enforce")
+            config_state = "active" if config["mode"] in {"warn", "enforce"} else "off"
         except ValueError as exc:
             config_state = "invalid"
             config_error = str(exc)
@@ -774,6 +776,7 @@ def doctor_report(
         and ".." not in status_path.parts
         and (target / status_path).is_file()
     )
+    strict_hooks_required = config.get("mode") == "enforce"
 
     if config_state == "missing":
         next_action = "use_wishgraph"
@@ -791,13 +794,15 @@ def doctor_report(
         next_action = "update_global_wishgraph_skill"
     elif runtime["state"] != "current":
         next_action = "review_runtime_changes"
-    elif any(item["state"] != "current" for item in host_adapters.values()):
+    elif strict_hooks_required and any(
+        item["state"] != "current" for item in host_adapters.values()
+    ):
         next_action = (
             "repair_current_host_adapter"
             if host_selection_source == "explicit" and len(hosts) == 1
             else "repair_required_host_adapters"
         )
-    elif any(
+    elif strict_hooks_required and any(
         item["execution"]["state"] != "confirmed_recently"
         for item in host_adapters.values()
     ):
@@ -811,18 +816,23 @@ def doctor_report(
         config_state == "active"
         and runtime["state"] == "current"
         and python_info["state"] == "available"
-        and all(item["state"] == "current" for item in host_adapters.values())
+        and (
+            not strict_hooks_required
+            or all(item["state"] == "current" for item in host_adapters.values())
+        )
     )
     host_execution_confirmed = bool(host_adapters) and all(
         item["execution"]["state"] == "confirmed_recently"
         for item in host_adapters.values()
     )
-    formal_worker_ready = installation_healthy and host_execution_confirmed
+    formal_worker_ready = installation_healthy and (
+        host_execution_confirmed or not strict_hooks_required
+    )
     return {
         "schema_version": 3,
         "kind": "wishgraph_doctor",
-        # Keep the established field, but make it mean end-to-end readiness. The
-        # old static meaning remains available explicitly as installation_healthy.
+        # In warn, healthy means the core runtime can distribute work; host Hook
+        # coverage remains visible but advisory. Enforce keeps end-to-end meaning.
         "healthy": formal_worker_ready,
         "installation_healthy": installation_healthy,
         "host_execution_confirmed": host_execution_confirmed,
@@ -1864,17 +1874,13 @@ def main() -> int:
     print(
         f"WishGraph project activation complete ({result['mode']}; {host_labels})."
     )
-    print(
-        "Formal Worker remains unavailable until a host Hook receipt is observed; "
-        "warn mode does not bypass authority checks."
-    )
+    if result["mode"] == "enforce":
+        print("Strict execution remains unavailable until a host Hook receipt is observed.")
+    else:
+        print("Hooks add automatic checks when available; they do not block distribution in warn mode.")
     if result.get("warning"):
         print(result["warning"], file=sys.stderr)
-    print(
-        "Next: fully quit and reopen the current Agent, then say `Start discussion`. "
-        "If no host receipt appears, run Doctor and continue from the supported CLI "
-        "fallback it reports."
-    )
+    print("Next: reopen the current Agent, then say `Start discussion`.")
     return 0
 
 

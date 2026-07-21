@@ -53,7 +53,7 @@ Task state 只记录 Task Lifecycle。Session Role、Flow Phase 与 `expected_tr
 ## Implementation Notes
 
 - 使用仓库原生命名和框架约定。
-- 首个实现任务必须小到能用一个原子 commit 完成。
+- 首个实现任务必须小到能用一组有边界、线性的 commit 完成。
 - 首个实现任务必须包含 "Do Not Do" 边界。
 - 如果仓库为空，映射计划文件，不要假装文件已经存在。
 - 要求 hooks 时使用 bundled installer。Codex CLI 用户可用 `/hooks` 审阅精确项目 Hook；Codex Desktop 用户应在同一项目打开 CLI，不要把 `/hooks` 输入聊天框。
@@ -74,11 +74,11 @@ Task state 只记录 Task Lifecycle。Session Role、Flow Phase 与 `expected_tr
 - [ ] `reports/PROJECT_STATUS.md` 列出 bootstrap 单次执行报告并汇总初始集成状态。
 - [ ] Task 或 Project Status 记录与交付有关的语言要求。
 - [ ] 如果要求 hooks，`.wishgraph/config.json` 初始使用 `warn`，且直接 worktree 检查可以运行。
-- [ ] 除非用户明确说不提交，否则创建一个原子 commit。
+- [ ] 除非用户明确说不提交，否则创建一个或多个有边界、线性的 commit。
 
 ## Rollback Boundary
 
-回滚本任务的单个 commit，即可移除初始 WishGraph 治理骨架。
+回滚本任务的这组 commit，即可移除初始 WishGraph 治理骨架。
 
 ## Execution Report Requirements
 

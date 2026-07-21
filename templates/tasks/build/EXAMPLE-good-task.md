@@ -67,11 +67,11 @@ Dashboard should render cached account data immediately. Token refresh should ru
 - [ ] `reports/runs/012-attempt-1.md` created with test evidence.
 - [ ] PRD, CODEMAP, and discussion-state impact recorded as Integrate or N/A; shared files not edited by the worker.
 - [ ] WishGraph worktree memory check passes when hooks are installed.
-- [ ] One atomic commit created unless user explicitly says not to commit.
+- [ ] One or more bounded linear commits created unless user explicitly says not to commit.
 
 ## Rollback Boundary
 
-Revert this task's single commit to restore previous dashboard refresh timing.
+Revert this task's bounded linear commit series to restore previous dashboard refresh timing.
 
 ## Execution Report Requirements
 

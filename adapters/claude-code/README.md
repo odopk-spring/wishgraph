@@ -69,7 +69,7 @@ After Discussion receives exact authority, the Host Adapter detects the current 
 - The per-launch Worktree configuration exposes the shared runtime to an isolated Worker.
 - The exact Task is authorized and its record matches the current `HEAD`.
 
-A successful `claude --bg` return does not make the Task `running`. WishGraph must persist the real session ID, and the Worker must acquire a Claim bound to Task, session, branch, absolute worktree, scope, and validation plan after entering its actual worktree.
+A successful `claude --bg` return does not make the Task `running`. `enforce` requires the real session ID and a Claim bound to Task, session, branch, absolute worktree, scope, and validation plan. In `warn`, an exact approved Task may continue when that automation is unavailable.
 
 Any detection or launch failure strictly falls back to a copy-ready cross-host handoff whose final line remains:
 
@@ -93,7 +93,7 @@ claude --resume <full-session-id>
 - Current Claude Code does not expose `claude logs`, `claude attach`, or `claude stop` subcommands. WishGraph does not call or advertise them; a created session that fails verification is recorded as `manual_intervention_required`.
 - `/tasks` only displays background work associated with the current Claude session. It does not create a WishGraph Task or grant a Claim.
 
-WishGraph enters Integration only when terminal Task state, an immutable Run Report, validation, and released Claim evidence agree.
+WishGraph enters Integration only when terminal Task state, an immutable Run Report, validation, and result commit agree. `enforce` also requires released Claim evidence.
 
 ## After a Worker finishes
 
@@ -124,7 +124,7 @@ Updating the global Skill never silently overwrites an existing project's `.wish
 - Explore, Plan, `/fork`, and hidden subagents are Helpers by default and cannot receive a Worker Claim.
 - Write/build gates cover Claude tools exposed to Hooks; they are not an operating-system sandbox.
 - A Claude Code session is mechanically protected only when the Claude Adapter is installed and loaded; `mode: enforce` alone cannot intercept it.
-- One Worker can bind only one Task or Revision at a time and must release the old Claim before reuse.
+- One Worker can bind only one Task or Revision at a time. Release any non-stale acquired Claim before reuse; stale records do not block replacement.
 - Claims coordinate worktrees sharing one local Git common directory; they are not distributed locks across machines.
 
 See the [state-machine specification](../../docs/orchestration-state-machine.md) and [External-Memory Hooks](../../docs/memory-sync-hooks.md) for protocol details.

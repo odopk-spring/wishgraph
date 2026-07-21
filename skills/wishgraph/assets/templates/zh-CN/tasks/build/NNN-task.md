@@ -73,7 +73,7 @@ Task state 只记录 Task Lifecycle。Session Role、Flow Phase 与 `expected_tr
 - [ ] Worker 没有修改共享项目记忆或 `reports/PROJECT_STATUS.md`。
 - [ ] 执行报告记录工作类型、批次 ID、集成就绪状态、范围检查、冲突状态和新增决策状态。
 - [ ] 已安装 hooks 时，`python3 .wishgraph/hooks/memory_sync.py check --scope worktree` 通过。
-- [ ] 除非用户明确要求不提交，否则为本任务创建一个原子 commit。
+- [ ] 除非用户明确要求不提交，否则为本任务创建一个或多个有边界、线性的 commit。
 - [ ] 未 stage 无关 diff。
 
 ## Rollback Boundary

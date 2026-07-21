@@ -577,6 +577,12 @@ def observe_codex_worker(
         sync_status = "waiting_for_worker" if claim else "waiting_for_claim"
         availability = "busy" if claim else "starting"
         recovery_reason = ""
+    elif config.get("mode") == "warn":
+        phase = "waiting_for_worker"
+        expected = {"kind": "wait_for_worker", "task_id": task_id}
+        sync_status = "awaiting_visible_result"
+        availability = "failed" if observed_state == "failed" else "terminal"
+        recovery_reason = ""
     else:
         phase = "waiting_for_worker"
         expected = {"kind": "wait_for_worker", "task_id": task_id}

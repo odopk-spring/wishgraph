@@ -64,8 +64,8 @@ class TemplateMirrorTests(unittest.TestCase):
         self.assertIn("No prompt migration is required", getting_started)
         self.assertIn("creates no project-level prompts", readme_en)
         self.assertIn("不创建项目级 Prompt", readme_zh)
-        self.assertIn("authority and state-integrity boundaries still block", getting_started)
-        self.assertIn("权限和状态完整性底线仍然阻止", getting_started_zh)
+        self.assertIn("default `warn` mode is fully advisory", getting_started)
+        self.assertIn("默认 `warn` 是完全非阻断的建议模式", getting_started_zh)
         for content in (readme_en, readme_zh, getting_started, getting_started_zh):
             self.assertNotIn("stable entry prompts", content)
             self.assertNotIn("入口提示词", content)

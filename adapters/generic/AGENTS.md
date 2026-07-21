@@ -59,11 +59,11 @@ Create or update:
 - Update PRD and architecture before implementation.
 - Write self-contained task specs.
 - Classify work as discussion, sequential, parallel_batch, or high_risk. Explain the sequential or parallel recommendation; the user confirms it.
-- Ask for explicit authorization to launch the named ready Worker or Workers. In Discussion, use a real host capability to create one inspectable and controllable Worker per authorized Task Spec. In an ordinary neutral window, bind that current inspectable session after Claim acquisition instead of creating another Worker. Record it as running only after a stable thread/session ID and Claim are persisted. If equivalent native creation is unsupported or fails, print the project directory, copy-ready host startup commands, and the final `执行 <task-id> 任务` line, then stop.
-- Route clear, low-risk feedback to the bound Worker. After a Task completes, use a lightweight `tasks/revisions/<task-id>-rN.md` record and reuse the previous Worker only after its old Claim is released and a new scope/validation binding is acquired. Unsupported routing outputs only `在任务 <task-id> 的执行窗口执行修订 <revision-id>`.
+- Ask for explicit authorization to launch the named ready Worker or Workers. In Discussion, use a real host capability to create one inspectable and controllable Worker per authorized Task Spec. In an ordinary neutral window, bind that current inspectable session instead of creating another Worker. `enforce` requires stable identity and Claim before running; `warn` continues from the exact approved Task when that automation is unavailable. If native creation fails, use one direct visible-Worker handoff without a restart loop.
+- Route clear, low-risk feedback to the bound Worker. After a Task completes, use a lightweight `tasks/revisions/<task-id>-rN.md` record and clear the old scope before reuse. Release any non-stale acquired Claim; `enforce` acquires the new scope/validation Claim, while `warn` may use the exact Revision directly. Unsupported routing outputs only `在任务 <task-id> 的执行窗口执行修订 <revision-id>`.
 - Route exact natural commands such as `执行012号任务`, stop, retry, takeover, and explicit competitive comparison through structured Task IDs and repository-wide Claims. Resolve contextual approvals only when there is one unique `expected_transition`.
 - Before routing, record `draft -> approved` and `worker_creation_authorized: true`, then atomically create the canonical Run. The Run owns transient execution and terminal evidence.
-- Do not change business code or run implementation builds/tests. All implementation is Task-backed Worker work with a bound Claim.
+- Do not change business code or run implementation builds/tests. All implementation is Task-backed Worker work; a bound Claim is mandatory in `enforce` and best-effort in `warn`.
 - A new window in the same project continues with `Start discussion`; an active Discussion uses `Refresh project status`. Read persisted state instead of printing a full prompt for manual transfer.
 
 ## Worker Role
@@ -75,7 +75,7 @@ Create or update:
 - Verify authorization, advance the canonical Run through execution and terminal closeout, and create one new immutable `reports/runs/<work-unit-id>-attempt-N.md`. Do not mirror transient execution into task-state.
 - Record Integrate or N/A proposals; do not edit shared project memory.
 - If `.wishgraph/hooks/memory_sync.py` exists, run its worktree check before completion.
-- Create one atomic commit unless the user explicitly says not to.
+- Create one or more bounded linear commits unless the user explicitly says not to.
 
 ## Discussion-Local Integration Phase
 
@@ -84,7 +84,7 @@ Create or update:
 - Rewrite `reports/PROJECT_STATUS.md` as the current snapshot in the same integration commit.
 - Move absorbed structured tasks to `integrated`; discussion moves them to `reviewed` only after human acceptance.
 - New windows are neutral. Default SessionStart is safety-only; load Discussion state only after an explicit “Start discussion”, and use explicit refresh in a running window.
-- Every Worker terminal event enters `integration_pending`. Safe sequential and mechanically proven `parallel_independent` results integrate automatically while Discussion holds a bound Integration lease; risk, conflict, blocking, competition, or ambiguity becomes one concrete decision or blocked state.
+- Every Worker terminal result returns to Discussion. A bound Integration lease is mandatory in `enforce` and best-effort in `warn`; risk, conflict, blocking, competition, or ambiguity becomes one concrete decision or blocked state.
 - Never create a separate Integration window. If Discussion is inactive, persist `integration_pending` until it resumes.
 - Hooks expose ready, waiting, and blocked reports but do not choose parallelism, start agents, merge code, write semantic memory, or replace human review.
 

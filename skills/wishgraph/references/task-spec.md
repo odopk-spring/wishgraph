@@ -104,7 +104,7 @@ Before Worker authorization, confirm:
 - Current State comes from repository facts.
 - Change Set names stable targets and anchors.
 - Referenced paths and key symbols were checked for the current Task.
-- The implementation surface fits one atomic commit.
+- The implementation surface fits one small bounded linear commit series.
 - Out-of-scope behavior is explicit.
 - Validation commands are concrete and available.
 - Permission and risk boundaries are explicit.
@@ -132,7 +132,7 @@ Do not encode a low-risk correction to a completed result as a full Task. Read o
 - It combines API/schema work with presentation polish.
 - It contains an unresolved product decision.
 - Parallel candidates overlap files, contracts, validation state, or rollback.
-- One atomic commit cannot express the result safely.
+- One small linear commit series cannot express the result safely.
 
 ## Worked Example
 

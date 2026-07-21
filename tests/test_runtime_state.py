@@ -542,7 +542,7 @@ class RuntimeStateTests(MemorySyncTestCase):
         self.write("src/unrelated.py", "print('dirty')\n")
         self.assertFalse(memory_sync.worktree_is_clean(self.root))
 
-    def test_claim_stale_detection_uses_heartbeat_timestamp(self) -> None:
+    def test_stale_claim_is_preserved_but_does_not_block_replacement(self) -> None:
         acquired = memory_sync.acquire_claim(
             self.root, "028a", 1, "worker-stale", require_clean=True
         )
@@ -557,17 +557,6 @@ class RuntimeStateTests(MemorySyncTestCase):
         )[0]
         self.assertTrue(claim["stale"])
         self.assertEqual(claim["effective_lease_status"], "stale")
-        blocked = memory_sync.acquire_claim(
-            self.root,
-            "028a",
-            2,
-            "worker-replacement",
-            stale_after_seconds=1,
-            require_clean=True,
-        )
-        self.assertEqual(blocked["error"], "stale_claim_requires_explicit_revoke")
-        revoked = memory_sync.update_claim(self.root, claim_id, "revoke")
-        self.assertTrue(revoked["ok"], revoked)
         replacement = memory_sync.acquire_claim(
             self.root,
             "028a",
@@ -577,6 +566,20 @@ class RuntimeStateTests(MemorySyncTestCase):
             require_clean=True,
         )
         self.assertTrue(replacement["ok"], replacement)
+        preserved = {
+            item["claim_id"]: item
+            for item in memory_sync.inspect_claims(
+                self.root, "028a", stale_after_seconds=1
+            )
+        }
+        self.assertTrue(preserved[claim_id]["stale"])
+        self.assertEqual(preserved[claim_id]["lease_status"], "active")
+        replacement_claim = replacement["claim"]
+        self.assertNotEqual(replacement_claim["claim_id"], claim_id)
+        self.assertEqual(replacement_claim["attempt"], 2)
+        self.assertEqual(replacement_claim["worker_id"], "worker-replacement")
+        self.assertEqual(replacement_claim["lease_status"], "active")
+        self.assertIn(replacement_claim["claim_id"], preserved)
 
     def test_authority_timestamps_treat_naive_values_as_utc(self) -> None:
         parsed = memory_sync.parse_timestamp("2026-07-21T12:34:56")
@@ -1180,6 +1183,48 @@ class RuntimeStateTests(MemorySyncTestCase):
         self.assertEqual(claim["lease_status"], "active")
         self.assertEqual(memory_sync.inspect_worker_notifications(self.root), [])
 
+    def test_warn_claim_release_does_not_loop_on_missing_terminal_signal(self) -> None:
+        config_path = self.root / ".wishgraph" / "config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["mode"] = "warn"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        self.git("add", ".wishgraph/config.json")
+        self.git("commit", "-qm", "use advisory mode")
+        acquired = memory_sync.acquire_claim(
+            self.root,
+            "029w",
+            1,
+            "worker-029w",
+            discussion_session_id="discussion-029w",
+            require_clean=True,
+        )
+        self.assertTrue(acquired["ok"], acquired)
+        claim_id = acquired["claim"]["claim_id"]
+
+        released = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "release",
+                claim_id,
+            ],
+            cwd=self.root,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        self.assertEqual(released.returncode, 0, released.stderr)
+        payload = json.loads(released.stdout)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["advisory_only"])
+        self.assertFalse(payload["notification"]["ok"])
+        claim = memory_sync.inspect_claims(self.root, "029w")[0]
+        self.assertEqual(claim["lease_status"], "released")
+        self.assertEqual(memory_sync.inspect_worker_notifications(self.root), [])
+
     def test_claim_release_rejects_report_not_present_in_result_commit(self) -> None:
         task_id = "029h"
         task_path = f"tasks/build/{task_id}-uncommitted-report.md"
@@ -1255,7 +1300,7 @@ class RuntimeStateTests(MemorySyncTestCase):
         claim = memory_sync.inspect_claims(self.root, task_id)[0]
         self.assertEqual(claim["lease_status"], "active")
 
-    def test_claim_release_rejects_multi_commit_worker_result(self) -> None:
+    def test_claim_release_accepts_bounded_linear_worker_commits(self) -> None:
         task_id = "029j"
         task_path = f"tasks/build/{task_id}-multi-commit.md"
         report_path = f"reports/runs/{task_id}-attempt-1.md"
@@ -1301,6 +1346,9 @@ class RuntimeStateTests(MemorySyncTestCase):
             check=True,
         )
         claim_id = json.loads(acquired.stdout)["claim"]["claim_id"]
+        run_before = memory_sync.latest_execution_run(self.root, task_id, attempt=1)
+        self.assertIsNotNone(run_before)
+        base_commit = run_before["base_commit"]
         self.write("src/multi_commit.py", "print('first commit')\n")
         self.git("add", "src/multi_commit.py")
         self.git("commit", "-qm", "worker implementation commit")
@@ -1330,13 +1378,109 @@ class RuntimeStateTests(MemorySyncTestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        self.assertEqual(released.returncode, 0, released.stderr)
+        payload = json.loads(released.stdout)
+        self.assertTrue(payload["ok"], payload)
+        claim = memory_sync.inspect_claims(self.root, task_id)[0]
+        self.assertEqual(claim["lease_status"], "released")
+        result_commit = self.git("rev-parse", "HEAD").stdout.strip()
+        self.assertEqual(
+            int(self.git("rev-list", "--count", f"{base_commit}..{result_commit}").stdout),
+            2,
+        )
+        run_after = memory_sync.latest_execution_run(self.root, task_id, attempt=1)
+        self.assertEqual(run_after["result"]["commit"], result_commit)
+
+    def test_claim_release_rejects_merge_commit_in_result_range(self) -> None:
+        task_id = "029m"
+        task_path = f"tasks/build/{task_id}-merge-history.md"
+        report_path = f"reports/runs/{task_id}-attempt-1.md"
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="approved",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.git("add", task_path)
+        self.git("commit", "-qm", "prepare merge history task")
+        self.authorize_execution_run(
+            task_id,
+            task_path,
+            "discussion-029m",
+            host="codex",
+            report_path=report_path,
+            dispatch_mode="current_window",
+            source_session_id="worker-029m",
+        )
+        acquired = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "acquire",
+                task_id,
+                "--worker-id",
+                "worker-029m",
+                "--session-id",
+                "worker-029m",
+                "--host",
+                "codex",
+            ],
+            cwd=self.root,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        claim_id = json.loads(acquired.stdout)["claim"]["claim_id"]
+        original_branch = self.git("branch", "--show-current").stdout.strip()
+        self.git("checkout", "-qb", "worker-merge-side")
+        self.write("src/merge_history.py", "print('side')\n")
+        self.git("add", "src/merge_history.py")
+        self.git("commit", "-qm", "worker side commit")
+        self.git("checkout", "-q", original_branch)
+        self.git("merge", "--no-ff", "worker-merge-side", "-m", "merge worker side")
+        self.write(
+            report_path,
+            self.structured_run_report(
+                f"{task_id}-attempt-1",
+                task_id=task_id,
+                changed_paths=["src/merge_history.py"],
+            ),
+        )
+        self.git("add", report_path)
+        self.git("commit", "-qm", "worker merge report")
+
+        released = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "release",
+                claim_id,
+                "--session-id",
+                "worker-029m",
+            ],
+            cwd=self.root,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
         self.assertEqual(released.returncode, 1)
         payload = json.loads(released.stdout)
         self.assertEqual(
-            payload["detail"]["error"], "terminal_result_commit_not_based_on_run"
+            payload["detail"]["error"],
+            "terminal_result_not_bounded_linear_history",
         )
         claim = memory_sync.inspect_claims(self.root, task_id)[0]
         self.assertEqual(claim["lease_status"], "active")
+        run_after = memory_sync.latest_execution_run(self.root, task_id, attempt=1)
+        self.assertEqual(run_after["phase"], "running")
 
     def test_claim_release_rejects_uncommitted_business_changes(self) -> None:
         task_id = "029k"
@@ -1472,6 +1616,18 @@ class RuntimeStateTests(MemorySyncTestCase):
         with self.assertRaisesRegex(ValueError, "invalid paths.project_status"):
             memory_sync.load_config(self.root)
 
+    def test_load_config_requires_an_explicit_known_mode(self) -> None:
+        for mode in (None, "unknown"):
+            with self.subTest(mode=mode):
+                config = json.loads(json.dumps(self.config))
+                if mode is None:
+                    config.pop("mode")
+                else:
+                    config["mode"] = mode
+                self.write(".wishgraph/config.json", json.dumps(config))
+                with self.assertRaisesRegex(ValueError, "mode is required"):
+                    memory_sync.load_config(self.root)
+
     def test_stop_hook_blocks_worker_until_active_claim_is_closed_out(self) -> None:
         acquired = memory_sync.acquire_claim(
             self.root,
@@ -1500,6 +1656,35 @@ class RuntimeStateTests(MemorySyncTestCase):
         self.assertIn("Check WishGraph status", payload["reason"])
         self.assertNotIn("Claim", payload["reason"])
         self.assertEqual(memory_sync.inspect_worker_notifications(self.root), [])
+
+    def test_warn_stop_hook_does_not_block_on_active_claim(self) -> None:
+        config_path = self.root / ".wishgraph" / "config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["mode"] = "warn"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        acquired = memory_sync.acquire_claim(
+            self.root,
+            "029w",
+            1,
+            "worker-029w",
+            host_thread_ref="worker-session-029w",
+            require_clean=True,
+        )
+        self.assertTrue(acquired["ok"], acquired)
+        process = subprocess.run(
+            [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "stop"],
+            cwd=self.root,
+            input=json.dumps(
+                {"cwd": str(self.root), "session_id": "worker-session-029w"}
+            ),
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        self.assertEqual(json.loads(process.stdout), {})
+        self.assertEqual(process.stderr, "")
 
     def test_claim_cli_runs_execution_preflight_and_blocks_duplicate_worker(self) -> None:
         task_path = "tasks/build/030-claim.md"
@@ -1555,6 +1740,58 @@ class RuntimeStateTests(MemorySyncTestCase):
         )
         self.assertEqual(second.returncode, 1)
         self.assertEqual(json.loads(second.stdout)["error"], "active_claim_exists")
+
+    def test_warn_formal_claim_without_launch_context_or_run_is_advisory(self) -> None:
+        task_id = "030w"
+        task_path = f"tasks/build/{task_id}-warn-claim.md"
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id, status="approved", worker_authorized=True
+            ),
+        )
+        config_path = self.root / ".wishgraph" / "config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["mode"] = "warn"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        self.git("add", task_path, ".wishgraph/config.json")
+        self.git("commit", "-qm", "prepare warn claim fallback")
+
+        process = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "claim",
+                "acquire",
+                task_id,
+                "--worker-id",
+                "warn-thread-030w",
+                "--session-id",
+                "warn-thread-030w",
+                "--host-thread-ref",
+                "warn-thread-030w",
+                "--host",
+                "codex",
+                "--container-kind",
+                "codex_agent_thread",
+                "--agent-kind",
+                "formal_worker",
+            ],
+            cwd=self.root,
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(process.returncode, 0, process.stderr)
+        payload = json.loads(process.stdout)
+        self.assertTrue(payload["advisory_only"])
+        self.assertEqual(payload["claim_status"], "unavailable")
+        self.assertFalse(memory_sync.inspect_claims(self.root, task_id))
+        self.assertIsNone(memory_sync.latest_execution_run(self.root, task_id))
+        self.assertIsNone(
+            memory_sync.read_session_runtime(self.root, "warn-thread-030w")
+        )
 
     def test_claude_worker_capability_levels_use_only_native_host_facts(self) -> None:
         host_adapter_module = sys.modules["host_adapter"]
@@ -1988,6 +2225,24 @@ class RuntimeStateTests(MemorySyncTestCase):
         )
         hook_output = json.loads(process.stdout)["hookSpecificOutput"]
         self.assertEqual(hook_output["permissionDecision"], "deny")
+
+    def test_warn_treats_missing_host_execution_as_advisory(self) -> None:
+        warn_config = dict(self.config)
+        warn_config["mode"] = "warn"
+        common_dir = memory_sync.git_common_dir(self.root)
+        shutil.rmtree(
+            common_dir / "wishgraph" / "host-observations" / "codex",
+            ignore_errors=True,
+        )
+        guard = memory_sync.current_host_execution_guard(
+            self.root, warn_config, "codex"
+        )
+        self.assertTrue(guard["ok"], guard)
+        self.assertTrue(guard["advisory_only"])
+        self.assertFalse(guard["host_execution_confirmed"])
+        self.assertEqual(
+            guard["advisory"]["code"], "current_host_receipt_not_recent"
+        )
 
     def test_codex_spawn_failure_cli_outputs_cross_host_handoff(self) -> None:
         task_id = "043"

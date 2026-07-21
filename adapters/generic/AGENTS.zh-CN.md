@@ -59,11 +59,11 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - 实现前更新 PRD 和架构。
 - 编写自包含任务规格。
 - 把工作判断为 discussion、sequential、parallel_batch 或 high_risk，解释串行或并行建议，由用户确认。
-- 请求用户明确授权启动已就绪的 Worker。Discussion 中使用宿主真实能力创建可检查、可控制的独立 Worker；普通 neutral 窗口则在取得 Claim 后绑定当前可检查会话，不再创建第二个 Worker。只有稳定 thread/session ID 和 Claim 已持久化后才记录为运行。宿主创建失败时，输出项目目录、可复制启动命令及最后的 `执行 <task-id> 任务`。
-- 把明确、低风险的小范围反馈路由给已绑定 Worker。Task 完成后使用轻量 `tasks/revisions/<task-id>-rN.md`；只有旧 Claim 已释放且重新获取新 scope/validation 绑定时才能复用原 Worker。不支持自动路由时只输出 `在任务 <task-id> 的执行窗口执行修订 <revision-id>`。
+- 请求用户明确授权启动已就绪的 Worker。Discussion 中使用宿主真实能力创建可检查、可控制的独立 Worker；普通 neutral 窗口直接绑定当前可检查会话，不再创建第二个 Worker。`enforce` 要求稳定身份和 Claim 后才能运行；`warn` 缺少这类自动化时按准确批准的 Task 继续。宿主创建失败时只做一次可见 Worker 交接，不进入重开循环。
+- 把明确、低风险的小范围反馈路由给已绑定 Worker。Task 完成后使用轻量 `tasks/revisions/<task-id>-rN.md` 并先清除旧 scope。释放仍有效且已经取得的 Claim；`enforce` 获取新的 scope/validation Claim，`warn` 可直接按准确 Revision 继续。不支持自动路由时只输出 `在任务 <task-id> 的执行窗口执行修订 <revision-id>`。
 - “执行012号任务”、停止、重试、接管和明确竞争比较都通过精确结构化 Task ID 与仓库级 Claim 路由。只有存在唯一 `expected_transition` 时，简短上下文批准才有效。
 - 路由前，在 task-state 中记录 `draft -> approved` 和 `worker_creation_authorized: true`，再原子创建规范 Run。Run 负责临时执行状态和终态证据。
-- 不改业务代码，也不运行实现构建或测试。所有实现都必须是持有绑定 Claim 的 Task-backed Worker 工作。
+- 不改业务代码，也不运行实现构建或测试。所有实现都必须是 Task-backed Worker 工作；`enforce` 必须持有 Claim，`warn` 只做尽力记录。
 - 同一项目的新窗口通过“开始讨论”继续；已经处于 Discussion 时使用“刷新项目状态”。读取持久状态，不输出完整提示词让用户手工搬运。
 
 ## Worker 角色
@@ -75,7 +75,7 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - 核对授权，把规范 Run 推进到真实终态，并新增一个不可变的 `reports/runs/<work-unit-id>-attempt-N.md`。不在 task-state 中镜像临时执行状态。
 - 填写 Integrate 或 N/A 建议，不直接修改共享项目记忆。
 - 存在 `.wishgraph/hooks/memory_sync.py` 时，完成前运行 worktree 检查。
-- 除非用户明确说不提交，否则创建一个原子 commit。
+- 除非用户明确说不提交，否则创建一个或多个有界的线性 commit。
 
 ## Discussion-local Integration 阶段
 
@@ -84,7 +84,7 @@ If you are not sure, answer only item 1 and I will fill the rest one decision at
 - 在同一个集成提交中把 `reports/PROJECT_STATUS.md` 重写为当前快照。
 - 把已吸收的结构化任务改为 `integrated`；只有用户接受结果后，讨论窗口才改为 `reviewed`。
 - 新窗口默认中立。默认 SessionStart 只做安全检查；用户明确说“开始讨论”后才加载讨论状态，持续运行窗口使用显式刷新。
-- 每个 Worker terminal 事件都进入 `integration_pending`。安全串行和机械检查证明独立的 `parallel_independent` 结果由持有绑定 Integration lease 的 Discussion 自动集成；风险、冲突、阻塞、竞争或歧义只形成具体决策或阻塞状态。
+- 每个 Worker terminal 结果都返回 Discussion。`enforce` 必须持有 Integration lease，`warn` 只做尽力记录；风险、冲突、阻塞、竞争或歧义只形成具体决策或阻塞状态。
 - 不得创建独立 Integration 窗口。Discussion 不活跃时，持久化 `integration_pending`，等它恢复后继续。
 - Hooks 只提供准备、等待和阻塞报告，不决定是否并行，不启动 Agent，不合并代码，不编写语义记忆，也不代替人类 Review。
 

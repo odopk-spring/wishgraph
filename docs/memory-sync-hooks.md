@@ -25,7 +25,7 @@ If the Skill is already installed, explicitly enable this project:
 Use WishGraph for this project with the recommended safe setup.
 ```
 
-The recommended setup selects Codex and Claude Code and installs quiet `warn` hooks without asking the user to learn installer flags. Ordinary documentation and closeout advice remains non-blocking; authority and state-integrity boundaries still fail closed. A user may explicitly choose only one host.
+The recommended setup selects Codex and Claude Code and installs quiet `warn` hooks without asking the user to learn installer flags. `warn` is fully advisory: missing host automation and workflow findings never block Task distribution or ordinary tools. A user may explicitly choose only one host.
 
 Natural-language choices are:
 
@@ -94,13 +94,13 @@ The installer writes the exact Python executable used during setup into the host
 
 For an enabled project, the bundled installer also provides three bounded maintenance actions: `--doctor --json` performs a fixed-path read-only health check; `--upgrade --json` repairs missing metadata for current files or atomically replaces a bundled-known generated runtime and rolls back on failure; `--repair-host-adapter --host codex|claude --json` repairs only the selected current-host adapter while preserving unrelated hooks. Unknown or locally modified runtime files stop for review instead of being overwritten.
 
-Normal users only enable WishGraph, reopen the current Agent session, and say `Start discussion`. If that does not respond, Doctor reports static installation, recent host execution, and Formal Worker readiness separately through bounded `SessionStart` and `UserPromptSubmit` receipts under `.git/wishgraph/host-observations/`. Receipts never enter the worktree, are not written by `PreToolUse`, and require a valid host event payload. An unverified Codex Desktop session is routed to Codex CLI in the same project, where `/hooks` can review and trust the exact Hook definition; `/hooks` is not a Desktop chat command. Claude Code CLI may additionally use `claude doctor`.
+Normal users enable WishGraph and say `Start discussion`. Doctor reports static installation and recent host execution separately through bounded receipts. In `warn`, a missing receipt is diagnostic only and the approved Task can still be sent to a visible Worker. In `enforce`, an unverified host uses its supported CLI Hook review route.
 
 `memory_sync.py` is a stable entrypoint over four public boundaries: `workflow_state.py` defines typed state; `policy.py` implements pure transitions; `host_adapter.py` maps one authorized action to the current host; `git_state.py` persists Git facts, canonical Runs, Claims, sessions, and Integration leases. `codex_worker_provider.py`, `claude_worker_provider.py`, and `tool_gate_provider.py` are private implementations behind `host_adapter.py`, not additional public boundaries. Semantic project truth remains in Markdown and Git.
 
 Start with `warn`. After one successful Task-backed Worker closeout and one Discussion-local integration, change `.wishgraph/config.json` to `enforce`.
 
-`warn` and `enforce` are enforced only through an installed and loaded host Adapter; neither is an operating-system sandbox. A missing Claude Adapter cannot block a normal Claude Code session. The optional Git hook is commit-time fallback protection, not a write-time gate.
+`warn` remains usable without a loaded Adapter and never enforces. `enforce` requires the installed and loaded Adapter. Neither is an operating-system sandbox; the optional Git hook is commit-time fallback protection, not a write-time gate.
 
 Codex project Hooks do not run before the project layer and exact Hook definition are trusted; this detail is surfaced through Doctor only when normal entry fails.
 
@@ -112,7 +112,7 @@ Every worker uses a separate branch or worktree and creates one new immutable re
 reports/runs/<work-unit-id>-attempt-N.md
 ```
 
-Task Specs contain `wishgraph:task-state`, Run Reports contain `wishgraph:run-state`, and Project Status snapshots contain `wishgraph:integration-state`. Durable Task files move `draft -> approved -> integrated -> reviewed`; the Git-common-dir canonical Run owns dispatching, running, terminal evidence, and Integration progress. Hooks require exact Run, Claim, commit, and report evidence before allowing direct integration, so main does not need artificial intermediate lifecycle commits.
+Task Specs contain `wishgraph:task-state`, Run Reports contain `wishgraph:run-state`, and Project Status snapshots contain `wishgraph:integration-state`. Durable Task files move `draft -> approved -> integrated -> reviewed`. In `enforce`, the Git-common-dir canonical Run owns dispatching, terminal evidence, and Integration progress. In `warn`, it is optional automation; the approved Task, immutable report, result commit, and validation form the direct handoff.
 
 Completed-Task corrections may use `tasks/revisions/<task-id>-rN.md` with a `wishgraph:revision-state` block. This is intentionally smaller than a Task Spec: parent Task, exact request, allowed scope, targeted validation, status, and one immutable report. A Revision report uses `change_class: revision`, the parent `task_id`, and the exact `revision_id`. Any recorded API, schema, persistence, migration, dependency, permission, security, privacy, or product-decision risk requires a formal follow-up Task.
 
@@ -127,23 +127,23 @@ Worker reports use `Integrate` or `N/A` and do not edit shared project memory:
 | `CODEMAP.md` | Integrate | New source anchor must enter the project map |
 ```
 
-The Discussion-local Integration phase holds a bound lease, merges Worker commits with `--no-commit`, reads all new Run Reports, updates affected shared memory, and rewrites `reports/PROJECT_STATUS.md` as the only user-readable dynamic snapshot. Project Status lists only reports absorbed by this integration; the Integration checker compares Run Report proposals directly with the integration diff instead of requiring a duplicate impact table.
+The Discussion-local Integration phase merges Worker commits with `--no-commit`, reads all new Run Reports, updates affected shared memory, and rewrites `reports/PROJECT_STATUS.md` as the only user-readable dynamic snapshot. `enforce` requires a bound lease; `warn` keeps the same work Discussion-local without blocking on lease automation.
 
 Default size controls keep the snapshot usable: Project Status is limited to 160 lines and 12,000 characters, and explicit Discussion context to 2,000 characters. If either Project Status limit is exceeded, `warn` stays silent and non-blocking while `enforce` blocks integration completion and commit; explicit status checks still show the full diagnosis. Move historical detail to Run Reports and Git history; never remove unresolved risks, conflicts, or pending decisions just to meet the limit.
 
 WishGraph requires one configured `reports/PROJECT_STATUS.md` truth source. Pre-release `paths.dev_report`, `reports/DEV_REPORT.md`, hidden Task paths, and missing `required_hosts` are not inferred; reactivate the project or regenerate the affected structured record.
 
-Task and Run Report metadata distinguish `sequential`, `parallel_batch`, and `high_risk`, while execution mode distinguishes `exclusive`, `parallel_independent`, and `competitive`. Every Worker terminal event first enters `integration_pending`. Under the existing Task approval, the original Discussion automatically integrates safe sequential results and mechanically proven independent parallel batches; the Worker receives no Integration authority. High-risk, conflicting, blocked, competitive, or mechanically ambiguous results enter a concrete `decision_required` or `blocked` state. Hooks calculate and enforce recorded gates but do not grant authority or launch Agents.
+Task and Run Report metadata distinguish `sequential`, `parallel_batch`, and `high_risk`, while execution mode distinguishes `exclusive`, `parallel_independent`, and `competitive`. With runtime automation, a Worker terminal event enters `integration_pending`; otherwise a warn-mode Worker returns the report and result commit directly. Under the existing Task approval, the original Discussion integrates safe results; the Worker receives no Integration authority.
 
 Worker creation always requires an explicit human command. For Codex, the adapter prepares an authorized `wishgraph-worker` payload, the active host creates the inspectable Agent thread, and WishGraph registers the real returned thread ID; the Hook never spawns it. For Claude Code, the Host Adapter uses the equivalent of `claude --bg --agent wishgraph-worker --worktree <unique> --settings <ephemeral-json> "执行 <task-id> 任务"` only when the `background_session` capability checks pass. The managed Agent and global Adapter may be installed once for the user; `.wishgraph/config.json` remains the per-project activation switch. Unsupported or failed creation outputs exactly `执行 <task-id> 任务` and stops. Hidden subagents are not Worker threads. Integration is an automatically triggered, Discussion-local, safe-when-silent phase: it never creates a user-visible window. If Discussion is inactive, persist `integration_pending` until the next Discussion entry or refresh.
 
-Neither launch path makes a Run `running` from intent or prose. Codex requires a real registered thread ID; Claude requires a stable saved session ID; both still require exact preflight and Claim before business work. Terminal host state alone is insufficient for Integration without canonical Run evidence, the exact immutable report, result commit, and released Claim.
+Neither launch path treats intent or prose as completion. Exact Task preflight, the immutable report, result commit, and validation remain required. `enforce` additionally requires the registered host identity, canonical Run, Claim, and released-Claim evidence; `warn` does not block when that automation is unavailable.
 
 New sessions are neutral and silent unless recovery, pending integration, failure recovery, or a user decision needs attention. Hooks do not load the discussion prompt or activate a role. Say `Start discussion` to load current Project Status in the visible window, or `Refresh WishGraph project state and present the latest integrated results` to refresh an active discussion.
 
 In a continuously running discussion window, say: `Refresh WishGraph project state and present the latest integrated results.`
 
-Business-code work runs in a claimed Worker. Formal Tasks use `tasks/*.md`; local corrections use `tasks/revisions/*.md`; reports require structured state blocks.
+Business-code work runs in an exact Task-bound visible Worker. `enforce` requires its Claim; `warn` treats Claim automation as optional. Formal Tasks use `tasks/*.md`; local corrections use `tasks/revisions/*.md`; reports require structured state blocks.
 
 ## Direct checks
 
@@ -159,7 +159,7 @@ The default status command emits a compact active view and resolves only current
 
 It also emits `auto_integration_eligible` and one of `nothing_to_integrate`, `wait_for_worker`, `auto_integrate`, `await_user_confirmation`, `discuss_blocker`, or `compare_candidates` as `next_action`. These are internal routing fields; normal users should see only Discussion and explicit Worker windows.
 
-The host adapter can evaluate the pure reducer through `flow-plan`, which reads `{"state": {...}, "event": {...}}` from standard input. Public `session set` cannot establish roles or phases, and public `session apply` accepts diagnostic metadata only. Semantic Discussion changes go through `session transition SESSION_ID EVENT --data-json ...`; the adapter evaluates the reducer, persists only its accepted patch, and issues a one-time Integration grant only after durable Task, Report, Claim, branch, and worktree evidence agree. Integration lease acquisition consumes that exact grant and rechecks the evidence. A Worker cannot promote itself into Discussion or Integration. A host must not persist `waiting_for_worker` until a real visible Worker ID exists and runtime persistence succeeds.
+The host adapter can evaluate the pure reducer through `flow-plan`, which reads `{"state": {...}, "event": {...}}` from standard input. Public `session set` cannot establish roles or phases, and public `session apply` accepts diagnostic metadata only. In `enforce`, semantic Discussion changes use the reducer, one-time Integration grant, and lease. In `warn`, failed runtime persistence falls back to the exact visible-Worker handoff instead of blocking. A Worker cannot promote itself into Discussion or Integration.
 
 Hosts can select a truthful silent fallback without launching anything from a Hook:
 
@@ -181,7 +181,7 @@ python3 .wishgraph/hooks/memory_sync.py task family 012
 
 It matches structured IDs exactly, reports duplicate declarations, and never executes a nearby or filename-prefix match. Task IDs follow `^\d{3,}[a-z]*$`; retries retain the ID and increment the attempt while follow-up goals allocate the next suffix.
 
-Formal execution uses repository-wide runtime Claims stored below `git rev-parse --git-common-dir`, outside business commits:
+Strict execution uses repository-wide runtime Claims stored below `git rev-parse --git-common-dir`, outside business commits. Warn mode may use the same commands, but failure is advisory:
 
 ```bash
 python3 .wishgraph/hooks/memory_sync.py claim acquire 012 --worker-id worker-012 --session-id worker-012 --discussion-session-id discussion-1 --host codex
@@ -193,15 +193,15 @@ python3 .wishgraph/hooks/memory_sync.py claim revoke CLAIM_ID
 
 Acquisition uses an atomic filesystem operation, defaults to one exclusive active Claim per Task, and records attempt, worker, branch, absolute worktree, timestamps, lease status, execution mode, optional host thread reference, and the originating Discussion when available. With `--session-id`, Claim acquisition also persists the Worker runtime; persistence failure revokes the new Claim. Heartbeat and release enforce branch/worktree binding; explicit revoke is the takeover control path. Stale detection preserves old records. This coordinates processes and worktrees sharing one local Git common directory; it is not a distributed lock across machines that only share a remote.
 
-`claim release` first verifies terminal Task/Revision state and its Run Report, then writes one idempotent pending notification to the Git-common runtime inbox. `Stop` and `TaskCompleted` can retry the same deterministic ID. The bound Discussion consumes and marks it read on SessionStart or its next prompt; explicit Discussion entry or status refresh may adopt pending records after a host switch. This uses no daemon, terminal polling, cross-terminal IPC, popup, or prose-based completion guess.
+When a Claim was acquired, `claim release` verifies terminal Task/Revision state and its Run Report, then writes one idempotent pending notification. Without Claim automation in `warn`, the visible Worker result is the handoff. This uses no daemon, terminal polling, cross-terminal IPC, popup, or prose-based completion guess.
 
-A normal terminal Hook blocks while the Worker still owns an active Claim. A process forcibly killed before Hook execution or Claim release cannot write a notification under this no-daemon design; its stale Claim or structured host-session state remains the recovery signal for the next Discussion inspection.
+Only `enforce` blocks a terminal event while the Worker owns an active Claim. A forcibly killed process may leave a stale Claim; WishGraph preserves it as recovery evidence without preventing a replacement Worker.
 
-A terminal Worker window may be rebound with `claim rebind`. Rebind releases the old Claim before acquiring a new Claim carrying a fresh `task_id`, optional `revision_id`, `allowed_scope`, `validation_plan`, and execution ownership. If new acquisition or runtime persistence fails, the window remains idle/unbound and old authority is not restored. A running old Task is never eligible.
+A terminal Worker window may be rebound. Release any non-stale acquired Claim and clear old scope first. `enforce` uses `claim rebind`; `warn` may continue from the exact new Task or Revision when that automation is unavailable. A running old Task is never eligible.
 
 Use `revision next 012` to allocate the next exact Revision ID, `revision resolve 012-r1` to inspect its lightweight record, and `revision route 012-r1 --host codex|claude` to calculate the host action. Codex returns an existing-worker target when a reusable visible Worker is recorded, otherwise a visible Revision Worker action; Claude Code returns only the shortest manual command.
 
-Discussion-local Integration first persists `phase: integrating`, then acquires a lease bound to the session, integration ID, Task IDs, reports, branch, and worktree:
+In `enforce`, Discussion-local Integration first persists `phase: integrating`, then acquires a lease bound to the session, integration ID, Task IDs, reports, branch, and worktree:
 
 ```bash
 python3 .wishgraph/hooks/memory_sync.py integration-lease acquire \
@@ -211,7 +211,7 @@ python3 .wishgraph/hooks/memory_sync.py integration-lease acquire \
   --report reports/runs/012-attempt-1.md
 ```
 
-Supported native writes, recognized shell build/write commands, and MCP tools with write-like names require a live matching Worker Claim. Merge, combined validation, shared-state writes, and the integration commit require the Discussion-local Integration lease. An opaque script or MCP tool can conceal side effects, so this is a host-tool gate rather than an OS sandbox. Complete read interception remains `host capability dependent`, not a universal hard gate.
+In `enforce`, supported native writes, recognized shell build/write commands, and write-like MCP tools require a live Worker Claim; Integration writes require the Discussion-local lease. In `warn`, these checks are silent and non-blocking. This is a host-tool gate rather than an OS sandbox.
 
 `claim revoke` returns `explicit_user_authorization_required` unless the host passes `--authorized-by-user`. Stopping or rejecting unintegrated work preserves its branch/report, then a retry keeps the Task ID and increments the attempt. Integrated history is replaced only through a new rollback or follow-up Task.
 

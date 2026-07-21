@@ -95,11 +95,11 @@ Do not create a full Task Spec, repeat product context, or request Worker author
 
 Prefer the original user-visible and inspectable Worker thread or window when it is idle:
 
-1. Confirm the parent work is terminal and its old Claim is released.
+1. Confirm the parent work is terminal and release any non-stale acquired Claim. Preserve stale records without blocking reuse.
 2. Confirm the historical Worker thread holds no unrelated active Claim.
 3. Clear old scope and validation.
 4. Read the new Revision record.
-5. Acquire a fresh Claim bound to parent ID, Revision ID, session, branch, absolute worktree, allowed scope, and validation plan.
+5. In `enforce`, acquire a fresh Claim bound to parent ID, Revision ID, session, branch, absolute worktree, allowed scope, and validation plan. In `warn`, attempt it when available without blocking the approved Revision.
 6. Persist the new binding before implementation.
 
 If the original Worker is closed or busy, ask the active Codex host to create a lightweight visible Revision Worker using inherited Revision authority. It does not ask the user to authorize the same correction again, and it is not considered created until the host returns a real inspectable thread ID.
@@ -112,7 +112,7 @@ Claude Code or a host that cannot create/route the Worker outputs only:
 
 Discussion never implements the correction as a fallback.
 
-When installed, use the runtime's exact Revision resolution/routing and Claim acquisition commands rather than reconstructing state from prose. Treat the returned host action as authoritative.
+When runtime automation is available, use its exact Revision resolution/routing and Claim commands rather than reconstructing state from prose. In `warn`, missing automation does not block the exact approved Revision.
 
 ## Worker Work
 
@@ -121,9 +121,9 @@ The Revision Worker:
 1. Changes only `allowed_scope`.
 2. Runs only the targeted validation plus required repository checks.
 3. Stops if scope or risk classification expands.
-4. Creates one independent atomic commit.
+4. Creates one bounded linear commit series without merge commits.
 5. Creates one short immutable Run Report.
-6. Releases the Revision Claim after durable terminal evidence.
+6. Releases any acquired Revision Claim after durable terminal evidence.
 
 The report records Revision and parent IDs, user request, changed files, targeted validation, scope/risk check, commit, and shared-memory impact. Do not reproduce a full formal-Task narrative.
 
@@ -133,11 +133,11 @@ Every terminal Revision enters `integration_pending` automatically.
 
 For a safe completed Revision:
 
-1. Discussion acquires the minimum Integration lease bound to its session, integration ID, base branch/worktree, parent Task, Revision, and Revision Run Report.
+1. In `enforce`, Discussion acquires the minimum Integration lease bound to its session, integration ID, base branch/worktree, parent Task, Revision, and Revision Run Report. In `warn`, it verifies the same report and result commit directly.
 2. Merge/cherry-pick without committing.
 3. Run the targeted or necessary combined validation.
 4. Rewrite Project Status for this integration. Update other shared memory only when durable project truth changed; otherwise record concrete `N/A` in the Run Report.
-5. Create the integration commit, mark the Revision `integrated`, release the lease, and present the result.
+5. Create the integration commit, mark the Revision `integrated`, release any acquired lease, and present the result.
 
 A Revision cannot enter `integrated` unless its Run Report is listed in the Project Status written by the same integration change.
 

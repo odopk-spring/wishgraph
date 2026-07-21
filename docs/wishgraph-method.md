@@ -68,13 +68,13 @@ Discussion 不修改业务代码。它的职责是决定“下一步应该做什
 
 ### Worker：按边界执行
 
-Worker 位于独立、用户可查看和控制的 Agent thread 或窗口。它只读取准确 Task、执行规则、必要状态和范围内源码，并在取得绑定 Claim 后修改代码。
+Worker 位于独立、用户可查看和控制的 Agent thread 或窗口。它只读取准确 Task、执行规则、必要状态和范围内源码。`enforce` 要求修改前取得绑定 Claim；`warn` 不因 Claim 自动化缺失而阻塞。
 
 完成时，Worker 留下一份不可变 Run Report，说明修改、验证、风险和需要更新的项目事实。自然语言“完成了”不能替代这些证据。
 
 ### Integration：让项目记住变化
 
-Worker 终态先进入 `integration_pending`。安全结果由 Discussion-local Integration 自动检查、合并和回写；冲突、公共接口变化或新产品决定才返回用户。
+有运行时自动化时，Worker 终态进入 `integration_pending`；否则 `warn` Worker 直接返回报告和结果 commit。安全结果由 Discussion-local Integration 检查、合并和回写。
 
 `reports/PROJECT_STATUS.md` 保持为最新快照，历史留在 Run Reports 和 Git 中。下一个窗口从当前状态继续，不需要复制完整提示词或重新介绍项目。
 

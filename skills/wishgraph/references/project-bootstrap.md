@@ -107,7 +107,7 @@ For an existing project, create runtime artifacts lazily:
 3. Create `tasks/`, `tasks/revisions/`, and `reports/runs/` only when the first corresponding work unit needs them. Do not copy a Run Report placeholder into the project.
 4. Coalesce additional feedback into a pending or running Revision instead of allocating another Revision file. Allocate a new Revision only after the prior one is terminal and integrated.
 
-Native-lite must preserve the same Claim, role, validation, closeout, and semantic-sync gates. It reduces duplicate files; it does not weaken governance.
+Native-lite preserves the same Task, role, validation, closeout, and semantic-sync boundaries. Claim gates remain mandatory in `enforce` and best-effort in `warn`; native-lite changes only the document footprint.
 
 Native-lite readiness belongs to the current Task, not to a global documentation score. A Task is ready when its intended result, scope and Do Not Do boundary, real code anchors, executable validation, permission/risk boundary, and blocking unknowns are explicit. The goal is reliable facts for this Task, not perfect documentation for the whole project.
 
@@ -147,7 +147,7 @@ Do not make the user copy a full Discussion prompt or previous chat as a normal 
 
 Before the current Discussion ends, keep `reports/PROJECT_STATUS.md` accurate. A new supported window in the same Git project says `开始讨论` / `Start discussion`; an already active Discussion says `刷新项目状态` / `Refresh project status`.
 
-When switching hosts, preserve project files, Tasks, reports, Claims, and integrated state. Require the destination host to be selected in `required_hosts`; otherwise explicitly enable and install it before reopening the session. Never route a Codex thread ID to Claude or a Claude session ID to Codex; the new host establishes its own valid Worker binding before execution.
+When switching hosts, preserve project files, Tasks, reports, Claims, and integrated state. In `enforce`, require the destination host in `required_hosts` and install its Adapter before execution. In `warn`, a missing Adapter is advisory and the exact Task may be handed to a visible Worker without a reopen loop. Never route a Codex thread ID to Claude or a Claude session ID to Codex; the new host establishes its own local Worker identity.
 
 ## Project Status Migration
 

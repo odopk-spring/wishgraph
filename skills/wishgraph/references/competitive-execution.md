@@ -56,7 +56,7 @@ An objective scorecard may select a unique winner automatically when all require
 
 ## Execution And Isolation
 
-- Acquire one competitive Claim per candidate in a distinct worktree.
+- Use one distinct worktree per candidate. `enforce` requires one competitive Claim per candidate; `warn` attempts Claims without making missing automation a distribution blocker.
 - Prevent shared-memory edits from every candidate.
 - Run the same required baseline and evaluation surface where comparison fairness needs it.
 - Preserve failures and negative results in each immutable report.
@@ -71,7 +71,7 @@ Integrate exactly one winner.
 3. Select the unique winner automatically only when the policy allows it; otherwise ask the user.
 4. Mark the winner ready for Integration.
 5. Mark losing candidates `rejected` or `superseded`.
-6. Release all candidate Claims.
+6. Release all acquired candidate Claims; preserve stale records as evidence.
 7. Preserve every Task Spec, report, commit, and comparison result.
 
 Do not merge parts of multiple candidates unless Discussion first creates and authorizes a new fusion Task with its own validation and rollback boundary.

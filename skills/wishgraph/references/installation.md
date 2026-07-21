@@ -43,7 +43,7 @@ Make a recommendation before asking, except that an explicit `使用 WishGraph` 
 Use a compact choice message in the user's language. Include the detected host/system, one-sentence rationale, expected time, and the recommendation first. Example:
 
 ```text
-我检测到你正在 Codex 中配置一个现有 Git 项目。推荐“安全配置”：安装 Skill 和安静的建议模式 Hooks；普通文档与闭环问题不阻止，权限和状态完整性底线仍会阻止。通常不到 1 分钟。
+我检测到你正在 Codex 中配置一个现有 Git 项目。推荐“安全配置”：安装 Skill 和安静的建议模式 Hooks；`warn` 下检查不阻止任务分发或普通工具。通常不到 1 分钟。
 
 这个项目需要在哪些 Agent 中使用 WishGraph？
 - Codex + Claude Code（推荐）
@@ -158,9 +158,9 @@ python3 scripts/install_project_hooks.py --target PROJECT_ROOT --doctor --json
 python3 scripts/install_project_hooks.py --target PROJECT_ROOT --host codex --doctor --json
 ```
 
-Without `--host`, Doctor checks exactly the configured `required_hosts`. It reports three separate computed facts: `installation_healthy` for static files and dependencies, `host_execution_confirmed` for recent real Hook receipts, and `formal_worker_ready` for their conjunction. The compatibility field `healthy` has the same end-to-end meaning as `formal_worker_ready`; it never reports true while Formal Worker execution is unavailable.
+Without `--host`, Doctor checks exactly the configured `required_hosts`. It reports `installation_healthy`, `host_execution_confirmed`, and `formal_worker_ready`. In `warn`, Hook and Adapter coverage is advisory: `healthy` and `formal_worker_ready` remain true when the core runtime is current even if no receipt exists. In `enforce`, they continue to require current Adapters and recent receipts.
 
-`SessionStart` and `UserPromptSubmit` write bounded liveness receipts under the Git common directory at `.git/wishgraph/host-observations/`; Doctor only reads them. A current receipt proves that the selected host recently invoked the installed runtime. Missing or stale evidence returns a terminal `host_hooks_not_loaded` action with both a one-time reopen check and a supported CLI fallback in the same result. It does not persist retry counters, claim the Desktop is permanently unsupported, or repeat an unbounded restart instruction. Never write receipts from `PreToolUse` or from a manual invocation that lacks a valid host event payload.
+`SessionStart` and `UserPromptSubmit` write bounded liveness receipts under the Git common directory at `.git/wishgraph/host-observations/`; Doctor only reads them. A current receipt proves that the selected host recently invoked the installed runtime. In `warn`, missing or stale evidence does not change the next workflow action. In `enforce`, it returns `host_hooks_not_loaded` with one reopen check and a supported CLI fallback. Never write receipts from `PreToolUse` or from a manual invocation that lacks a valid host event payload.
 
 Use `next_action` as the route:
 
@@ -168,7 +168,7 @@ Use `next_action` as the route:
 - `upgrade_project_runtime`: current bundled files only need metadata repair, or the installed fingerprints match a bundled known version, so a safe upgrade may continue.
 - `review_runtime_changes`: preserve incomplete, unknown, or locally modified runtime files and ask before `--force-assets`.
 - `repair_current_host_adapter`: repair only the host in the current window.
-- `host_hooks_not_loaded`: the files are current but this host has not recently invoked them; fully reopen the Agent once, then use the reported CLI fallback if no receipt appears.
+- `host_hooks_not_loaded`: strict mode is active but this host has not recently invoked the Hooks; fully reopen the Agent once, then use the reported CLI fallback if no receipt appears.
 - `bootstrap_project_memory` or `start_discussion`: continue normal setup or entry.
 
 Safe project upgrade is atomic and preserves the configured `mode`. It snapshots every manifest-listed runtime file, the runtime manifest, and project config in memory; a failed write restores the snapshot and leaves no backup files:
@@ -195,8 +195,8 @@ After installation:
 1. Read `.wishgraph/config.json` and confirm the selected mode.
 2. Confirm every selected `required_host` has one current Adapter and Worker definition, either project-local or user-global. Refuse to overwrite a same-path non-WishGraph Agent definition. Claude background launch injects its Worktree settings per launch, so missing project `.claude/settings.json` is not by itself a failure and user settings remain unchanged.
 3. Confirm the host commands use the exact Python executable recorded in `.wishgraph/config.json`; then run that interpreter with `.wishgraph/hooks/memory_sync.py check --scope worktree`.
-4. Treat a missing governance skeleton as a next setup step, not a dependency failure; in safe mode ordinary setup gaps remain non-blocking while authority and state-integrity boundaries still fail closed.
-5. Finish with the selected mode and one next action: reopen the current Agent session, then use `开始讨论` / `Start discussion`. Describe the Adapter as installed, not Formal-Worker-ready, until a recent receipt exists.
-6. Only if the reopened session does not respond, run Doctor. In Codex Desktop, do not tell the user to type `/hooks` into the chat composer. Direct them to open Codex CLI in the same project and use `/hooks` there to review and trust the exact project Hook definition. For Claude Code CLI, allow `claude doctor`. Mention `--bare`, `--safe-mode`, or setting-source overrides only when the diagnosis requires them.
+4. Treat a missing governance skeleton as a next setup step, not a dependency failure. In `warn`, Hook and closeout findings never block normal tools.
+5. Finish with the selected mode and one next action: reopen the current Agent session, then use `开始讨论` / `Start discussion`. In `warn`, missing receipts affect only automatic checks; the approved Task can still be sent to a visible Worker.
+6. In `enforce`, only if the reopened session does not respond, run Doctor and use the supported CLI review route. Do not send a `warn` user through a restart or CLI loop merely to obtain a receipt.
 
-`warn` and `enforce` operate only when the host has installed and invoked its Adapter. They are host-tool gates, not an operating-system sandbox. Without a Claude Adapter, a normal Claude Code session cannot be detected or blocked by WishGraph. The optional Git pre-commit hook is only a commit-time fallback, not write-time enforcement.
+`warn` stays usable without an invoked Adapter; the Agent follows the approved Task and reports missing automation only in explicit diagnostics. `enforce` operates only when the host has installed and invoked its Adapter. Host Hooks are not an operating-system sandbox, and the optional Git pre-commit hook is only a commit-time fallback.

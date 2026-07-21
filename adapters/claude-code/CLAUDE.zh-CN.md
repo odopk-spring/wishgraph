@@ -29,15 +29,15 @@
 - 执行 session 只实现已批准任务规格。
 - 任务规格必须自包含；不要依赖聊天历史。
 - Worker session 使用独立 branch 或 worktree，创建一个不可变的 `reports/runs/<work-unit-id>-attempt-N.md`，填写 Integrate 或 N/A 建议，不修改共享记忆。
-- Discussion-local Integration 持有绑定 lease，使用 `--no-commit` 合并，把 `reports/PROJECT_STATUS.md` 重写为当前快照，并在同一个集成提交中更新受影响共享记忆。
-- 创建 Worker 必须有人类明确命令。Discussion 中优先在独立 Worktree 使用受管后台 Worker；普通 neutral 窗口则在取得 Claim 后直接绑定当前可检查会话，不再创建第二个 Worker。Host Adapter 会临时增加 `--worktree` 和 `--settings`，不改写用户设置。原生启动不可用时，输出项目目录、Codex/Claude 启动命令及最后的 `执行 <task-id> 任务`，Discussion 不得降级为实现者。
-- 宿主能检查和引导原 Worker 时，把轻量 Revision 路由回该 Worker；否则创建合法 Worker 路由或输出准确 Revision 交接。复用前必须释放旧 Claim，再获取 Revision 的新 scope/validation 绑定。
+- Discussion-local Integration 在 `enforce` 下持有绑定 lease；`warn` 可直接集成已核验的可见 Worker 结果，并在集成提交中重写 `reports/PROJECT_STATUS.md`。
+- 创建 Worker 必须有人类明确命令。`warn` 下缺少 Hook 或 Claim 自动化不阻止可见 Worker 接收已批准任务；`enforce` 保留真实身份、Worktree 和 Claim 契约。Discussion 不得降级为实现者。
+- 宿主能检查和引导原 Worker 时，把轻量 Revision 路由回该 Worker；否则创建合法 Worker 路由或输出准确 Revision 交接。复用前释放仍有效且已经取得的 Claim；`enforce` 获取 Revision 的新 scope/validation Claim，`warn` 可直接按准确 Revision 继续。
 - 精确的执行、停止、重试、接管和明确 competitive 命令通过结构化 Task ID 与 Git common dir Claim 路由。只有存在唯一 `expected_transition` 时，简短上下文批准才有效。
 - 把 Task 授权持久化为 `draft -> approved` 和 `worker_creation_authorized: true`，并原子创建规范 Run。Run 记录派发、运行、终态证据和集成；Task 只在 Integration 时改为 `integrated`，用户接受后改为 `reviewed`。
 - Claim release 在 Git common runtime 中写入一条幂等 pending notification。绑定的 Discussion 下一次激活时消费并标记已读；切换宿主后，明确开始讨论或刷新可接管。安全串行和机械检查证明独立的 `parallel_independent` 结果自动进入 Discussion-local Integration；风险、冲突、阻塞、竞争或歧义进入具体的 `decision_required` 或 `blocked`。不得创建独立 Integration 窗口、daemon、轮询、IPC 服务或弹窗。
-- Hooks 只输出状态并执行门禁，不决定是否并行，不启动 Agent，不合并代码，不编写语义记忆，也不代替 Review。
+- Hooks 在 `warn` 下只提供建议，在 `enforce` 下才执行门禁；它不决定是否并行，不启动 Agent，不合并代码，不编写语义记忆，也不代替 Review。
 - 新窗口默认中立。默认 SessionStart 只做安全检查，不激活 Discussion；明确开始讨论或刷新时再加载当前状态。
-- 每个完成的 Task-backed 执行单元优先对应一个原子 commit。
+- 每个完成的 Task-backed 执行单元优先对应一个 commit，但允许有界的线性 commit 范围。
 - 存在 `.wishgraph/hooks/memory_sync.py` 时，宣称完成前运行 worktree 检查。
 
 ## 继续工作

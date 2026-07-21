@@ -307,7 +307,7 @@ class InstallerTests(unittest.TestCase):
 
             with mock.patch.object(installer_module, "ASSET_ROOT", asset_root):
                 manifest = installer_module.bundled_runtime_manifest()
-                self.assertEqual(manifest["runtime_version"], 29)
+                self.assertEqual(manifest["runtime_version"], 30)
 
                 policy_path = asset_root / "policy.py"
                 policy_path.write_bytes(policy_path.read_bytes() + b"# changed\r\n")
@@ -362,7 +362,7 @@ class InstallerTests(unittest.TestCase):
                 check=True,
             )
             payload = json.loads(process.stdout)
-            self.assertFalse(payload["healthy"])
+            self.assertTrue(payload["healthy"])
             self.assertTrue(payload["installation_healthy"])
             self.assertEqual(payload["activation"]["state"], "active")
             self.assertEqual(payload["runtime"]["state"], "current")
@@ -373,8 +373,8 @@ class InstallerTests(unittest.TestCase):
                 "unverified",
             )
             self.assertFalse(payload["host_execution_confirmed"])
-            self.assertFalse(payload["formal_worker_ready"])
-            self.assertEqual(payload["next_action"], "host_hooks_not_loaded")
+            self.assertTrue(payload["formal_worker_ready"])
+            self.assertEqual(payload["next_action"], "bootstrap_project_memory")
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["diagnosis"], "unsupported_or_not_loaded")
             self.assertNotIn("troubleshooting", execution)
@@ -407,10 +407,42 @@ class InstallerTests(unittest.TestCase):
                 stderr=subprocess.PIPE,
                 check=True,
             )
-            self.assertIn("Formal Worker: not ready", plain.stdout)
-            self.assertIn("continue from codex cli", plain.stdout)
-            self.assertIn("then run `/hooks`", plain.stdout)
+            self.assertIn("Formal Worker: ready", plain.stdout)
+            self.assertIn("Next: say `Start discussion`", plain.stdout)
+            self.assertNotIn("continue from codex cli", plain.stdout)
+            self.assertNotIn("then run `/hooks`", plain.stdout)
             self.assertNotIn("Supported host check: /hooks", plain.stdout)
+
+    def test_doctor_warn_missing_adapter_remains_distribution_ready(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+            installed = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALLER),
+                    "--target",
+                    str(root),
+                    "--host",
+                    "codex",
+                    "--mode",
+                    "warn",
+                ],
+                text=True,
+                encoding="utf-8",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(installed.returncode, 0, installed.stderr)
+            (root / ".codex" / "hooks.json").unlink()
+
+            payload = installer_module.doctor_report(root, "codex")
+            self.assertEqual(payload["host_adapters"]["codex"]["state"], "missing")
+            self.assertFalse(payload["host_execution_confirmed"])
+            self.assertTrue(payload["installation_healthy"])
+            self.assertTrue(payload["formal_worker_ready"])
+            self.assertTrue(payload["healthy"])
+            self.assertEqual(payload["next_action"], "bootstrap_project_memory")
 
     def test_doctor_confirms_a_recent_real_host_hook_invocation(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -470,7 +502,7 @@ class InstallerTests(unittest.TestCase):
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["state"], "confirmed_recently")
             self.assertEqual(execution["last_event"], "session-start")
-            self.assertEqual(execution["observed_runtime_version"], 29)
+            self.assertEqual(execution["observed_runtime_version"], 30)
             self.assertTrue(payload["host_execution_confirmed"])
             self.assertTrue(payload["installation_healthy"])
             self.assertTrue(payload["formal_worker_ready"])
@@ -526,7 +558,9 @@ class InstallerTests(unittest.TestCase):
             )
             self.assertEqual(execution["state"], "unverified")
             self.assertEqual(execution["troubleshooting"], "claude doctor")
-            self.assertEqual(payload["next_action"], "host_hooks_not_loaded")
+            self.assertTrue(payload["healthy"])
+            self.assertTrue(payload["formal_worker_ready"])
+            self.assertEqual(payload["next_action"], "bootstrap_project_memory")
 
     def test_doctor_marks_observation_stale_after_host_adapter_changes(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -566,7 +600,9 @@ class InstallerTests(unittest.TestCase):
             execution = payload["host_adapters"]["codex"]["execution"]
             self.assertEqual(execution["state"], "stale")
             self.assertFalse(payload["host_execution_confirmed"])
-            self.assertEqual(payload["next_action"], "host_hooks_not_loaded")
+            self.assertTrue(payload["healthy"])
+            self.assertTrue(payload["formal_worker_ready"])
+            self.assertEqual(payload["next_action"], "bootstrap_project_memory")
             self.assertEqual(execution["diagnosis"], "host_receipt_stale")
 
     def test_manual_or_non_observation_hooks_do_not_write_host_receipts(self) -> None:
@@ -679,12 +715,12 @@ class InstallerTests(unittest.TestCase):
             payload = json.loads(upgraded.stdout)
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["after"]["state"], "current")
-            self.assertEqual(payload["after"]["installed_runtime_version"], 29)
+            self.assertEqual(payload["after"]["installed_runtime_version"], 30)
             config = json.loads(
                 (root / ".wishgraph" / "config.json").read_text(encoding="utf-8")
             )
             self.assertEqual(config["mode"], "enforce")
-            self.assertEqual(config["runtime_version"], 29)
+            self.assertEqual(config["runtime_version"], 30)
 
     def test_safe_upgrade_replaces_only_a_bundled_known_old_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -1129,7 +1165,7 @@ class InstallerTests(unittest.TestCase):
             config = json.loads((root / ".wishgraph" / "config.json").read_text())
             self.assertEqual(config["mode"], "warn")
             self.assertEqual(config["version"], 13)
-            self.assertEqual(config["runtime_version"], 29)
+            self.assertEqual(config["runtime_version"], 30)
             self.assertTrue(
                 (root / ".wishgraph" / "hooks" / "runtime-manifest.json").is_file()
             )

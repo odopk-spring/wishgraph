@@ -686,7 +686,9 @@ def emit_orchestration_gate(
     *,
     emit_output: Callable[[dict[str, Any]], None],
 ) -> None:
-    del mode
+    if mode != "enforce":
+        emit_output({})
+        return
     emit_output(
         {
             "hookSpecificOutput": {

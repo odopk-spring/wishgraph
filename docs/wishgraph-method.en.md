@@ -68,13 +68,13 @@ Discussion does not implement business code. Its job is to decide what should ha
 
 ### Worker: execute inside the boundary
 
-A Worker runs in an independent, user-visible, inspectable, and controllable Agent thread or window. It reads the exact Task, execution rules, necessary state, and in-scope source, then changes code only after acquiring a bound Claim.
+A Worker runs in an independent, user-visible, inspectable, and controllable Agent thread or window. It reads the exact Task, execution rules, necessary state, and in-scope source. `enforce` requires a bound Claim before changes; `warn` does not block when Claim automation is unavailable.
 
 At closeout it leaves an immutable Run Report covering changes, validation, risk, and proposed project-state updates. A prose “done” message is not equivalent evidence.
 
 ### Integration: let the project remember
 
-Every Worker terminal state first enters `integration_pending`. Discussion-local Integration evaluates, merges, and writes back safe results. Conflicts, public-contract changes, and new product decisions return to the user.
+With runtime automation, Worker terminal state enters `integration_pending`; otherwise a warn-mode Worker returns its report and result commit directly. Discussion-local Integration evaluates, merges, and writes back safe results.
 
 `reports/PROJECT_STATUS.md` remains a current snapshot while history stays in Run Reports and Git. The next window resumes from that state without copying a full prompt or retelling the project.
 

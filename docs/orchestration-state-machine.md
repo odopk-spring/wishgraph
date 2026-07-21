@@ -19,6 +19,8 @@ WishGraph 按项目显式启用。全局安装 Skill 只表示“可用”，不
 
 项目没有已启用的 `.wishgraph/config.json` 时，“开始讨论”“刷新项目状态”“执行 012 任务”都只是普通文本，不触发 WishGraph，也不创建文件。
 
+`warn` 以分发为核心：Hook、回执、Claim 和 lease 都是尽力自动化，缺失时不阻止已批准任务交给可见 Worker。`enforce` 才要求这些机械绑定并拒绝不符合条件的工具操作。
+
 | 意图 | 命令 | 读取范围 |
 | --- | --- | --- |
 | 进入讨论 | `开始讨论` / `Start discussion` | 当前 Project Status、待处理通知、必要 active state |
@@ -38,7 +40,7 @@ WishGraph 按项目显式启用。全局安装 Skill 只表示“可用”，不
 | Integration | Discussion 内部的临时 phase，不是角色，也不创建第四个窗口 |
 | Review | Discussion 向用户呈现结果的状态，不是第四个 Agent |
 
-Formal Worker 不要求一定是“物理新窗口”，但必须有稳定 thread/session ID、独立上下文、可查看与控制的过程、精确 Task/Claim/branch/worktree 绑定、写入和构建门禁，以及结构化终态与 Run Report。
+Worker 不要求一定是“物理新窗口”，但必须独立、用户可见、可检查，绑定精确 Task、范围、验证和 Run Report。稳定 thread/session ID、Claim 及写入门禁只在 `enforce` 下强制要求。
 
 Agent 身份不会自动产生权限。Codex Explorer、Reviewer，Claude Explore、Plan、`/fork` 和隐藏子代理默认都是 Helper，不能取得 Worker Claim。Formal Worker 也不得继续创建另一个 Formal Worker。
 
@@ -52,7 +54,7 @@ discussion
 worker
 ```
 
-新会话默认 `neutral`。“开始讨论”进入规划讨论；Discussion 收到精确“执行 NNN 任务”后派发独立 Worker，普通 neutral 窗口收到同一命令时直接绑定当前窗口为 Worker，不再创建第二个窗口。两条路径都必须先持久化授权 Run，并在 Claim 成功后进入 `worker`。
+新会话默认 `neutral`。“开始讨论”进入规划讨论；Discussion 收到精确“执行 NNN 任务”后派发独立 Worker，普通 neutral 窗口收到同一命令时直接绑定当前窗口为 Worker，不再创建第二个窗口。`enforce` 要求先持久化授权 Run 并取得 Claim；`warn` 自动化不可用时直接按准确批准的 Task 继续。
 
 ### 持久 Task Lifecycle
 
@@ -61,7 +63,7 @@ draft -> approved -> integrated -> reviewed
 ```
 
 - `approved`：Task 已完成规划，执行授权由规范 Run 单独记录。
-- `integrated`：Integration lease、合并、组合验证和共享状态收尾完成。
+- `integrated`：合并、组合验证和共享状态收尾完成；`enforce` 还要求 Integration lease。
 - `reviewed`：Discussion 已呈现，用户接受结果。
 
 Task 只保存 `draft -> approved -> integrated -> reviewed` 这组持久状态。`dispatching`、`running`、`succeeded|failed|decision_required`、`integrating` 和 `integrated` 由 Git common dir 的规范 Run 表达，避免 Task、session 和 observer 重复保存同一执行事实。
@@ -145,7 +147,7 @@ codex-worker prepare
 -> 当前 Codex 宿主创建原生 Agent thread
 -> 宿主返回真实 thread ID
 -> codex-worker register 持久化 ID 和可检查/可控制证明
--> Worker preflight 并取得 Claim
+-> Worker preflight；`enforce` 取得 Claim，`warn` 尽力获取
 ```
 
 Hook 不创建 Agent。`prepare` 成功不等于 Worker 已创建；真实 thread ID 注册前不得进入 `waiting_for_worker`。创建或注册失败时输出精简的跨宿主启动交接。
@@ -170,7 +172,7 @@ claude --resume <full-session-id>
 
 第一条用于结构化刷新，第二条打开原生交互视图进行查看与控制，第三条用于适合恢复时按完整 ID 继续会话。当前 CLI 不提供 `claude logs`、`claude attach` 或 `claude stop` 子命令，WishGraph 不得假装这些命令成功。已创建但 Worktree/runtime 验证失败的 session 进入明确人工处理状态，同时用户侧降级仍只显示一行执行命令。
 
-`claude --bg` 返回不等于 Run 已 `running`。Worker 进入实际 worktree 后仍需取得绑定 Claim。`/tasks` 只查看当前 Claude session 关联的后台工作，不创建 WishGraph Task，也不授予权限。
+`claude --bg` 返回不等于完成证据。Worker 进入实际 worktree 后必须通过准确 preflight；`enforce` 还需取得绑定 Claim，`warn` 不因该自动化缺失而阻塞。`/tasks` 只查看后台工作，不创建 WishGraph Task，也不授予权限。
 
 ### 未知或不支持的宿主
 
@@ -178,7 +180,7 @@ claude --resume <full-session-id>
 
 ## 7. Claim、worktree 与并行
 
-业务写入、依赖安装、实现构建／测试和 Worker commit 都需要有效 Claim，至少绑定：
+`enforce` 下，业务写入、依赖安装、实现构建／测试和 Worker commit 都需要有效 Claim，至少绑定：
 
 ```text
 task_id / revision_id
@@ -192,7 +194,7 @@ execution_ownership
 lease status / heartbeat
 ```
 
-一个 Worker thread 同一时刻只能绑定一个工作单元。复用前必须让旧工作进入终态或明确停止、释放旧 Claim、清空旧 scope/validation，再取得新 Claim。
+一个 Worker thread 同一时刻只能绑定一个工作单元。复用前必须让旧工作进入终态或明确停止并清空旧 scope/validation。释放仍有效且已经取得的 Claim；stale 记录只保留证据，不阻止替代。`enforce` 再取得新 Claim，`warn` 可按准确新 Task 继续。
 
 并行写入必须使用独立 worktree。Claim 只协调共享同一本地 Git common directory 的进程和 worktree，不是跨机器分布式锁。
 
@@ -215,7 +217,7 @@ lease status / heartbeat
 
 ## 9. Worker 终态、提醒与 Integration
 
-Worker 写结构化终态、Run Report 并释放 Claim 后，Claim release 写一条幂等 pending notification：
+Worker 写结构化终态和 Run Report；已经取得 Claim 时，release 可写一条幂等 pending notification。`warn` 没有该自动化时，可见 Worker 直接返回报告路径和结果 commit：
 
 ```text
 Worker terminal evidence + released Claim
@@ -233,13 +235,13 @@ completed|blocked|incomplete
 -> evaluate_integration
 ```
 
-- 报告、验证、范围、冲突和风险门禁通过：Discussion 取得 Integration lease，自动进行 safe-when-silent Integration。
+- 报告、结果 commit、验证、范围、冲突和风险检查通过：Discussion 进行 safe-when-silent Integration；`enforce` 还要取得 Integration lease。
 - 公共接口、数据、安全、产品决定或冲突：进入 `decision_required`，只问具体选择。
-- 缺报告、验证失败、Claim 未释放或状态矛盾：进入 Worker repair / `blocked`，不集成。
+- 缺报告或验证失败：进入 Worker repair / `blocked`。`enforce` 还会因 Claim 未释放或状态矛盾停止集成。
 
-宿主的 `completed` 状态或自然语言“做完了”都不是充分证据。Integration 必须重新读取准确 Task/Revision、预期 Run Report、Claim、branch 和 worktree。
+宿主的 `completed` 状态或自然语言“做完了”都不是充分证据。Integration 必须重新读取准确 Task/Revision、预期 Run Report、结果 commit 和验证；`enforce` 还核对 Claim、branch 和 worktree。
 
-合法权限链固定为：
+`enforce` 的合法权限链为：
 
 ```text
 已验证的 Discussion(integration_pending)
@@ -254,7 +256,7 @@ completed|blocked|incomplete
 ## 10. 门禁能力的真实边界
 
 ```text
-write/build gate: required
+write/build gate: required in enforce; advisory in warn
 read gate: host capability dependent
 ```
 

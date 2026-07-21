@@ -1080,6 +1080,82 @@ class ClaimAndHookTests(MemorySyncTestCase):
             "authorized_task_must_match_current_head_for_execution_thread",
         )
 
+    def test_warn_route_persistence_failure_uses_direct_worker_handoff(self) -> None:
+        task_id = "061"
+        discussion_id = "discussion-061"
+        task_path = f"tasks/build/{task_id}-warn-direct.md"
+        self.write(task_path, self.execution_ready_task(task_id))
+        config_path = self.root / ".wishgraph" / "config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["mode"] = "warn"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        self.git("add", task_path, ".wishgraph/config.json")
+        self.git("commit", "-qm", "prepare warn direct route")
+        persisted = memory_sync.write_session_runtime(
+            self.root,
+            discussion_id,
+            {
+                "session": {
+                    "session_id": discussion_id,
+                    "role": "discussion",
+                    "host": "claude",
+                    "phase": "awaiting_worker_authorization",
+                    "expected_transition": {
+                        "kind": "approve_worker_launch",
+                        "task_id": task_id,
+                    },
+                },
+                "task": {
+                    "task_id": task_id,
+                    "lifecycle": "draft",
+                    "worker_authorized": False,
+                    "run_report": f"reports/runs/{task_id}-attempt-1.md",
+                },
+            },
+        )
+        self.assertTrue(persisted["ok"], persisted)
+        conflicting = memory_sync.update_execution_run(
+            self.root,
+            task_id=task_id,
+            attempt=1,
+            create=True,
+            patch={"phase": "running", "claim_id": "old-claim"},
+        )
+        self.assertTrue(conflicting["ok"], conflicting)
+
+        routed = subprocess.run(
+            [
+                sys.executable,
+                str(HOOK_ASSETS / "memory_sync.py"),
+                "user-prompt-submit",
+                "--host",
+                "claude",
+            ],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": discussion_id,
+                    "prompt": f"Execute task {task_id}",
+                }
+            ),
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        context = json.loads(routed.stdout)["hookSpecificOutput"]["additionalContext"]
+        route = json.loads(context.split("WishGraph explicit route:\n", 1)[1])
+        self.assertTrue(route["ok"], route)
+        self.assertEqual(route["host_adapter_command"], "")
+        self.assertFalse(route["launch_must_run_in_current_discussion"])
+        self.assertFalse(route["delegation_forbidden"])
+        self.assertEqual(
+            route["plan"]["runtime_advisory"], "direct_worker_handoff"
+        )
+        self.assertIn("Create the visible Worker directly", context)
+
     def test_internal_session_runtime_apply_deep_merges_reducer_patch(self) -> None:
         memory_sync.write_session_runtime(
             self.root,
@@ -1720,6 +1796,92 @@ class ClaimAndHookTests(MemorySyncTestCase):
         )
         payload = json.loads(process.stdout)
         self.assertEqual(payload["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_warn_pre_tool_use_allows_worker_without_live_claim(self) -> None:
+        config_path = self.root / ".wishgraph" / "config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["mode"] = "warn"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        memory_sync.write_session_runtime(
+            self.root,
+            "worker-warn-no-claim",
+            {
+                "session": {
+                    "session_id": "worker-warn-no-claim",
+                    "role": "worker",
+                    "host": "codex",
+                    "phase": "waiting_for_worker",
+                    "expected_transition": None,
+                },
+                "task": {
+                    "task_id": "002",
+                    "lifecycle": "running",
+                    "worker_authorized": True,
+                },
+            },
+        )
+        process = subprocess.run(
+            [sys.executable, str(HOOK_ASSETS / "memory_sync.py"), "pre-tool-use"],
+            cwd=self.root,
+            input=json.dumps(
+                {
+                    "cwd": str(self.root),
+                    "session_id": "worker-warn-no-claim",
+                    "tool_name": "Bash",
+                    "tool_input": {"command": "python3 -m unittest"},
+                }
+            ),
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        self.assertEqual(json.loads(process.stdout), {})
+        self.assertEqual(process.stderr, "")
+
+    def test_malformed_config_fails_open_only_for_warn(self) -> None:
+        config_path = self.root / ".wishgraph" / "config.json"
+        for mode, denied in (("warn", False), ("enforce", True)):
+            with self.subTest(mode=mode):
+                config_path.write_text('{"mode":"' + mode + '",', encoding="utf-8")
+                process = subprocess.run(
+                    [
+                        sys.executable,
+                        str(HOOK_ASSETS / "memory_sync.py"),
+                        "pre-tool-use",
+                    ],
+                    cwd=self.root,
+                    input=json.dumps(
+                        {
+                            "cwd": str(self.root),
+                            "session_id": f"malformed-{mode}",
+                            "tool_name": "Write",
+                            "tool_input": {
+                                "file_path": str(self.root / "src" / "app.py")
+                            },
+                        }
+                    ),
+                    text=True,
+                    encoding="utf-8",
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    check=True,
+                )
+                payload = json.loads(process.stdout)
+                if denied:
+                    self.assertEqual(
+                        payload["hookSpecificOutput"]["permissionDecision"], "deny"
+                    )
+                    self.assertIn(
+                        "configuration",
+                        payload["hookSpecificOutput"][
+                            "permissionDecisionReason"
+                        ].lower(),
+                    )
+                else:
+                    self.assertEqual(payload, {})
+                    self.assertEqual(process.stderr, "")
 
     def test_pre_tool_use_worker_may_update_only_its_own_task_state(self) -> None:
         own_task = "tasks/build/033-worker-state.md"

@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": 13,
-    "runtime_version": 29,
+    "runtime_version": 30,
     "mode": "enforce",
     "required_hosts": ["codex", "claude"],
     "paths": {
@@ -376,13 +376,6 @@ def acquire_claim(
                 "error": "invalid_claim_record",
                 "claims": invalid_claims,
             }
-        stale_claims = [claim for claim in existing_claims if claim.get("stale")]
-        if stale_claims:
-            return {
-                "ok": False,
-                "error": "stale_claim_requires_explicit_revoke",
-                "claims": stale_claims,
-            }
         active = [
             claim
             for claim in existing_claims
@@ -548,7 +541,7 @@ def rebind_worker_claim(
     if len(old_matches) != 1:
         return {"ok": False, "error": "old_claim_not_found"}
     old_claim = old_matches[0]
-    if old_claim.get("effective_lease_status") == "active":
+    if old_claim.get("lease_status") == "active":
         released = update_claim(
             root,
             old_claim_id,
@@ -1690,6 +1683,8 @@ def load_config(root: Path) -> Optional[dict[str, Any]]:
         raise ValueError(f"Cannot read {path.relative_to(root)}: {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError(".wishgraph/config.json must contain a JSON object")
+    if data.get("mode") not in {"off", "warn", "enforce"}:
+        raise ValueError("mode is required and must be off, warn, or enforce")
     if "required_hosts" not in data:
         raise ValueError("required_hosts is required; reactivate this project")
     config = deep_merge(DEFAULT_CONFIG, data)
