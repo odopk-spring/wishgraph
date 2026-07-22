@@ -15,11 +15,11 @@ class RuntimeBoundaryTests(unittest.TestCase):
         version = (ROOT / "skills" / "wishgraph" / "VERSION").read_text(
             encoding="utf-8"
         ).strip()
-        self.assertEqual(version, "0.1.0")
+        self.assertEqual(version, "0.1.1")
         bash_installer = TOP_LEVEL_INSTALLER.read_text(encoding="utf-8")
         powershell_installer = POWERSHELL_INSTALLER.read_text(encoding="utf-8")
-        self.assertIn('repo_ref="${WISHGRAPH_REF:-v0.1.0}"', bash_installer)
-        self.assertIn('else { "v0.1.0" }', powershell_installer)
+        self.assertIn('repo_ref="${WISHGRAPH_REF:-v0.1.1}"', bash_installer)
+        self.assertIn('else { "v0.1.1" }', powershell_installer)
         for document in (
             "README.md",
             "README.zh-CN.md",
@@ -27,7 +27,7 @@ class RuntimeBoundaryTests(unittest.TestCase):
             "GETTING_STARTED.zh-CN.md",
         ):
             content = (ROOT / document).read_text(encoding="utf-8")
-            self.assertIn("/v0.1.0/scripts/install-wishgraph", content)
+            self.assertIn("/v0.1.1/scripts/install-wishgraph", content)
             self.assertNotIn("/main/scripts/install-wishgraph", content)
 
     def test_commit_benchmark_budget_does_not_relax_ordinary_tool_gate(self) -> None:

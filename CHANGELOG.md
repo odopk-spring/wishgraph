@@ -4,6 +4,21 @@ All notable WishGraph changes are recorded here. Product releases use semantic
 version tags; the project-local runtime keeps its own independent integer version
 for safe upgrades.
 
+## [0.1.1] - 2026-07-22
+
+### Fixed
+
+- Allowed `warn` integrations to absorb the immutable Run Report from the
+  preceding Worker closeout commit when the same change moves its Task from
+  `completed` to `integrated`.
+- Kept existing-report validation strict for report format, Task ID, attempt,
+  safety fields, readiness, and duplicate integration references.
+
+### Compatibility
+
+- Kept `enforce` Claim, canonical Run, Integration lease, and new-report gates
+  unchanged.
+
 ## [0.1.0] - 2026-07-21
 
 First public beta release candidate.
@@ -39,4 +54,5 @@ First public beta release candidate.
 - Broader real-project and host-version acceptance evidence is still required
   before v1.
 
+[0.1.1]: https://github.com/odopk-spring/wishgraph/releases/tag/v0.1.1
 [0.1.0]: https://github.com/odopk-spring/wishgraph/releases/tag/v0.1.0

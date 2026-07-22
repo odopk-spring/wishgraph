@@ -31,7 +31,7 @@ Examples:
 
 Environment:
   WISHGRAPH_REPO_URL  Defaults to https://github.com/odopk-spring/wishgraph.git
-  WISHGRAPH_REF       Defaults to v0.1.0; set main only for development snapshots
+  WISHGRAPH_REF       Defaults to v0.1.1; set main only for development snapshots
 USAGE
 }
 
@@ -205,7 +205,7 @@ if [[ "$check_only" -eq 1 ]]; then
 fi
 
 repo_url="${WISHGRAPH_REPO_URL:-https://github.com/odopk-spring/wishgraph.git}"
-repo_ref="${WISHGRAPH_REF:-v0.1.0}"
+repo_ref="${WISHGRAPH_REF:-v0.1.1}"
 
 case "$target" in
   codex)

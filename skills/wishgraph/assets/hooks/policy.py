@@ -1907,12 +1907,14 @@ def validate_run_report(
     scope: str,
     report_path: str,
     result: CheckResult,
+    *,
+    allow_existing: bool = False,
 ) -> None:
     content = read_version(root, report_path, scope)
     if content is None:
         result.errors.append(f"Cannot read the {scope} version of {report_path}")
         return
-    if read_head_version(root, report_path) is not None:
+    if not allow_existing and read_head_version(root, report_path) is not None:
         result.errors.append(
             f"{report_path} already exists in HEAD; run reports are immutable and must use a new ID"
         )
@@ -2539,12 +2541,78 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
 
     integration_mode = overview_path in changed
     if integration_mode:
+        existing_reports = not run_reports and config.get("mode") == "warn"
+        if existing_reports:
+            overview = read_version(root, overview_path, scope) or ""
+            for report_path in sorted(
+                integrated_report_paths(overview, run_report_glob)
+            ):
+                try:
+                    canonical_report = canonical_repo_path(report_path)
+                except ValueError:
+                    result.errors.append(
+                        f"{overview_path} contains invalid run report path {report_path}"
+                    )
+                    continue
+                if not fnmatch.fnmatch(canonical_report, run_report_glob):
+                    result.errors.append(
+                        f"{overview_path} run report {canonical_report} must match {run_report_glob}"
+                    )
+                    continue
+                run_reports.append(canonical_report)
         if not run_reports:
             result.errors.append(
-                f"Integration must include at least one new {run_report_glob} file; use a no-commit merge or cherry-pick"
+                f"Integration must include at least one new {run_report_glob} file or, in warn mode, absorb one completed Task report"
             )
         for report_path in run_reports:
-            validate_run_report(root, config, scope, report_path, result)
+            validate_run_report(
+                root,
+                config,
+                scope,
+                report_path,
+                result,
+                allow_existing=existing_reports,
+            )
+        if existing_reports:
+            previous_overview = read_head_version(root, overview_path) or ""
+            previously_integrated = integrated_report_paths(
+                previous_overview, run_report_glob
+            )
+            for report_path in run_reports:
+                if report_path in previously_integrated:
+                    result.errors.append(
+                        f"{report_path} was already referenced by the previous integration"
+                    )
+                matching_transitions: list[TaskState] = []
+                for task_path, state in validated_tasks.items():
+                    previous_content = read_head_version(root, task_path)
+                    if previous_content is None:
+                        continue
+                    previous = task_state(task_path, previous_content)
+                    if (
+                        state.run_report == report_path
+                        and previous.status == "completed"
+                        and state.status == "integrated"
+                    ):
+                        matching_transitions.append(state)
+                if len(matching_transitions) != 1:
+                    result.errors.append(
+                        f"Existing run report {report_path} requires exactly one Task completed -> integrated transition in the current change"
+                    )
+                    continue
+                report_content = read_version(root, report_path, scope)
+                if report_content is None:
+                    continue
+                report = report_state(report_path, report_content)
+                task = matching_transitions[0]
+                if report.task_id != task.task_id:
+                    result.errors.append(
+                        f"{report_path} task_id {report.task_id or '(missing)'} does not match {task.path} task_id {task.task_id}"
+                    )
+                if report.attempt != task.attempt:
+                    result.errors.append(
+                        f"{report_path} attempt {report.attempt} does not match {task.path} attempt {task.attempt}"
+                    )
         validate_integration_overview(
             root, config, scope, changed, run_reports, result
         )

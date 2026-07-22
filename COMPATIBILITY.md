@@ -1,6 +1,6 @@
 # Compatibility and support matrix
 
-WishGraph v0.1.0 requires Git and Python 3.9 or newer. It installs no Python
+WishGraph v0.1.x requires Git and Python 3.9 or newer. It installs no Python
 packages and does not require the governed project itself to use Python.
 
 ## Automated coverage

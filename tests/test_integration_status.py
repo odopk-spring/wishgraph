@@ -1,6 +1,119 @@
 from tests.wishgraph_test_support import *  # noqa: F401,F403
 
 class IntegrationStatusTests(MemorySyncTestCase):
+    def _commit_warn_worker_closeout(self, task_id: str) -> tuple[dict[str, Any], str, str]:
+        config = json.loads(json.dumps(self.config))
+        config["mode"] = "warn"
+        task_path = f"tasks/build/{task_id}-warn-integration.md"
+        report_path = f"reports/runs/{task_id}-attempt-1.md"
+        self.write(
+            task_path,
+            self.structured_task(
+                task_id,
+                status="approved",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.git("add", task_path)
+        self.git("commit", "-qm", f"approve {task_id}")
+        self.write("src/app.py", f"print('completed {task_id}')\n")
+        self.write(
+            task_path,
+            self.structured_task(
+                task_id,
+                status="completed",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.write(
+            report_path,
+            self.structured_run_report(
+                f"{task_id}-attempt-1",
+                task_id=task_id,
+                changed_paths=["src/app.py"],
+            ),
+        )
+        closeout = memory_sync.check_sync(self.root, config, "worktree")
+        self.assertTrue(closeout.ok, closeout.errors)
+        self.git("add", "src/app.py", task_path, report_path)
+        self.git("commit", "-qm", f"complete {task_id}")
+        return config, task_path, report_path
+
+    def test_warn_integration_absorbs_report_from_previous_closeout_commit(self) -> None:
+        config, task_path, report_path = self._commit_warn_worker_closeout("071")
+        self.write(
+            task_path,
+            self.structured_task(
+                "071",
+                status="integrated",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.write("reports/PROJECT_STATUS.md", self.overview([report_path]))
+
+        result = memory_sync.check_sync(self.root, config, "worktree")
+
+        self.assertTrue(result.ok, result.errors)
+
+    def test_existing_report_requires_completed_to_integrated_task_transition(self) -> None:
+        config, _, report_path = self._commit_warn_worker_closeout("072")
+        self.write("reports/PROJECT_STATUS.md", self.overview([report_path]))
+
+        result = memory_sync.check_sync(self.root, config, "worktree")
+
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any("completed -> integrated transition" in error for error in result.errors),
+            result.errors,
+        )
+
+    def test_existing_integration_rejects_missing_report(self) -> None:
+        config, task_path, report_path = self._commit_warn_worker_closeout("073")
+        missing_report = "reports/runs/073-missing.md"
+        self.write(
+            task_path,
+            self.structured_task(
+                "073",
+                status="integrated",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.write("reports/PROJECT_STATUS.md", self.overview([missing_report]))
+
+        result = memory_sync.check_sync(self.root, config, "worktree")
+
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any(f"Cannot read the worktree version of {missing_report}" in error for error in result.errors),
+            result.errors,
+        )
+
+    def test_enforce_integration_still_requires_new_report_path(self) -> None:
+        config, task_path, report_path = self._commit_warn_worker_closeout("074")
+        config["mode"] = "enforce"
+        self.write(
+            task_path,
+            self.structured_task(
+                "074",
+                status="integrated",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.write("reports/PROJECT_STATUS.md", self.overview([report_path]))
+
+        result = memory_sync.check_sync(self.root, config, "worktree")
+
+        self.assertFalse(result.ok)
+        self.assertTrue(
+            any("at least one new reports/runs/*.md" in error for error in result.errors),
+            result.errors,
+        )
+
     def test_integrated_revision_requires_same_change_project_status_writeback(self) -> None:
         self.config = json.loads(
             (HOOK_ASSETS / "config.json").read_text(encoding="utf-8")

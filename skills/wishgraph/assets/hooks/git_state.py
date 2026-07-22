@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": 13,
-    "runtime_version": 31,
+    "runtime_version": 32,
     "mode": "enforce",
     "required_hosts": ["codex", "claude"],
     "paths": {
