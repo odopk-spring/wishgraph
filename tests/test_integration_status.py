@@ -1,7 +1,7 @@
 from tests.wishgraph_test_support import *  # noqa: F401,F403
 
 class IntegrationStatusTests(MemorySyncTestCase):
-    def _commit_warn_worker_closeout(self, task_id: str) -> tuple[dict[str, Any], str, str]:
+    def _commit_warn_worker_closeout(self, task_id: str) -> tuple[dict[str, object], str, str]:
         config = json.loads(json.dumps(self.config))
         config["mode"] = "warn"
         task_path = f"tasks/build/{task_id}-warn-integration.md"
