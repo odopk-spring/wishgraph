@@ -158,7 +158,7 @@ if ($Check) {
 }
 
 $repoUrl = if ($env:WISHGRAPH_REPO_URL) { $env:WISHGRAPH_REPO_URL } else { "https://github.com/odopk-spring/wishgraph.git" }
-$repoRef = if ($env:WISHGRAPH_REF) { $env:WISHGRAPH_REF } else { "v0.1.1" }
+$repoRef = if ($env:WISHGRAPH_REF) { $env:WISHGRAPH_REF } else { "v0.1.2" }
 
 switch ($Target) {
     "codex" {

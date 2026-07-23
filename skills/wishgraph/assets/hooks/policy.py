@@ -741,10 +741,21 @@ def reduce_orchestration(
         )
         if outcome == "safe":
             canonical_run_terminal = data.get("canonical_run_terminal") is True
+            warn_authorized = bool(
+                (config or {}).get("mode") == "warn"
+                and task is not None
+                and task.worker_authorized
+            )
             allowed_lifecycles = (
                 {"completed", "integrated", "reviewed"}
                 if revision_id
-                else ({"approved", "completed"} if canonical_run_terminal else {"completed"})
+                else (
+                    {"draft", "approved", "completed"}
+                    if warn_authorized
+                    else {"approved", "completed"}
+                    if canonical_run_terminal
+                    else {"completed"}
+                )
             )
             if task is None or task.lifecycle not in allowed_lifecycles:
                 return FlowPlan(
@@ -765,7 +776,7 @@ def reduce_orchestration(
                 accepted=True,
                 next_action="enter_discussion_local_integration",
                 task_id=task_id,
-                required_integration_lease=True,
+                required_integration_lease=(config or {}).get("mode") != "warn",
                 host_route="discussion_local",
                 state_patch={
                     "session": {"phase": "integrating", "expected_transition": None},
@@ -1526,13 +1537,15 @@ def integration_state(
         )
     for report_path, content in fallback_reports.items():
         reports.setdefault(report_path, content)
-    prefix = config["paths"]["run_report_glob"].split("*", 1)[0].rstrip("/")
-    settled = (
-        report_paths_in_ref(root, "HEAD", prefix)
-        if view == "full" and task_filter is None
-        else {
-            path for path in candidate_reports if read_head_version(root, path) is not None
-        }
+    settled = {
+        task.run_report
+        for task in selected_tasks
+        if task.run_report and task.status in {"integrated", "reviewed"}
+    }
+    settled.update(
+        revision.run_report
+        for revision in selected_revisions
+        if revision.run_report and revision.status == "integrated"
     )
     overview_path = resolve_project_status_path(root, config)
     overview = read_version(root, overview_path, "worktree") or ""
@@ -1753,6 +1766,26 @@ def integration_state(
             lifecycle = "running"
         else:
             lifecycle = task.status
+        if task.status == "reviewed":
+            user_status = "已确认"
+        elif report_path in settled:
+            user_status = "已集成，待确认"
+        elif report is not None:
+            user_status = "已完成，待集成"
+        elif (
+            active_claims
+            and isinstance(execution_run, dict)
+            and execution_run.get("phase") == "running"
+            and ((execution_run.get("worker") or {}).get("thread_or_session_id"))
+        ):
+            user_status = "正在运行"
+        elif isinstance(execution_run, dict) and execution_run.get("phase") in {
+            "dispatching",
+            "running",
+        }:
+            user_status = "已分发，等待结果"
+        else:
+            user_status = "待执行"
         work_units.append(
             {
                 "task_path": task.path,
@@ -1771,15 +1804,7 @@ def integration_state(
                 "errors": task.errors,
                 "run_id": (execution_run or {}).get("run_id"),
                 "run_phase": (execution_run or {}).get("phase"),
-                "user_status": {
-                    "dispatching": "正在派发",
-                    "running": "执行中",
-                    "succeeded": "正在集成",
-                    "decision_required": "需要处理",
-                    "failed": "需要处理",
-                    "integrating": "正在集成",
-                    "integrated": "已完成",
-                }.get(str((execution_run or {}).get("phase") or ""), "待执行"),
+                "user_status": user_status,
                 "checkpoint": (
                     ((execution_run or {}).get("result") or {}).get("reason")
                     or ("等待 Claim" if (execution_run or {}).get("phase") == "dispatching" else "")
@@ -2191,19 +2216,30 @@ def validate_task_spec(
                     and claim.get("attempt") == state.attempt
                     for claim in inspect_claims(root, state.task_id)
                 )
+                warn_committed_report = bool(
+                    config.get("mode") == "warn"
+                    and report_content is not None
+                    and read_head_version(root, state.run_report) == report_content
+                    and state.worker_creation_authorized
+                )
                 run_backed_integration = bool(
                     report is not None
                     and report.status == "completed"
                     and not mechanical_report_errors(report)
                     and report.task_id in {"", state.task_id}
                     and report.attempt == state.attempt
-                    and isinstance(run, dict)
-                    and run.get("phase")
-                    in {"succeeded", "decision_required", "integrating"}
-                    and ((run.get("result") or {}).get("report"))
-                    == state.run_report
-                    and ((run.get("result") or {}).get("commit"))
-                    and released_claim
+                    and (
+                        warn_committed_report
+                        or (
+                            isinstance(run, dict)
+                            and run.get("phase")
+                            in {"succeeded", "decision_required", "integrating"}
+                            and ((run.get("result") or {}).get("report"))
+                            == state.run_report
+                            and ((run.get("result") or {}).get("commit"))
+                            and (released_claim or config.get("mode") == "warn")
+                        )
+                    )
                 )
             draft_revision = transition == ("draft", "draft")
             if not draft_revision:
@@ -2591,13 +2627,14 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
                     previous = task_state(task_path, previous_content)
                     if (
                         state.run_report == report_path
-                        and previous.status == "completed"
+                        and previous.status
+                        in {"draft", "approved", "running", "completed"}
                         and state.status == "integrated"
                     ):
                         matching_transitions.append(state)
                 if len(matching_transitions) != 1:
                     result.errors.append(
-                        f"Existing run report {report_path} requires exactly one Task completed -> integrated transition in the current change"
+                        f"Existing run report {report_path} requires exactly one Task draft/approved -> integrated transition in the current change"
                     )
                     continue
                 report_content = read_version(root, report_path, scope)
@@ -2664,6 +2701,10 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
                 and run.get("phase")
                 in {"running", "succeeded", "failed", "decision_required"}
             )
+            warn_advisory_terminal = bool(
+                config.get("mode") == "warn"
+                and task.status in {"approved", "running"}
+            )
             if (
                 expected_task_status
                 and task.status != expected_task_status
@@ -2671,6 +2712,7 @@ def check_sync(root: Path, config: dict[str, Any], scope: str) -> CheckResult:
                     run_owned_terminal
                     and task.status in {"draft", "approved", "running"}
                 )
+                and not warn_advisory_terminal
             ):
                 result.errors.append(
                     f"{task.path} must set task status to {expected_task_status} for {report_path}"

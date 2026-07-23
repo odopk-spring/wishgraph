@@ -4,6 +4,20 @@ All notable WishGraph changes are recorded here. Product releases use semantic
 version tags; the project-local runtime keeps its own independent integer version
 for safe upgrades.
 
+## [0.1.2] - 2026-07-23
+
+### Fixed
+
+- Added one idempotent `warn` terminal-adoption path for visible Worker results
+  when Claim, launch context, or canonical Run callbacks are missing or stale.
+- Kept durable Task state at `draft -> approved -> integrated -> reviewed`; a
+  committed Run Report no longer requires an intermediate Task `completed` write.
+- Made `warn` Integration lease-free after the same report, commit, scope,
+  validation, and risk checks, while leaving `enforce` gates unchanged.
+- Corrected user status so unbound work is “sent, awaiting result,” verified
+  evidence is “completed, awaiting integration,” and only a live binding is
+  described as running.
+
 ## [0.1.1] - 2026-07-22
 
 ### Fixed
@@ -54,5 +68,6 @@ First public beta release candidate.
 - Broader real-project and host-version acceptance evidence is still required
   before v1.
 
+[0.1.2]: https://github.com/odopk-spring/wishgraph/releases/tag/v0.1.2
 [0.1.1]: https://github.com/odopk-spring/wishgraph/releases/tag/v0.1.1
 [0.1.0]: https://github.com/odopk-spring/wishgraph/releases/tag/v0.1.0

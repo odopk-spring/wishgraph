@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "version": 13,
-    "runtime_version": 32,
+    "runtime_version": 33,
     "mode": "enforce",
     "required_hosts": ["codex", "claude"],
     "paths": {
@@ -1138,11 +1138,18 @@ def enqueue_worker_notification(
     next_action: str = "",
     reason: str = "",
     run_id: str = "",
+    result_commit: str = "",
 ) -> dict[str, Any]:
     """Idempotently append one durable Worker terminal notification."""
     if terminal_event not in WORKER_NOTIFICATION_EVENTS:
         return {"ok": False, "error": "invalid_worker_notification_event"}
-    if not task_id or not work_unit_id or attempt < 1 or not run_report or not claim_id:
+    if (
+        not task_id
+        or not work_unit_id
+        or attempt < 1
+        or not run_report
+        or not (claim_id or result_commit)
+    ):
         return {"ok": False, "error": "worker_notification_binding_incomplete"}
     worker_session_id = canonical_runtime_id(worker_session_id) if worker_session_id else ""
     discussion_session_id = (
@@ -1154,7 +1161,7 @@ def enqueue_worker_notification(
 
     event_key = "|".join(
         (
-            claim_id,
+            claim_id or result_commit,
             work_unit_id,
             str(attempt),
             terminal_event,
@@ -1204,6 +1211,7 @@ def enqueue_worker_notification(
             "next_action": next_action,
             "reason": reason,
             "run_id": run_id,
+            "result_commit": result_commit,
             "status": "pending",
             "created_at": now,
             "read_at": "",

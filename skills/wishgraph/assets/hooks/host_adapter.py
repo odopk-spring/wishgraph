@@ -65,6 +65,7 @@ from policy import (
     mechanical_report_errors,
     report_state,
     reduce_orchestration,
+    shared_memory_paths,
 )
 from workflow_state import (
     EXPECTED_TRANSITIONS,
@@ -1602,10 +1603,224 @@ def enqueue_terminal_notification_from_claim(
         "next_action": next_action,
         "reason": reason,
         "run_id": str((existing_run or {}).get("run_id") or ""),
+        "result_commit": result_commit,
     }
     if dry_run:
         return {"ok": True, "notification_plan": notification_values}
     return enqueue_worker_notification(root, **notification_values)
+
+
+def adopt_warn_terminal_result(
+    root: Path,
+    config: dict[str, Any],
+    *,
+    task_id: str,
+    result_commit: str,
+    discussion_session_id: str = "",
+    worker_session_id: str = "",
+    agent_platform: str = "unknown",
+) -> dict[str, Any]:
+    """Adopt one verified visible Worker result when warn automation was partial."""
+    if config.get("mode") != "warn":
+        return {"ok": False, "error": "warn_terminal_adoption_only"}
+    task_id = canonical_task_id(task_id)
+    if not task_id:
+        return {"ok": False, "error": "invalid_task_id"}
+    resolved = resolve_task(root, config, task_id)
+    if not resolved.get("ok"):
+        return resolved
+    task = resolved["task"]
+    attempt = int(task.get("attempt") or 1)
+    run = latest_execution_run(root, task_id, attempt=attempt)
+    runtime = (
+        read_session_runtime(root, discussion_session_id)
+        if discussion_session_id
+        else None
+    )
+    runtime_task = (
+        runtime.get("task")
+        if isinstance(runtime, dict) and isinstance(runtime.get("task"), dict)
+        else {}
+    )
+    runtime_authorized = bool(
+        discussion_session_id
+        and _verified_discussion_runtime(runtime, discussion_session_id)
+        and runtime_task.get("task_id") == task_id
+        and runtime_task.get("worker_authorized") is True
+    )
+    run_authorized = bool(
+        isinstance(run, dict)
+        and isinstance(run.get("authorization"), dict)
+        and run["authorization"].get("authorized") is True
+    )
+    task_authorized = bool(
+        task.get("worker_creation_authorized") is True
+        and task.get("status") in {"approved", "running", "completed"}
+    )
+    if not (runtime_authorized or run_authorized or task_authorized):
+        return {"ok": False, "error": "terminal_result_authorization_missing"}
+
+    if not re.fullmatch(r"[0-9a-fA-F]{7,64}", str(result_commit or "")):
+        return {"ok": False, "error": "terminal_result_commit_missing"}
+    verified_commit = run_git(
+        root, "rev-parse", "--verify", f"{result_commit}^{{commit}}", check=False
+    )
+    if verified_commit.returncode != 0:
+        return {"ok": False, "error": "terminal_result_commit_missing"}
+    result_commit = verified_commit.stdout.decode("utf-8", errors="replace").strip()
+    try:
+        report_path = canonical_repo_path(task.get("run_report"))
+    except ValueError:
+        return {"ok": False, "error": "terminal_evidence_incomplete"}
+    report_content = read_ref_version(root, result_commit, report_path)
+    if report_content is None:
+        return {"ok": False, "error": "terminal_run_report_not_committed"}
+    report = report_state(report_path, report_content)
+    if report.task_id != task_id:
+        return {"ok": False, "error": "terminal_run_report_task_mismatch"}
+    if report.attempt != attempt:
+        return {"ok": False, "error": "terminal_run_report_attempt_mismatch"}
+    if report.status not in {"completed", "blocked", "incomplete"}:
+        return {"ok": False, "error": "terminal_run_report_status_invalid"}
+    if report.status == "completed" and mechanical_report_errors(report):
+        return {"ok": False, "error": "terminal_run_report_invalid"}
+
+    base_commit = str((run or {}).get("base_commit") or "")
+    if not base_commit:
+        merge_base = run_git(root, "merge-base", "HEAD", result_commit, check=False)
+        if merge_base.returncode == 0:
+            base_commit = merge_base.stdout.decode("utf-8", errors="replace").strip()
+        if base_commit == result_commit:
+            parent = run_git(root, "rev-parse", f"{result_commit}^", check=False)
+            if parent.returncode == 0:
+                base_commit = parent.stdout.decode("utf-8", errors="replace").strip()
+    if not _bounded_linear_result(root, base_commit, result_commit):
+        return {"ok": False, "error": "terminal_result_not_bounded_linear_history"}
+    changed_result = run_git(
+        root, "diff", "--name-only", base_commit, result_commit, check=False
+    )
+    if changed_result.returncode != 0:
+        return {"ok": False, "error": "terminal_result_scope_unavailable"}
+    changed_paths = {
+        path.strip()
+        for path in changed_result.stdout.decode("utf-8", errors="replace").splitlines()
+        if path.strip() and path.strip() != report_path
+    }
+    if changed_paths != set(report.changed_paths):
+        return {"ok": False, "error": "terminal_result_changed_paths_mismatch"}
+    if str(task.get("task_path") or "") in changed_paths or changed_paths.intersection(
+        shared_memory_paths(config)
+    ):
+        return {"ok": False, "error": "terminal_result_shared_state_out_of_scope"}
+
+    parsed_task = parse_task_state(
+        str(task.get("task_path") or ""),
+        read_version(root, str(task.get("task_path") or ""), "worktree") or "",
+    )
+    risk_outcome, risk_reason = integration_candidate_outcome(parsed_task, report)
+    terminal_event = (
+        "failed"
+        if risk_outcome == "blocked"
+        else "decision_required"
+        if risk_outcome == "decision_required"
+        else "completed"
+    )
+    terminal_phase = {
+        "completed": "succeeded",
+        "decision_required": "decision_required",
+        "failed": "failed",
+    }[terminal_event]
+    existing_result = (run or {}).get("result") if isinstance(run, dict) else {}
+    if isinstance(existing_result, dict) and existing_result.get("commit"):
+        if (
+            existing_result.get("commit") != result_commit
+            or existing_result.get("report") != report_path
+        ):
+            return {"ok": False, "error": "terminal_result_conflicts_with_canonical_run"}
+    worker = dict((run or {}).get("worker") or {})
+    if worker_session_id:
+        worker.update(
+            {
+                "host": agent_platform,
+                "thread_or_session_id": worker_session_id,
+            }
+        )
+    authorization = dict((run or {}).get("authorization") or {})
+    if not authorization:
+        authorization = {
+            "authorized": True,
+            "event": "existing_task_or_discussion_authorization",
+            "source_session_id": discussion_session_id,
+            "host": agent_platform,
+            "dispatch_mode": "visible_worker",
+            "authorized_at": _utc_now(),
+        }
+    persisted = update_execution_run(
+        root,
+        task_id=task_id,
+        attempt=attempt,
+        create=run is None,
+        patch={
+            "phase": (
+                str(run.get("phase"))
+                if isinstance(run, dict)
+                and run.get("phase") in {"integrating", "integrated"}
+                else terminal_phase
+            ),
+            "task_path": str(task.get("task_path") or ""),
+            "run_report": report_path,
+            "base_commit": base_commit,
+            "authorization": authorization,
+            "worker": worker,
+            "claim_id": str((run or {}).get("claim_id") or ""),
+            "result": {
+                "terminal_state": report.status,
+                "commit": result_commit,
+                "report": report_path,
+                "risk_outcome": risk_outcome,
+                "reason": risk_reason,
+                "observed_at": _utc_now(),
+            },
+            "last_error": {},
+        },
+    )
+    if not persisted.get("ok"):
+        return {
+            "ok": False,
+            "error": "terminal_execution_run_persistence_failed",
+            "detail": persisted,
+        }
+    notification = enqueue_worker_notification(
+        root,
+        task_id=task_id,
+        work_unit_id=task_id,
+        attempt=attempt,
+        terminal_event=terminal_event,
+        task_lifecycle=report.status,
+        run_report=report_path,
+        claim_id=str((run or {}).get("claim_id") or ""),
+        worker_session_id=worker_session_id,
+        discussion_session_id=discussion_session_id,
+        agent_platform=agent_platform,
+        next_action=(
+            "auto_integrate"
+            if terminal_event == "completed"
+            else "resolve_conflict"
+            if terminal_event == "decision_required"
+            else "resolve_worker_failure"
+        ),
+        reason=risk_reason,
+        run_id=str(persisted["run"].get("run_id") or ""),
+        result_commit=result_commit,
+    )
+    if not notification.get("ok"):
+        return {"ok": False, "error": "terminal_notification_failed", "detail": notification}
+    return {
+        "ok": True,
+        "adopted": True,
+        "run": persisted["run"],
+        "notification": notification,
+    }
 
 
 def ensure_terminal_notification_for_session(
@@ -2091,7 +2306,9 @@ def formal_worker_launch_context(
             "3. If the Adapter, Hook receipt, launch context, or Claim is unavailable, "
             "continue the same approved Task without retrying setup. Keep the Task scope, "
             "validation, Run Report, and result commit.\n"
-            "4. Discussion does not implement the Task itself."
+            "4. When the visible result returns, Discussion silently validates and adopts "
+            f"it with `terminal-result {task_id} <result-commit>` before Integration.\n"
+            "5. Discussion does not implement the Task itself."
         )
     record = task_path or "the exact resolved Task record"
     return (
@@ -3136,6 +3353,33 @@ def status_main(view: str = "active", task_id: Optional[str] = None) -> int:
     return 0
 
 
+def terminal_result_main(args: argparse.Namespace) -> int:
+    root = find_git_root(Path.cwd())
+    if root is None:
+        payload = {"ok": False, "error": "git_repository_required"}
+    else:
+        try:
+            config = load_config(root)
+        except ValueError as exc:
+            payload = {"ok": False, "error": "invalid_config", "detail": str(exc)}
+        else:
+            payload = (
+                adopt_warn_terminal_result(
+                    root,
+                    config,
+                    task_id=args.task_id,
+                    result_commit=args.result_commit,
+                    discussion_session_id=args.discussion_session_id,
+                    worker_session_id=args.worker_session_id,
+                    agent_platform=args.host,
+                )
+                if config is not None
+                else {"ok": False, "error": "wishgraph_not_installed"}
+            )
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0 if payload.get("ok") else 1
+
+
 def integration_plan_main(host_capability: str) -> int:
     root = find_git_root(Path.cwd())
     if root is None:
@@ -3382,13 +3626,14 @@ def _integration_transition_selection(
             or int(execution_run.get("attempt") or 0) != attempt
         ):
             return {"ok": False, "error": "canonical_execution_run_required"}
-        bound_claim_id = str(execution_run.get("claim_id") or "")
-        if not bound_claim_id or not any(
-            claim.get("claim_id") == bound_claim_id
-            and claim.get("lease_status") == "released"
-            for claim in matching_claims
-        ):
-            return {"ok": False, "error": "released_worker_claim_required"}
+        if config.get("mode") == "enforce":
+            bound_claim_id = str(execution_run.get("claim_id") or "")
+            if not bound_claim_id or not any(
+                claim.get("claim_id") == bound_claim_id
+                and claim.get("lease_status") == "released"
+                for claim in matching_claims
+            ):
+                return {"ok": False, "error": "released_worker_claim_required"}
         result_commit = str(
             ((execution_run or {}).get("result") or {}).get("commit") or ""
         )
@@ -5052,6 +5297,14 @@ def main() -> int:
     status_parser = subparsers.add_parser("status")
     status_parser.add_argument("--full", action="store_true")
     status_parser.add_argument("--task")
+    terminal_parser = subparsers.add_parser("terminal-result")
+    terminal_parser.add_argument("task_id")
+    terminal_parser.add_argument("result_commit")
+    terminal_parser.add_argument("--discussion-session-id", default="")
+    terminal_parser.add_argument("--worker-session-id", default="")
+    terminal_parser.add_argument(
+        "--host", choices=("codex", "claude", "unknown"), default="unknown"
+    )
     integration_plan_parser = subparsers.add_parser("integration-plan")
     integration_plan_parser.add_argument(
         "--host-capability",
@@ -5216,6 +5469,8 @@ def main() -> int:
         return check_main(args.scope)
     if args.command == "status":
         return status_main("full" if args.full else "active", args.task)
+    if args.command == "terminal-result":
+        return terminal_result_main(args)
     if args.command == "integration-plan":
         return integration_plan_main(args.host_capability)
     if args.command == "flow-plan":

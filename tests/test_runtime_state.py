@@ -106,6 +106,251 @@ class UnbornRepositoryTests(unittest.TestCase):
             )
 
 class RuntimeStateTests(MemorySyncTestCase):
+    def _warn_visible_result(
+        self,
+        task_id: str,
+        *,
+        authorize_run: bool = False,
+        reported_paths: Optional[list[str]] = None,
+    ) -> tuple[dict[str, object], str, str, str, str]:
+        config = json.loads(json.dumps(self.config))
+        config["mode"] = "warn"
+        task_path = f"tasks/build/{task_id}-warn-terminal.md"
+        report_path = f"reports/runs/{task_id}-attempt-1.md"
+        source_path = f"src/{task_id}.py"
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="approved",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.git("add", task_path)
+        self.git("commit", "-qm", f"authorize {task_id}")
+        base_branch = self.git("branch", "--show-current").stdout.strip()
+        if authorize_run:
+            self.authorize_execution_run(
+                task_id,
+                task_path,
+                f"discussion-{task_id}",
+                host="claude",
+                report_path=report_path,
+            )
+        self.git("checkout", "-qb", f"worker-{task_id}")
+        self.write(source_path, f"print('{task_id}')\n")
+        self.write(
+            report_path,
+            self.structured_run_report(
+                f"{task_id}-attempt-1",
+                task_id=task_id,
+                changed_paths=(
+                    [source_path] if reported_paths is None else reported_paths
+                ),
+            ),
+        )
+        self.git("add", source_path, report_path)
+        self.git("commit", "-qm", f"worker result {task_id}")
+        result_commit = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "-q", base_branch)
+        return config, task_path, report_path, source_path, result_commit
+
+    def test_warn_adopts_visible_result_without_existing_run_or_claim(self) -> None:
+        config, _, report_path, _, result_commit = self._warn_visible_result("028a")
+
+        adopted = memory_sync.adopt_warn_terminal_result(
+            self.root,
+            config,
+            task_id="028a",
+            result_commit=result_commit,
+            worker_session_id="codex-visible-028a",
+            agent_platform="codex",
+        )
+
+        self.assertTrue(adopted["ok"], adopted)
+        self.assertEqual(adopted["run"]["phase"], "succeeded")
+        self.assertEqual(adopted["run"]["result"]["report"], report_path)
+        self.assertEqual(adopted["run"]["result"]["commit"], result_commit)
+        self.assertEqual(adopted["run"]["claim_id"], "")
+        self.assertEqual(
+            adopted["notification"]["notification"]["result_commit"],
+            result_commit,
+        )
+
+    def test_warn_adopts_result_into_existing_dispatching_run_idempotently(self) -> None:
+        config, _, _, _, result_commit = self._warn_visible_result(
+            "028b", authorize_run=True
+        )
+        before = memory_sync.latest_execution_run(self.root, "028b", attempt=1)
+        assert before is not None
+        self.assertEqual(before["phase"], "dispatching")
+
+        first = memory_sync.adopt_warn_terminal_result(
+            self.root,
+            config,
+            task_id="028b",
+            result_commit=result_commit,
+            worker_session_id="claude-visible-028b",
+            agent_platform="claude",
+        )
+        duplicate = memory_sync.adopt_warn_terminal_result(
+            self.root,
+            config,
+            task_id="028b",
+            result_commit=result_commit,
+            worker_session_id="claude-visible-028b",
+            agent_platform="claude",
+        )
+
+        self.assertTrue(first["ok"], first)
+        self.assertTrue(duplicate["ok"], duplicate)
+        self.assertEqual(first["run"]["run_id"], before["run_id"])
+        self.assertFalse(duplicate["notification"]["created"])
+        self.assertEqual(len(memory_sync.inspect_execution_runs(self.root, "028b")), 1)
+        self.assertEqual(len(memory_sync.inspect_worker_notifications(self.root)), 1)
+
+    def test_late_warn_terminal_callback_never_regresses_integrated_run(self) -> None:
+        config, _, _, _, result_commit = self._warn_visible_result("028ba")
+        first = memory_sync.adopt_warn_terminal_result(
+            self.root,
+            config,
+            task_id="028ba",
+            result_commit=result_commit,
+        )
+        self.assertTrue(first["ok"], first)
+        integrated = memory_sync.update_execution_run(
+            self.root,
+            task_id="028ba",
+            attempt=1,
+            patch={
+                "phase": "integrated",
+                "integration": {
+                    "integration_id": "integration-028ba",
+                    "report": first["run"]["result"]["report"],
+                },
+            },
+        )
+        self.assertTrue(integrated["ok"], integrated)
+
+        late = memory_sync.adopt_warn_terminal_result(
+            self.root,
+            config,
+            task_id="028ba",
+            result_commit=result_commit,
+        )
+
+        self.assertTrue(late["ok"], late)
+        self.assertEqual(late["run"]["phase"], "integrated")
+        self.assertEqual(
+            late["run"]["integration"]["integration_id"], "integration-028ba"
+        )
+
+    def test_warn_terminal_adoption_rejects_invalid_evidence(self) -> None:
+        config, _, _, _, _ = self._warn_visible_result("028c")
+
+        rejected = memory_sync.adopt_warn_terminal_result(
+            self.root,
+            config,
+            task_id="028c",
+            result_commit="deadbeef",
+        )
+
+        self.assertFalse(rejected["ok"])
+        self.assertEqual(rejected["error"], "terminal_result_commit_missing")
+        self.assertEqual(memory_sync.inspect_execution_runs(self.root, "028c"), [])
+
+    def test_warn_terminal_adoption_rejects_changed_scope_mismatch(self) -> None:
+        config, _, _, _, result_commit = self._warn_visible_result(
+            "028ca", reported_paths=[]
+        )
+
+        rejected = memory_sync.adopt_warn_terminal_result(
+            self.root,
+            config,
+            task_id="028ca",
+            result_commit=result_commit,
+        )
+
+        self.assertFalse(rejected["ok"])
+        self.assertEqual(rejected["error"], "terminal_result_changed_paths_mismatch")
+        self.assertEqual(memory_sync.inspect_execution_runs(self.root, "028ca"), [])
+
+    def test_enforce_never_uses_warn_terminal_adoption(self) -> None:
+        _, _, _, _, result_commit = self._warn_visible_result("028d")
+
+        rejected = memory_sync.adopt_warn_terminal_result(
+            self.root,
+            self.config,
+            task_id="028d",
+            result_commit=result_commit,
+        )
+
+        self.assertFalse(rejected["ok"])
+        self.assertEqual(rejected["error"], "warn_terminal_adoption_only")
+
+    def test_warn_adopted_result_enters_integration_without_lease_or_claim(self) -> None:
+        config, _, report_path, _, result_commit = self._warn_visible_result("028e")
+        discussion_id = "discussion-028e"
+        adopted = memory_sync.adopt_warn_terminal_result(
+            self.root,
+            config,
+            task_id="028e",
+            result_commit=result_commit,
+            discussion_session_id=discussion_id,
+            worker_session_id="worker-028e",
+            agent_platform="codex",
+        )
+        self.assertTrue(adopted["ok"], adopted)
+        persisted = memory_sync.write_session_runtime(
+            self.root,
+            discussion_id,
+            {
+                "session": {
+                    "session_id": discussion_id,
+                    "role": "discussion",
+                    "host": "codex",
+                    "phase": "integration_pending",
+                    "expected_transition": {
+                        "kind": "auto_integrate",
+                        "task_id": "028e",
+                        "report_id": report_path,
+                    },
+                },
+                "session_provenance": {
+                    "initial_role": "neutral",
+                    "host": "codex",
+                    "discussion_authorized": True,
+                },
+                "task": {
+                    "task_id": "028e",
+                    "lifecycle": "approved",
+                    "attempt": 1,
+                    "worker_authorized": True,
+                    "run_report": report_path,
+                },
+            },
+        )
+        self.assertTrue(persisted["ok"], persisted)
+
+        transition = memory_sync.transition_session_runtime(
+            self.root,
+            config,
+            discussion_id,
+            "integration_evaluated",
+            {
+                "outcome": "safe",
+                "integration_id": "integration-028e",
+                "task_ids": ["028e"],
+                "reports": [report_path],
+            },
+        )
+
+        self.assertTrue(transition["ok"], transition)
+        self.assertFalse(transition["plan"]["required_integration_lease"])
+        self.assertIsNone(transition["grant"])
+        self.assertEqual(transition["runtime"]["session"]["phase"], "integrating")
+
     def test_integration_lease_reads_terminal_report_from_worker_commit(self) -> None:
         task_id = "071"
         discussion_id = "discussion-071"

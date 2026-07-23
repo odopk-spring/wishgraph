@@ -118,7 +118,7 @@ WishGraph requires Git and Python 3.9+ and installs no Python packages. These co
 Run inside the target project:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.1/scripts/install-wishgraph.sh | bash -s -- codex --setup-project
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.2/scripts/install-wishgraph.sh | bash -s -- codex --setup-project
 ```
 
 ### Claude Code CLI · macOS / Linux
@@ -126,7 +126,7 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.1/scrip
 Run inside the target project:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.1/scripts/install-wishgraph.sh | bash -s -- claude-user --setup-project
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.2/scripts/install-wishgraph.sh | bash -s -- claude-user --setup-project
 ```
 
 ### Windows PowerShell
@@ -134,16 +134,16 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.1/scrip
 Codex:
 
 ```powershell
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.1/scripts/install-wishgraph.ps1'))) codex -SetupProject
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.2/scripts/install-wishgraph.ps1'))) codex -SetupProject
 ```
 
 Claude Code:
 
 ```powershell
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.1/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.2/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
 ```
 
-These commands are pinned to the immutable `v0.1.1` release. Development
+These commands are pinned to the immutable `v0.1.2` release. Development
 snapshots are intentionally opt-in: download the installer from `main` and set
 `WISHGRAPH_REF=main` only when testing unreleased changes.
 

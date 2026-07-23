@@ -1,17 +1,27 @@
 {
   "schema_version": 1,
-  "runtime_version": 32,
+  "runtime_version": 33,
   "files": {
     "memory_sync.py": "8e6dfb504c48cb04891cd0c8282855168b96a90a908b2e0c195069439c7da158",
-    "git_state.py": "7f4ad9281f3acc7cc76f6d3a0c3f2854895809345ac128789570518c0a6b7873",
+    "git_state.py": "c38757b2af0fe493dfd97bfb7730e758d754be44b853baaed44874d875d9bdc4",
     "workflow_state.py": "38d4dd3431936419abcce9bd594b4082ce6cfe8bf66b11c8c111b16ac3288faa",
-    "policy.py": "8358683b5be70de13da569691b7dbea734d24341cc9a551fbbab48803326e8e2",
-    "host_adapter.py": "f201e91cf70ad7b2d2da545595101f3e1073ba8cc14ffe37cc90976d76eb9cd2",
+    "policy.py": "41ca2d74123ee518219e57810644ba36c503dbbedd21ce5006343ca89e11ca94",
+    "host_adapter.py": "b835e0584af2e163c7cd15b3fd6a3618dbe1f167203a3c2f8effca4647bc1558",
     "codex_worker_provider.py": "3ba60efdf01dc0327b683e0570a59833771fadc167f03715f063ced7dee63677",
     "claude_worker_provider.py": "a063db8fb77d848222c235fb451227f90061de1769d25f6f7b82bf47898dba48",
     "tool_gate_provider.py": "36f738b8b250cc53f647980c3628a11fd30c57a78f5e0f3772873d124ffd6680"
   },
   "known_versions": {
+    "32": {
+      "memory_sync.py": "8e6dfb504c48cb04891cd0c8282855168b96a90a908b2e0c195069439c7da158",
+      "git_state.py": "7f4ad9281f3acc7cc76f6d3a0c3f2854895809345ac128789570518c0a6b7873",
+      "workflow_state.py": "38d4dd3431936419abcce9bd594b4082ce6cfe8bf66b11c8c111b16ac3288faa",
+      "policy.py": "8358683b5be70de13da569691b7dbea734d24341cc9a551fbbab48803326e8e2",
+      "host_adapter.py": "f201e91cf70ad7b2d2da545595101f3e1073ba8cc14ffe37cc90976d76eb9cd2",
+      "codex_worker_provider.py": "3ba60efdf01dc0327b683e0570a59833771fadc167f03715f063ced7dee63677",
+      "claude_worker_provider.py": "a063db8fb77d848222c235fb451227f90061de1769d25f6f7b82bf47898dba48",
+      "tool_gate_provider.py": "36f738b8b250cc53f647980c3628a11fd30c57a78f5e0f3772873d124ffd6680"
+    },
     "31": {
       "memory_sync.py": "8e6dfb504c48cb04891cd0c8282855168b96a90a908b2e0c195069439c7da158",
       "git_state.py": "d12a12631a586749c8c381d50b6d5072c0744129a4287131278608f577955c70",

@@ -19,15 +19,6 @@ class IntegrationStatusTests(MemorySyncTestCase):
         self.git("commit", "-qm", f"approve {task_id}")
         self.write("src/app.py", f"print('completed {task_id}')\n")
         self.write(
-            task_path,
-            self.structured_task(
-                task_id,
-                status="completed",
-                worker_authorized=True,
-                run_report=report_path,
-            ),
-        )
-        self.write(
             report_path,
             self.structured_run_report(
                 f"{task_id}-attempt-1",
@@ -37,12 +28,17 @@ class IntegrationStatusTests(MemorySyncTestCase):
         )
         closeout = memory_sync.check_sync(self.root, config, "worktree")
         self.assertTrue(closeout.ok, closeout.errors)
-        self.git("add", "src/app.py", task_path, report_path)
+        self.git("add", "src/app.py", report_path)
         self.git("commit", "-qm", f"complete {task_id}")
         return config, task_path, report_path
 
     def test_warn_integration_absorbs_report_from_previous_closeout_commit(self) -> None:
         config, task_path, report_path = self._commit_warn_worker_closeout("071")
+        pending = memory_sync.integration_state(
+            self.root, config, view="active", task_id="071"
+        ).as_dict()
+        self.assertEqual(pending["ready_reports"], [report_path])
+        self.assertEqual(pending["work_units"][0]["user_status"], "已完成，待集成")
         self.write(
             task_path,
             self.structured_task(
@@ -55,10 +51,75 @@ class IntegrationStatusTests(MemorySyncTestCase):
         self.write("reports/PROJECT_STATUS.md", self.overview([report_path]))
 
         result = memory_sync.check_sync(self.root, config, "worktree")
+        integrated = memory_sync.integration_state(
+            self.root, config, view="active", task_id="071"
+        ).as_dict()
 
         self.assertTrue(result.ok, result.errors)
+        self.assertEqual(
+            integrated["work_units"][0]["user_status"], "已集成，待确认"
+        )
 
-    def test_existing_report_requires_completed_to_integrated_task_transition(self) -> None:
+    def test_user_status_requires_reliable_active_binding_to_say_running(self) -> None:
+        task_id = "071a"
+        task_path = f"tasks/build/{task_id}-status.md"
+        report_path = f"reports/runs/{task_id}-attempt-1.md"
+        self.write(
+            task_path,
+            self.execution_ready_task(
+                task_id,
+                status="approved",
+                worker_authorized=True,
+                run_report=report_path,
+            ),
+        )
+        self.git("add", task_path)
+        self.git("commit", "-qm", "status task")
+        self.authorize_execution_run(
+            task_id,
+            task_path,
+            "discussion-status-071a",
+            host="codex",
+            report_path=report_path,
+        )
+
+        unbound = memory_sync.integration_state(
+            self.root, self.config, view="active", task_id=task_id
+        ).as_dict()
+        self.assertEqual(unbound["work_units"][0]["user_status"], "已分发，等待结果")
+
+        claim = memory_sync.acquire_claim(
+            self.root,
+            task_id,
+            1,
+            "worker-status-071a",
+            discussion_session_id="discussion-status-071a",
+            require_clean=True,
+        )
+        self.assertTrue(claim["ok"], claim)
+        running = memory_sync.update_execution_run(
+            self.root,
+            task_id=task_id,
+            attempt=1,
+            patch={
+                "phase": "running",
+                "claim_id": claim["claim"]["claim_id"],
+                "worker": {
+                    "host": "codex",
+                    "thread_or_session_id": "worker-status-071a",
+                    "branch": claim["claim"]["branch"],
+                    "worktree": claim["claim"]["worktree"],
+                },
+            },
+        )
+        self.assertTrue(running["ok"], running)
+
+        bound = memory_sync.integration_state(
+            self.root, self.config, view="active", task_id=task_id
+        ).as_dict()
+        self.assertEqual(bound["work_units"][0]["user_status"], "正在运行")
+
+    def test_existing_report_requires_task_to_integrated_transition(self) -> None:
         config, _, report_path = self._commit_warn_worker_closeout("072")
         self.write("reports/PROJECT_STATUS.md", self.overview([report_path]))
 
@@ -66,7 +127,7 @@ class IntegrationStatusTests(MemorySyncTestCase):
 
         self.assertFalse(result.ok)
         self.assertTrue(
-            any("completed -> integrated transition" in error for error in result.errors),
+            any("draft/approved -> integrated transition" in error for error in result.errors),
             result.errors,
         )
 

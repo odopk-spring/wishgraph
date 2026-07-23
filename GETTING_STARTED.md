@@ -29,13 +29,13 @@ Run one command from the Git project you want to enable.
 ### Codex · macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.1/scripts/install-wishgraph.sh | bash -s -- codex --setup-project
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.2/scripts/install-wishgraph.sh | bash -s -- codex --setup-project
 ```
 
 ### Claude Code CLI · macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.1/scripts/install-wishgraph.sh | bash -s -- claude-user --setup-project
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.2/scripts/install-wishgraph.sh | bash -s -- claude-user --setup-project
 ```
 
 ### Windows PowerShell
@@ -43,13 +43,13 @@ curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.1/scrip
 Codex:
 
 ```powershell
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.1/scripts/install-wishgraph.ps1'))) codex -SetupProject
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.2/scripts/install-wishgraph.ps1'))) codex -SetupProject
 ```
 
 Claude Code:
 
 ```powershell
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.1/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.2/scripts/install-wishgraph.ps1'))) claude-user -SetupProject
 ```
 
 The installer checks Git, Python, and the repository root before writing. It keeps the Agent running setup (`current_host`) separate from the project scope (`required_hosts`). By default it atomically installs both Codex and Claude Code adapters, while preserving unrelated Hook groups. The default `warn` mode is fully advisory: missing Hook automation or workflow findings never block Task distribution or ordinary tools.
@@ -207,7 +207,7 @@ Updating a global Skill does not silently rewrite project-local `.wishgraph/hook
 Start with `warn`. After one clean end-to-end closeout, optionally enable blocking checks:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.1/scripts/install-wishgraph.sh | bash -s -- codex --setup-project --strict
+curl -fsSL https://raw.githubusercontent.com/odopk-spring/wishgraph/v0.1.2/scripts/install-wishgraph.sh | bash -s -- codex --setup-project --strict
 ```
 
 Use `claude-user` for Claude Code. On PowerShell, add `-Strict`.

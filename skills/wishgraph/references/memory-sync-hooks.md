@@ -163,6 +163,8 @@ PreToolUse classifies bounded WishGraph control commands before ordinary write/b
 
 Use `status` as read-only evidence. Its default active view reads current Task/Revision candidates, changed local reports, Claims, and exact report paths across refs. `--task` filters one exact Task; only `--full` enumerates historical report trees. No status view authorizes a merge.
 
+In `warn`, Discussion may pass a visible Worker's returned Task ID and result commit to `terminal-result`. The Host Adapter reuses the Task's allocated report path, validates the committed report, merges terminal evidence into the existing Run or creates that same Run record if launch automation missed it, and enqueues one idempotent notification. This is an internal adoption step, not a new user command or authorization layer.
+
 ## Mechanical Gate Boundary
 
 In `enforce`, require:
