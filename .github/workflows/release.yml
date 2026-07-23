@@ -122,6 +122,7 @@ jobs:
           --iterations 100
           --rounds 3
           --bulk-files 20000
+          --bulk-delta-limit-ms 100
           --pretool-limit-ms ${{ matrix.pretool-limit-ms }}
           --enforce
           --json-out "benchmark-${{ runner.os }}.json"
